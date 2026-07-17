@@ -189,3 +189,69 @@ export function formatWait(ms: number) {
 export function daysSince(ms: number) {
   return Math.floor((Date.now() - ms) / 86_400_000);
 }
+
+// ---------- Leads ----------
+export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
+export type LeadSource = "JustDial" | "Google" | "Instagram" | "Walk-in" | "Referral";
+export interface Lead {
+  id: string;
+  name: string;
+  mobile: string;
+  source: LeadSource;
+  status: LeadStatus;
+  enquiredAt: number;
+  note?: string;
+}
+
+const leadSeed: Lead[] = [
+  { id: "L-01", name: "Kavita Sharma",  mobile: "9876511111", source: "JustDial",  status: "HOT",       enquiredAt: T0 - 0.4 * 86_400_000, note: "Migraine, urgent" },
+  { id: "L-02", name: "Rahul Meena",    mobile: "9876522222", source: "Google",    status: "Warm",      enquiredAt: T0 - 2   * 86_400_000, note: "Skin issue" },
+  { id: "L-03", name: "Anjali Yadav",   mobile: "9876533333", source: "Instagram", status: "HOT",       enquiredAt: T0 - 0.1 * 86_400_000, note: "PCOS" },
+  { id: "L-04", name: "Vikram Singh",   mobile: "9876544444", source: "Referral",  status: "Converted", enquiredAt: T0 - 8   * 86_400_000 },
+  { id: "L-05", name: "Meera Agarwal",  mobile: "9876555555", source: "Walk-in",   status: "Cold",      enquiredAt: T0 - 14  * 86_400_000 },
+  { id: "L-06", name: "Deepak Jain",    mobile: "9876566666", source: "Google",    status: "Warm",      enquiredAt: T0 - 5   * 86_400_000, note: "Joint pain, dad" },
+  { id: "L-07", name: "Pooja Rathore",  mobile: "9876577777", source: "JustDial",  status: "Converted", enquiredAt: T0 - 20  * 86_400_000 },
+];
+
+let leads: Lead[] = [...leadSeed];
+export function getLeads() { return leads; }
+export function useLeads() { return useSyncExternalStore(subscribe, getLeads, getLeads); }
+export function updateLeadStatus(id: string, status: LeadStatus) {
+  leads = leads.map((l) => (l.id === id ? { ...l, status } : l));
+  emit();
+}
+export function maskMobile(m: string) {
+  if (m.length < 6) return m;
+  return `${m.slice(0, 2)}XXXX${m.slice(-4)}`;
+}
+
+// ---------- Deliveries ----------
+export type DeliveryPartner = "Swiggy" | "Porter" | "Courier" | "Self-pickup";
+export type DeliveryStatus = "Packed" | "Dispatched" | "Out for Delivery" | "Delivered" | "Issue";
+export const DELIVERY_STEPS: DeliveryStatus[] = ["Packed", "Dispatched", "Out for Delivery", "Delivered"];
+export interface Delivery {
+  id: string;
+  patientName: string;
+  token: string;
+  partner: DeliveryPartner;
+  status: DeliveryStatus;
+  area: string;
+  note?: string;
+}
+
+const deliverySeed: Delivery[] = [
+  { id: "D-01", patientName: "Ramesh Sharma", token: "T-01", partner: "Swiggy",      status: "Out for Delivery", area: "Bajaj Nagar" },
+  { id: "D-02", patientName: "Sunita Verma",  token: "T-02", partner: "Porter",      status: "Dispatched",       area: "Malviya Nagar" },
+  { id: "D-03", patientName: "Aarav Gupta",   token: "T-03", partner: "Courier",     status: "Packed",           area: "Jagatpura" },
+  { id: "D-04", patientName: "Priya Nair",    token: "T-04", partner: "Self-pickup", status: "Packed",           area: "C-Scheme" },
+  { id: "D-05", patientName: "Mohan Lal",     token: "T-05", partner: "Swiggy",      status: "Delivered",        area: "Mansarovar" },
+  { id: "D-06", patientName: "Neha Jain",     token: "T-06", partner: "Courier",     status: "Issue",            area: "Vaishali Nagar", note: "Address mismatch" },
+];
+
+let deliveries: Delivery[] = [...deliverySeed];
+export function getDeliveries() { return deliveries; }
+export function useDeliveries() { return useSyncExternalStore(subscribe, getDeliveries, getDeliveries); }
+export function updateDelivery(id: string, patch: Partial<Delivery>) {
+  deliveries = deliveries.map((d) => (d.id === id ? { ...d, ...patch } : d));
+  emit();
+}
