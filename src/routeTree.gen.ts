@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PayIdRouteImport } from './routes/pay.$id'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -29,44 +31,75 @@ const RegisterRoute = RegisterRouteImport.update({
   path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FollowUpRoute = FollowUpRouteImport.update({
+  id: '/follow-up',
+  path: '/follow-up',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PayIdRoute = PayIdRouteImport.update({
+  id: '/pay/$id',
+  path: '/pay/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/follow-up': typeof FollowUpRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
+  '/pay/$id': typeof PayIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/follow-up': typeof FollowUpRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
+  '/pay/$id': typeof PayIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/follow-up': typeof FollowUpRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
+  '/pay/$id': typeof PayIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/register' | '/search' | '/tasks'
+  fullPaths:
+    | '/'
+    | '/follow-up'
+    | '/register'
+    | '/search'
+    | '/tasks'
+    | '/pay/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/register' | '/search' | '/tasks'
-  id: '__root__' | '/' | '/register' | '/search' | '/tasks'
+  to: '/' | '/follow-up' | '/register' | '/search' | '/tasks' | '/pay/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/follow-up'
+    | '/register'
+    | '/search'
+    | '/tasks'
+    | '/pay/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FollowUpRoute: typeof FollowUpRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
   TasksRoute: typeof TasksRoute
+  PayIdRoute: typeof PayIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -92,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/follow-up': {
+      id: '/follow-up'
+      path: '/follow-up'
+      fullPath: '/follow-up'
+      preLoaderRoute: typeof FollowUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -99,14 +139,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pay/$id': {
+      id: '/pay/$id'
+      path: '/pay/$id'
+      fullPath: '/pay/$id'
+      preLoaderRoute: typeof PayIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FollowUpRoute: FollowUpRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
   TasksRoute: TasksRoute,
+  PayIdRoute: PayIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
