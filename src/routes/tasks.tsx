@@ -72,3 +72,31 @@ function TasksPage() {
     </MobileShell>
   );
 }
+
+function ShortcutLink({
+  to,
+  icon: Icon,
+  title,
+  sub,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  sub: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center gap-3 rounded-xl bg-primary text-primary-foreground p-3.5 shadow-sm"
+    >
+      <span className="h-10 w-10 rounded-full bg-accent text-accent-foreground grid place-items-center">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-bold">{title}</span>
+        <span className="block text-[11px] opacity-80">{sub}</span>
+      </span>
+      <ChevronRight className="h-5 w-5 opacity-80" />
+    </Link>
+  );
+}
