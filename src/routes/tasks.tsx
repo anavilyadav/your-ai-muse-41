@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CheckCircle2, ChevronRight, Circle, PhoneCall } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, PhoneCall, Truck, Users } from "lucide-react";
 import { useState } from "react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
@@ -28,20 +28,12 @@ function TasksPage() {
   };
   return (
     <MobileShell title="Reception Tasks" subtitle="Today" showBack>
-      {/* Follow-up shortcut */}
-      <Link
-        to="/follow-up"
-        className="flex items-center gap-3 rounded-xl bg-primary text-primary-foreground p-3.5 shadow-sm"
-      >
-        <span className="h-10 w-10 rounded-full bg-accent text-accent-foreground grid place-items-center">
-          <PhoneCall className="h-5 w-5" />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-sm font-bold">Follow-up Calls</span>
-          <span className="block text-[11px] opacity-80">CRM • Call, WhatsApp, Mark Done</span>
-        </span>
-        <ChevronRight className="h-5 w-5 opacity-80" />
-      </Link>
+      {/* Shortcuts */}
+      <div className="space-y-2">
+        <ShortcutLink to="/follow-up" icon={PhoneCall} title="Follow-up Calls" sub="CRM • Call, WhatsApp, Mark Done" />
+        <ShortcutLink to="/leads" icon={Users} title="Lead CRM" sub="Enquiries • HOT / Warm / Convert" />
+        <ShortcutLink to="/delivery" icon={Truck} title="Delivery Tracking" sub="Packed → Dispatched → Delivered" />
+      </div>
 
       <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground px-1">
         Today's Checklist
@@ -78,5 +70,33 @@ function TasksPage() {
         })}
       </ul>
     </MobileShell>
+  );
+}
+
+function ShortcutLink({
+  to,
+  icon: Icon,
+  title,
+  sub,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  sub: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center gap-3 rounded-xl bg-primary text-primary-foreground p-3.5 shadow-sm"
+    >
+      <span className="h-10 w-10 rounded-full bg-accent text-accent-foreground grid place-items-center">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-bold">{title}</span>
+        <span className="block text-[11px] opacity-80">{sub}</span>
+      </span>
+      <ChevronRight className="h-5 w-5 opacity-80" />
+    </Link>
   );
 }

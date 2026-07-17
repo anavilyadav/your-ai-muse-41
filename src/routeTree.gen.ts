@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
+import { Route as DeliveryRouteImport } from './routes/delivery'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
 
@@ -31,9 +33,19 @@ const RegisterRoute = RegisterRouteImport.update({
   path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LeadsRoute = LeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FollowUpRoute = FollowUpRouteImport.update({
   id: '/follow-up',
   path: '/follow-up',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeliveryRoute = DeliveryRouteImport.update({
+  id: '/delivery',
+  path: '/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -49,7 +61,9 @@ const PayIdRoute = PayIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
+  '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
@@ -57,7 +71,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
+  '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
@@ -66,7 +82,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
+  '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/tasks': typeof TasksRoute
@@ -76,17 +94,29 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/delivery'
     | '/follow-up'
+    | '/leads'
     | '/register'
     | '/search'
     | '/tasks'
     | '/pay/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/follow-up' | '/register' | '/search' | '/tasks' | '/pay/$id'
+  to:
+    | '/'
+    | '/delivery'
+    | '/follow-up'
+    | '/leads'
+    | '/register'
+    | '/search'
+    | '/tasks'
+    | '/pay/$id'
   id:
     | '__root__'
     | '/'
+    | '/delivery'
     | '/follow-up'
+    | '/leads'
     | '/register'
     | '/search'
     | '/tasks'
@@ -95,7 +125,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DeliveryRoute: typeof DeliveryRoute
   FollowUpRoute: typeof FollowUpRoute
+  LeadsRoute: typeof LeadsRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
   TasksRoute: typeof TasksRoute
@@ -125,11 +157,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/leads': {
+      id: '/leads'
+      path: '/leads'
+      fullPath: '/leads'
+      preLoaderRoute: typeof LeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/follow-up': {
       id: '/follow-up'
       path: '/follow-up'
       fullPath: '/follow-up'
       preLoaderRoute: typeof FollowUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/delivery': {
+      id: '/delivery'
+      path: '/delivery'
+      fullPath: '/delivery'
+      preLoaderRoute: typeof DeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -151,7 +197,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DeliveryRoute: DeliveryRoute,
   FollowUpRoute: FollowUpRoute,
+  LeadsRoute: LeadsRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
   TasksRoute: TasksRoute,
