@@ -30,8 +30,10 @@ export interface Patient {
   paymentNote?: string;
 }
 
-// Fixed base timestamp so SSR + client agree (no Date.now at module init).
-const T0 = 1_700_000_000_000;
+// Base "now" for seed offsets. SSR and client will differ slightly, but these
+// values are only rendered after client mount (guarded by a `now` state), so
+// there is no hydration mismatch.
+const T0 = Date.now();
 
 const seed: Patient[] = [
   {
