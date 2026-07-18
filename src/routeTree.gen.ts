@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LeadsRouteImport } from './routes/leads'
@@ -23,6 +24,11 @@ import { Route as PatientIdRouteImport } from './routes/patient.$id'
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SummaryRoute = SummaryRouteImport.update({
+  id: '/summary',
+  path: '/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SearchRoute = SearchRouteImport.update({
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -118,6 +127,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
@@ -130,6 +140,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
@@ -142,6 +153,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
@@ -155,6 +167,7 @@ export interface RootRouteChildren {
   LeadsRoute: typeof LeadsRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
+  SummaryRoute: typeof SummaryRoute
   TasksRoute: typeof TasksRoute
   PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
@@ -167,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/summary': {
+      id: '/summary'
+      path: '/summary'
+      fullPath: '/summary'
+      preLoaderRoute: typeof SummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/search': {
@@ -243,6 +263,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeadsRoute: LeadsRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
+  SummaryRoute: SummaryRoute,
   TasksRoute: TasksRoute,
   PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,
