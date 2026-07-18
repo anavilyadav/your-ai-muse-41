@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CheckCircle2, ChevronRight, Circle, PhoneCall, Truck, Users } from "lucide-react";
+import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Circle, PhoneCall, Truck, Users } from "lucide-react";
 import { useState } from "react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
@@ -30,9 +30,11 @@ function TasksPage() {
     <MobileShell title="Reception Tasks" subtitle="Today" showBack>
       {/* Shortcuts */}
       <div className="space-y-2">
+        <ShortcutLink to="/appointments" icon={CalendarDays} title="Appointments" sub="Today's schedule • Confirm / Arrived" />
         <ShortcutLink to="/follow-up" icon={PhoneCall} title="Follow-up Calls" sub="CRM • Call, WhatsApp, Mark Done" />
         <ShortcutLink to="/leads" icon={Users} title="Lead CRM" sub="Enquiries • HOT / Warm / Convert" />
         <ShortcutLink to="/delivery" icon={Truck} title="Delivery Tracking" sub="Packed → Dispatched → Delivered" />
+        <ShortcutLink to="/summary" icon={BarChart3} title="Day Summary" sub="Revenue • Modes • Sources" />
       </div>
 
       <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground px-1">

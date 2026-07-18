@@ -10,17 +10,25 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as DeliveryRouteImport } from './routes/delivery'
+import { Route as AppointmentsRouteImport } from './routes/appointments'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
+import { Route as PatientIdRouteImport } from './routes/patient.$id'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SummaryRoute = SummaryRouteImport.update({
+  id: '/summary',
+  path: '/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SearchRoute = SearchRouteImport.update({
@@ -48,6 +56,11 @@ const DeliveryRoute = DeliveryRouteImport.update({
   path: '/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppointmentsRoute = AppointmentsRouteImport.update({
+  id: '/appointments',
+  path: '/appointments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -58,79 +71,105 @@ const PayIdRoute = PayIdRouteImport.update({
   path: '/pay/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PatientIdRoute = PatientIdRouteImport.update({
+  id: '/patient/$id',
+  path: '/patient/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
+  '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
+    | '/patient/$id'
     | '/pay/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
+    | '/patient/$id'
     | '/pay/$id'
   id:
     | '__root__'
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
     | '/register'
     | '/search'
+    | '/summary'
     | '/tasks'
+    | '/patient/$id'
     | '/pay/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppointmentsRoute: typeof AppointmentsRoute
   DeliveryRoute: typeof DeliveryRoute
   FollowUpRoute: typeof FollowUpRoute
   LeadsRoute: typeof LeadsRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
+  SummaryRoute: typeof SummaryRoute
   TasksRoute: typeof TasksRoute
+  PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
 }
 
@@ -141,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/summary': {
+      id: '/summary'
+      path: '/summary'
+      fullPath: '/summary'
+      preLoaderRoute: typeof SummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/search': {
@@ -178,6 +224,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/appointments': {
+      id: '/appointments'
+      path: '/appointments'
+      fullPath: '/appointments'
+      preLoaderRoute: typeof AppointmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -192,29 +245,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PayIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/patient/$id': {
+      id: '/patient/$id'
+      path: '/patient/$id'
+      fullPath: '/patient/$id'
+      preLoaderRoute: typeof PatientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppointmentsRoute: AppointmentsRoute,
   DeliveryRoute: DeliveryRoute,
   FollowUpRoute: FollowUpRoute,
   LeadsRoute: LeadsRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
+  SummaryRoute: SummaryRoute,
   TasksRoute: TasksRoute,
+  PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
