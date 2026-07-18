@@ -255,3 +255,59 @@ export function updateDelivery(id: string, patch: Partial<Delivery>) {
   deliveries = deliveries.map((d) => (d.id === id ? { ...d, ...patch } : d));
   emit();
 }
+
+// ---------- Appointments ----------
+export type ApptStatus = "Confirmed" | "Tentative" | "Cancelled" | "Arrived";
+export interface Appointment {
+  id: string;
+  patientName: string;
+  mobile: string;
+  time: string; // "10:30 AM"
+  slotMinutes: number;
+  branch: Branch;
+  doctor: string;
+  reason: string;
+  status: ApptStatus;
+  date: number; // ms epoch day marker
+}
+
+const apptSeed: Appointment[] = [
+  { id: "A-01", patientName: "Ramesh Sharma", mobile: "9876500001", time: "10:00 AM", slotMinutes: 15, branch: "Bajaj Nagar", doctor: "Dr. Yadav",  reason: "Joint pain review",   status: "Arrived",   date: T0 },
+  { id: "A-02", patientName: "Sunita Verma",  mobile: "9876500002", time: "10:30 AM", slotMinutes: 15, branch: "Bajaj Nagar", doctor: "Dr. Yadav",  reason: "Migraine follow-up",  status: "Confirmed", date: T0 },
+  { id: "A-03", patientName: "Priya Nair",    mobile: "9876500004", time: "11:15 AM", slotMinutes: 20, branch: "Bajaj Nagar", doctor: "Dr. Yadav",  reason: "PCOS follow-up",      status: "Confirmed", date: T0 },
+  { id: "A-04", patientName: "Kavita Sharma", mobile: "9876511111", time: "12:00 PM", slotMinutes: 15, branch: "Jagatpura",   doctor: "Dr. Sharma", reason: "New consultation",    status: "Tentative", date: T0 },
+  { id: "A-05", patientName: "Mohan Lal",     mobile: "9876500005", time: "04:00 PM", slotMinutes: 20, branch: "Jagatpura",   doctor: "Dr. Sharma", reason: "BP monitoring",       status: "Confirmed", date: T0 },
+  { id: "A-06", patientName: "Deepak Jain",   mobile: "9876566666", time: "05:15 PM", slotMinutes: 15, branch: "Bajaj Nagar", doctor: "Dr. Yadav",  reason: "First consultation",  status: "Cancelled", date: T0 },
+];
+
+let appts: Appointment[] = [...apptSeed];
+export function getAppointments() { return appts; }
+export function useAppointments() { return useSyncExternalStore(subscribe, getAppointments, getAppointments); }
+export function updateAppointment(id: string, patch: Partial<Appointment>) {
+  appts = appts.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  emit();
+}
+
+// ---------- Visit history (for patient profile) ----------
+export interface VisitRecord {
+  id: string;
+  patientId: string;
+  date: number;
+  reason: string;
+  prescription: string;
+  amount: number;
+}
+
+const visitSeed: VisitRecord[] = [
+  { id: "V-01", patientId: "YHC-1001", date: T0 - 90 * 86_400_000, reason: "Joint pain — initial", prescription: "Rhus Tox 30, Bryonia 200", amount: 500 },
+  { id: "V-02", patientId: "YHC-1001", date: T0 - 60 * 86_400_000, reason: "Follow-up",           prescription: "Rhus Tox 200 continued",   amount: 400 },
+  { id: "V-03", patientId: "YHC-1001", date: T0 - 30 * 86_400_000, reason: "Follow-up",           prescription: "Calcarea Carb 200",        amount: 400 },
+  { id: "V-04", patientId: "YHC-1002", date: T0 - 45 * 86_400_000, reason: "Migraine — initial",  prescription: "Belladonna 30, Nat Mur 200", amount: 500 },
+  { id: "V-05", patientId: "YHC-1004", date: T0 - 120 * 86_400_000, reason: "PCOS — initial",     prescription: "Pulsatilla 200",           amount: 600 },
+  { id: "V-06", patientId: "YHC-1004", date: T0 - 60 * 86_400_000, reason: "PCOS follow-up",      prescription: "Sepia 200",                amount: 500 },
+];
+
+export function getVisitsForPatient(patientId: string) {
+  return visitSeed.filter((v) => v.patientId === patientId).sort((a, b) => b.date - a.date);
+}
+
