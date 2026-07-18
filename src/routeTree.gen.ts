@@ -15,6 +15,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as DeliveryRouteImport } from './routes/delivery'
+import { Route as AppointmentsRouteImport } from './routes/appointments'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
@@ -49,6 +50,11 @@ const DeliveryRoute = DeliveryRouteImport.update({
   path: '/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppointmentsRoute = AppointmentsRouteImport.update({
+  id: '/appointments',
+  path: '/appointments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -67,6 +73,7 @@ const PatientIdRoute = PatientIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
@@ -90,6 +98,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/appointments': typeof AppointmentsRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/appointments'
     | '/delivery'
     | '/follow-up'
     | '/leads'
@@ -137,6 +149,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppointmentsRoute: typeof AppointmentsRoute
   DeliveryRoute: typeof DeliveryRoute
   FollowUpRoute: typeof FollowUpRoute
   LeadsRoute: typeof LeadsRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/appointments': {
+      id: '/appointments'
+      path: '/appointments'
+      fullPath: '/appointments'
+      preLoaderRoute: typeof AppointmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -217,6 +237,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppointmentsRoute: AppointmentsRoute,
   DeliveryRoute: DeliveryRoute,
   FollowUpRoute: FollowUpRoute,
   LeadsRoute: LeadsRoute,
