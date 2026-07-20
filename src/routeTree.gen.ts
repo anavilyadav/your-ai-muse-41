@@ -18,8 +18,16 @@ import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as DeliveryRouteImport } from './routes/delivery'
 import { Route as AppointmentsRouteImport } from './routes/appointments'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
+import { Route as DoctorRxIndexRouteImport } from './routes/doctor.rx.index'
+import { Route as DoctorCaseIndexRouteImport } from './routes/doctor.case.index'
+import { Route as DoctorRxHistoryRouteImport } from './routes/doctor.rx.history'
+import { Route as DoctorRxDashboardRouteImport } from './routes/doctor.rx.dashboard'
+import { Route as DoctorCaseReferenceRouteImport } from './routes/doctor.case.reference'
+import { Route as DoctorRxConsultTokenRouteImport } from './routes/doctor.rx.consult.$token'
+import { Route as DoctorCaseFormTokenRouteImport } from './routes/doctor.case.form.$token'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -66,6 +74,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DoctorIndexRoute = DoctorIndexRouteImport.update({
+  id: '/doctor/',
+  path: '/doctor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PayIdRoute = PayIdRouteImport.update({
   id: '/pay/$id',
   path: '/pay/$id',
@@ -74,6 +87,41 @@ const PayIdRoute = PayIdRouteImport.update({
 const PatientIdRoute = PatientIdRouteImport.update({
   id: '/patient/$id',
   path: '/patient/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorRxIndexRoute = DoctorRxIndexRouteImport.update({
+  id: '/doctor/rx/',
+  path: '/doctor/rx/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorCaseIndexRoute = DoctorCaseIndexRouteImport.update({
+  id: '/doctor/case/',
+  path: '/doctor/case/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorRxHistoryRoute = DoctorRxHistoryRouteImport.update({
+  id: '/doctor/rx/history',
+  path: '/doctor/rx/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorRxDashboardRoute = DoctorRxDashboardRouteImport.update({
+  id: '/doctor/rx/dashboard',
+  path: '/doctor/rx/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorCaseReferenceRoute = DoctorCaseReferenceRouteImport.update({
+  id: '/doctor/case/reference',
+  path: '/doctor/case/reference',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorRxConsultTokenRoute = DoctorRxConsultTokenRouteImport.update({
+  id: '/doctor/rx/consult/$token',
+  path: '/doctor/rx/consult/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorCaseFormTokenRoute = DoctorCaseFormTokenRouteImport.update({
+  id: '/doctor/case/form/$token',
+  path: '/doctor/case/form/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -89,6 +137,14 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/doctor/': typeof DoctorIndexRoute
+  '/doctor/case/reference': typeof DoctorCaseReferenceRoute
+  '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
+  '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/doctor/case/': typeof DoctorCaseIndexRoute
+  '/doctor/rx/': typeof DoctorRxIndexRoute
+  '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
+  '/doctor/rx/consult/$token': typeof DoctorRxConsultTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -102,6 +158,14 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/doctor': typeof DoctorIndexRoute
+  '/doctor/case/reference': typeof DoctorCaseReferenceRoute
+  '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
+  '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/doctor/case': typeof DoctorCaseIndexRoute
+  '/doctor/rx': typeof DoctorRxIndexRoute
+  '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
+  '/doctor/rx/consult/$token': typeof DoctorRxConsultTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -116,6 +180,14 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/doctor/': typeof DoctorIndexRoute
+  '/doctor/case/reference': typeof DoctorCaseReferenceRoute
+  '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
+  '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/doctor/case/': typeof DoctorCaseIndexRoute
+  '/doctor/rx/': typeof DoctorRxIndexRoute
+  '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
+  '/doctor/rx/consult/$token': typeof DoctorRxConsultTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,6 +203,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/doctor/'
+    | '/doctor/case/reference'
+    | '/doctor/rx/dashboard'
+    | '/doctor/rx/history'
+    | '/doctor/case/'
+    | '/doctor/rx/'
+    | '/doctor/case/form/$token'
+    | '/doctor/rx/consult/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -144,6 +224,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/doctor'
+    | '/doctor/case/reference'
+    | '/doctor/rx/dashboard'
+    | '/doctor/rx/history'
+    | '/doctor/case'
+    | '/doctor/rx'
+    | '/doctor/case/form/$token'
+    | '/doctor/rx/consult/$token'
   id:
     | '__root__'
     | '/'
@@ -157,6 +245,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/doctor/'
+    | '/doctor/case/reference'
+    | '/doctor/rx/dashboard'
+    | '/doctor/rx/history'
+    | '/doctor/case/'
+    | '/doctor/rx/'
+    | '/doctor/case/form/$token'
+    | '/doctor/rx/consult/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,6 +267,14 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
+  DoctorIndexRoute: typeof DoctorIndexRoute
+  DoctorCaseReferenceRoute: typeof DoctorCaseReferenceRoute
+  DoctorRxDashboardRoute: typeof DoctorRxDashboardRoute
+  DoctorRxHistoryRoute: typeof DoctorRxHistoryRoute
+  DoctorCaseIndexRoute: typeof DoctorCaseIndexRoute
+  DoctorRxIndexRoute: typeof DoctorRxIndexRoute
+  DoctorCaseFormTokenRoute: typeof DoctorCaseFormTokenRoute
+  DoctorRxConsultTokenRoute: typeof DoctorRxConsultTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -238,6 +342,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/doctor/': {
+      id: '/doctor/'
+      path: '/doctor'
+      fullPath: '/doctor/'
+      preLoaderRoute: typeof DoctorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pay/$id': {
       id: '/pay/$id'
       path: '/pay/$id'
@@ -250,6 +361,55 @@ declare module '@tanstack/react-router' {
       path: '/patient/$id'
       fullPath: '/patient/$id'
       preLoaderRoute: typeof PatientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/rx/': {
+      id: '/doctor/rx/'
+      path: '/doctor/rx'
+      fullPath: '/doctor/rx/'
+      preLoaderRoute: typeof DoctorRxIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/case/': {
+      id: '/doctor/case/'
+      path: '/doctor/case'
+      fullPath: '/doctor/case/'
+      preLoaderRoute: typeof DoctorCaseIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/rx/history': {
+      id: '/doctor/rx/history'
+      path: '/doctor/rx/history'
+      fullPath: '/doctor/rx/history'
+      preLoaderRoute: typeof DoctorRxHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/rx/dashboard': {
+      id: '/doctor/rx/dashboard'
+      path: '/doctor/rx/dashboard'
+      fullPath: '/doctor/rx/dashboard'
+      preLoaderRoute: typeof DoctorRxDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/case/reference': {
+      id: '/doctor/case/reference'
+      path: '/doctor/case/reference'
+      fullPath: '/doctor/case/reference'
+      preLoaderRoute: typeof DoctorCaseReferenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/rx/consult/$token': {
+      id: '/doctor/rx/consult/$token'
+      path: '/doctor/rx/consult/$token'
+      fullPath: '/doctor/rx/consult/$token'
+      preLoaderRoute: typeof DoctorRxConsultTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/case/form/$token': {
+      id: '/doctor/case/form/$token'
+      path: '/doctor/case/form/$token'
+      fullPath: '/doctor/case/form/$token'
+      preLoaderRoute: typeof DoctorCaseFormTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -267,17 +427,15 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,
+  DoctorIndexRoute: DoctorIndexRoute,
+  DoctorCaseReferenceRoute: DoctorCaseReferenceRoute,
+  DoctorRxDashboardRoute: DoctorRxDashboardRoute,
+  DoctorRxHistoryRoute: DoctorRxHistoryRoute,
+  DoctorCaseIndexRoute: DoctorCaseIndexRoute,
+  DoctorRxIndexRoute: DoctorRxIndexRoute,
+  DoctorCaseFormTokenRoute: DoctorCaseFormTokenRoute,
+  DoctorRxConsultTokenRoute: DoctorRxConsultTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
