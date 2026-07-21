@@ -18,11 +18,15 @@ import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as DeliveryRouteImport } from './routes/delivery'
 import { Route as AppointmentsRouteImport } from './routes/appointments'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PharmacyIndexRouteImport } from './routes/pharmacy.index'
 import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
+import { Route as PharmacyMasterRouteImport } from './routes/pharmacy.master'
+import { Route as PharmacyInventoryRouteImport } from './routes/pharmacy.inventory'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
 import { Route as DoctorRxIndexRouteImport } from './routes/doctor.rx.index'
 import { Route as DoctorCaseIndexRouteImport } from './routes/doctor.case.index'
+import { Route as PharmacyDispenseTokenRouteImport } from './routes/pharmacy.dispense.$token'
 import { Route as DoctorRxHistoryRouteImport } from './routes/doctor.rx.history'
 import { Route as DoctorRxDashboardRouteImport } from './routes/doctor.rx.dashboard'
 import { Route as DoctorCaseReferenceRouteImport } from './routes/doctor.case.reference'
@@ -74,9 +78,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PharmacyIndexRoute = PharmacyIndexRouteImport.update({
+  id: '/pharmacy/',
+  path: '/pharmacy/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DoctorIndexRoute = DoctorIndexRouteImport.update({
   id: '/doctor/',
   path: '/doctor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PharmacyMasterRoute = PharmacyMasterRouteImport.update({
+  id: '/pharmacy/master',
+  path: '/pharmacy/master',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PharmacyInventoryRoute = PharmacyInventoryRouteImport.update({
+  id: '/pharmacy/inventory',
+  path: '/pharmacy/inventory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PayIdRoute = PayIdRouteImport.update({
@@ -97,6 +116,11 @@ const DoctorRxIndexRoute = DoctorRxIndexRouteImport.update({
 const DoctorCaseIndexRoute = DoctorCaseIndexRouteImport.update({
   id: '/doctor/case/',
   path: '/doctor/case/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PharmacyDispenseTokenRoute = PharmacyDispenseTokenRouteImport.update({
+  id: '/pharmacy/dispense/$token',
+  path: '/pharmacy/dispense/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DoctorRxHistoryRoute = DoctorRxHistoryRouteImport.update({
@@ -137,10 +161,14 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/pharmacy/inventory': typeof PharmacyInventoryRoute
+  '/pharmacy/master': typeof PharmacyMasterRoute
   '/doctor/': typeof DoctorIndexRoute
+  '/pharmacy/': typeof PharmacyIndexRoute
   '/doctor/case/reference': typeof DoctorCaseReferenceRoute
   '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
   '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/pharmacy/dispense/$token': typeof PharmacyDispenseTokenRoute
   '/doctor/case/': typeof DoctorCaseIndexRoute
   '/doctor/rx/': typeof DoctorRxIndexRoute
   '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
@@ -158,10 +186,14 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/pharmacy/inventory': typeof PharmacyInventoryRoute
+  '/pharmacy/master': typeof PharmacyMasterRoute
   '/doctor': typeof DoctorIndexRoute
+  '/pharmacy': typeof PharmacyIndexRoute
   '/doctor/case/reference': typeof DoctorCaseReferenceRoute
   '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
   '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/pharmacy/dispense/$token': typeof PharmacyDispenseTokenRoute
   '/doctor/case': typeof DoctorCaseIndexRoute
   '/doctor/rx': typeof DoctorRxIndexRoute
   '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
@@ -180,10 +212,14 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
+  '/pharmacy/inventory': typeof PharmacyInventoryRoute
+  '/pharmacy/master': typeof PharmacyMasterRoute
   '/doctor/': typeof DoctorIndexRoute
+  '/pharmacy/': typeof PharmacyIndexRoute
   '/doctor/case/reference': typeof DoctorCaseReferenceRoute
   '/doctor/rx/dashboard': typeof DoctorRxDashboardRoute
   '/doctor/rx/history': typeof DoctorRxHistoryRoute
+  '/pharmacy/dispense/$token': typeof PharmacyDispenseTokenRoute
   '/doctor/case/': typeof DoctorCaseIndexRoute
   '/doctor/rx/': typeof DoctorRxIndexRoute
   '/doctor/case/form/$token': typeof DoctorCaseFormTokenRoute
@@ -203,10 +239,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/pharmacy/inventory'
+    | '/pharmacy/master'
     | '/doctor/'
+    | '/pharmacy/'
     | '/doctor/case/reference'
     | '/doctor/rx/dashboard'
     | '/doctor/rx/history'
+    | '/pharmacy/dispense/$token'
     | '/doctor/case/'
     | '/doctor/rx/'
     | '/doctor/case/form/$token'
@@ -224,10 +264,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/pharmacy/inventory'
+    | '/pharmacy/master'
     | '/doctor'
+    | '/pharmacy'
     | '/doctor/case/reference'
     | '/doctor/rx/dashboard'
     | '/doctor/rx/history'
+    | '/pharmacy/dispense/$token'
     | '/doctor/case'
     | '/doctor/rx'
     | '/doctor/case/form/$token'
@@ -245,10 +289,14 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/patient/$id'
     | '/pay/$id'
+    | '/pharmacy/inventory'
+    | '/pharmacy/master'
     | '/doctor/'
+    | '/pharmacy/'
     | '/doctor/case/reference'
     | '/doctor/rx/dashboard'
     | '/doctor/rx/history'
+    | '/pharmacy/dispense/$token'
     | '/doctor/case/'
     | '/doctor/rx/'
     | '/doctor/case/form/$token'
@@ -267,10 +315,14 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
+  PharmacyInventoryRoute: typeof PharmacyInventoryRoute
+  PharmacyMasterRoute: typeof PharmacyMasterRoute
   DoctorIndexRoute: typeof DoctorIndexRoute
+  PharmacyIndexRoute: typeof PharmacyIndexRoute
   DoctorCaseReferenceRoute: typeof DoctorCaseReferenceRoute
   DoctorRxDashboardRoute: typeof DoctorRxDashboardRoute
   DoctorRxHistoryRoute: typeof DoctorRxHistoryRoute
+  PharmacyDispenseTokenRoute: typeof PharmacyDispenseTokenRoute
   DoctorCaseIndexRoute: typeof DoctorCaseIndexRoute
   DoctorRxIndexRoute: typeof DoctorRxIndexRoute
   DoctorCaseFormTokenRoute: typeof DoctorCaseFormTokenRoute
@@ -342,11 +394,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pharmacy/': {
+      id: '/pharmacy/'
+      path: '/pharmacy'
+      fullPath: '/pharmacy/'
+      preLoaderRoute: typeof PharmacyIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/doctor/': {
       id: '/doctor/'
       path: '/doctor'
       fullPath: '/doctor/'
       preLoaderRoute: typeof DoctorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pharmacy/master': {
+      id: '/pharmacy/master'
+      path: '/pharmacy/master'
+      fullPath: '/pharmacy/master'
+      preLoaderRoute: typeof PharmacyMasterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pharmacy/inventory': {
+      id: '/pharmacy/inventory'
+      path: '/pharmacy/inventory'
+      fullPath: '/pharmacy/inventory'
+      preLoaderRoute: typeof PharmacyInventoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pay/$id': {
@@ -375,6 +448,13 @@ declare module '@tanstack/react-router' {
       path: '/doctor/case'
       fullPath: '/doctor/case/'
       preLoaderRoute: typeof DoctorCaseIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pharmacy/dispense/$token': {
+      id: '/pharmacy/dispense/$token'
+      path: '/pharmacy/dispense/$token'
+      fullPath: '/pharmacy/dispense/$token'
+      preLoaderRoute: typeof PharmacyDispenseTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/doctor/rx/history': {
@@ -427,10 +507,14 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,
+  PharmacyInventoryRoute: PharmacyInventoryRoute,
+  PharmacyMasterRoute: PharmacyMasterRoute,
   DoctorIndexRoute: DoctorIndexRoute,
+  PharmacyIndexRoute: PharmacyIndexRoute,
   DoctorCaseReferenceRoute: DoctorCaseReferenceRoute,
   DoctorRxDashboardRoute: DoctorRxDashboardRoute,
   DoctorRxHistoryRoute: DoctorRxHistoryRoute,
+  PharmacyDispenseTokenRoute: PharmacyDispenseTokenRoute,
   DoctorCaseIndexRoute: DoctorCaseIndexRoute,
   DoctorRxIndexRoute: DoctorRxIndexRoute,
   DoctorCaseFormTokenRoute: DoctorCaseFormTokenRoute,
