@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Circle, PhoneCall, Stethoscope, Truck, Users } from "lucide-react";
+import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Circle, Crown, PhoneCall, Pill, Stethoscope, Truck, Users } from "lucide-react";
 import { useState } from "react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
