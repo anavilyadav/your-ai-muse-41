@@ -36,6 +36,8 @@ function TasksPage() {
         <ShortcutLink to="/delivery" icon={Truck} title="Delivery Tracking" sub="Packed → Dispatched → Delivered" />
         <ShortcutLink to="/summary" icon={BarChart3} title="Day Summary" sub="Revenue • Modes • Sources" />
         <ShortcutLink to="/doctor" icon={Stethoscope} title="Doctor App" sub="Open prescribing / case-taking workspace" />
+        <ShortcutLink to="/pharmacy" icon={Pill} title="Pharmacy App" sub="Queue • Dispense • Inventory • Master" />
+        <ShortcutLink to="/owner" icon={Crown} title="Owner App" sub="Dashboard • Staff • Reports • Control" />
       </div>
 
       <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground px-1">
