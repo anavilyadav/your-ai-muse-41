@@ -1,54 +1,56 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Pill, Package, BookOpen } from "lucide-react";
-import { RoleShell, Stat, Badge, type NavItem } from "@/components/yhc/RoleShell";
-import { PHARMA_QUEUE } from "@/lib/yhc-pharmacy";
+import { useQuery } from "@tanstack/react-query";
+import { MobileShell } from "@/components/yhc/MobileShell";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { fetchTodayQueue, branchLabel } from "@/lib/db";
 
 export const Route = createFileRoute("/pharmacy/")({
   head: () => ({ meta: [{ title: "Pharmacy Queue — YHC" }, { name: "robots", content: "noindex" }] }),
-  component: PharmacyQueue,
+  component: () => (
+    <AuthGate allow={["PHARMA", "OWNER"]}>
+      <PharmacyQueue />
+    </AuthGate>
+  ),
 });
-
-export const PHARMACY_NAV: NavItem[] = [
-  { to: "/pharmacy", label: "Queue", icon: Pill, exact: true },
-  { to: "/pharmacy/inventory", label: "Inventory", icon: Package },
-  { to: "/pharmacy/master", label: "Master", icon: BookOpen },
-];
 
 function PharmacyQueue() {
   const navigate = useNavigate();
+  const { data, isLoading } = useQuery({
+    queryKey: ["today-queue"],
+    queryFn: fetchTodayQueue,
+    refetchInterval: 15_000,
+  });
+  const rows = (data ?? []).filter((r) => r.visit_status === "PHARMACY");
+
   return (
-    <RoleShell title="Pharmacy Queue" subtitle="Yadav Homeo Clinic • Jaipur" nav={PHARMACY_NAV}>
-      <div className="flex gap-2">
-        <Stat v={3} l="To Dispense" tone="accent" />
-        <Stat v={14} l="Done Today" tone="success" />
-        <Stat v={2} l="Low Stock" tone="destructive" />
-      </div>
-      <ul className="mt-4 space-y-2.5">
-        {PHARMA_QUEUE.map((p) => (
-          <li key={p.token}>
-            <button
-              onClick={() => navigate({ to: "/pharmacy/dispense/$token", params: { token: p.token } })}
-              className="w-full text-left rounded-2xl bg-surface border border-border p-3.5 hover:border-primary/40 active:scale-[0.99] transition"
-            >
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <Badge tone="primary">{p.token}</Badge>
-                  <span className="font-bold text-[15px] text-primary">{p.name}</span>
-                </div>
-                <Badge tone={p.status === "Preparing" ? "primary" : "warn"}>{p.status}</Badge>
-              </div>
-              <div className="text-[12px] text-muted-foreground mt-1">{p.branch}</div>
-              <div className="mt-2 space-y-1">
-                {p.rx.map((r, i) => (
-                  <div key={i} className="text-[13px] text-primary bg-accent/25 rounded-lg px-2.5 py-1.5">
-                    {r.med} {r.potency !== "—" && r.potency} • {r.qty} {r.form} • {r.freq}
+    <MobileShell title="Pharmacy Queue" subtitle="Today">
+      {isLoading ? (
+        <LoadingBlock />
+      ) : rows.length === 0 ? (
+        <EmptyBlock label="Koi patient dispense ke liye pending nahi." />
+      ) : (
+        <ul className="space-y-2.5">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <button
+                onClick={() => navigate({ to: "/pharmacy/dispense/$token", params: { token: r.id } })}
+                className="w-full text-left rounded-2xl bg-surface border border-border p-3.5 shadow-sm hover:border-primary/40 transition"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-2.5 py-1">
+                      {r.token_number ?? "—"}
+                    </span>
+                    <span className="font-bold text-[15px] text-primary">{r.patient?.name}</span>
                   </div>
-                ))}
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </RoleShell>
+                  <span className="text-[11px] text-muted-foreground">{branchLabel(r.branch)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{r.chief_complaint || "—"}</div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </MobileShell>
   );
 }

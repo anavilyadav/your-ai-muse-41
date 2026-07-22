@@ -1,0 +1,83 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth";
+import { roleHome } from "@/lib/supabase";
+
+export const Route = createFileRoute("/login")({
+  head: () => ({ meta: [{ title: "Login — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
+  component: LoginPage,
+});
+
+function LoginPage() {
+  const { user, signIn, loading } = useAuth();
+  const navigate = useNavigate();
+  const [mobile, setMobile] = useState("");
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!loading && user) navigate({ to: roleHome(user.role) });
+  }, [user, loading, navigate]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const err = await signIn(mobile, pin);
+    setBusy(false);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+  };
+
+  return (
+    <div className="min-h-screen w-full bg-background flex justify-center">
+      <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]">
+        <div className="bg-primary text-primary-foreground px-5 pt-12 pb-8 rounded-b-3xl text-center">
+          <div className="mx-auto h-16 w-16 rounded-full bg-accent text-accent-foreground grid place-items-center font-extrabold text-3xl">
+            Y
+          </div>
+          <h1 className="mt-4 text-2xl font-extrabold">Yadav Homeo Clinic</h1>
+          <p className="text-xs text-primary-foreground/70 mt-1">Jaipur • Staff Login</p>
+        </div>
+
+        <form onSubmit={submit} className="flex-1 px-5 py-8 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Mobile Number</label>
+            <input
+              inputMode="numeric"
+              maxLength={10}
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              placeholder="10 digit mobile"
+              className="mt-1.5 w-full rounded-lg bg-surface border border-input px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-primary uppercase tracking-wide">PIN</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={8}
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="PIN"
+              className="mt-1.5 w-full rounded-lg bg-surface border border-input px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold shadow-md active:scale-[0.99] transition disabled:opacity-60"
+          >
+            {busy ? "Login ho raha hai..." : "Login"}
+          </button>
+          <p className="text-center text-[11px] text-muted-foreground pt-2">
+            YHC OS • Only registered staff. Bhool gaye PIN? Owner se milein.
+          </p>
+        </form>
+      </div>
+    </div>
+  );
+}

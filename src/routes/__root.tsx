@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider } from "@/lib/auth";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -79,12 +80,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#1A2A41" },
-      { title: "Yadav Homeo Clinic, Jaipur — Reception" },
-      { name: "description", content: "Reception app for Yadav Homeo Clinic, Jaipur — register patients, manage today's queue and follow-ups." },
-      { property: "og:title", content: "Yadav Homeo Clinic, Jaipur — Reception" },
-      { property: "og:description", content: "Reception app for Yadav Homeo Clinic, Jaipur." },
+      { title: "Yadav Homeo Clinic, Jaipur" },
+      { name: "description", content: "Clinical operations app for Yadav Homeo Clinic, Jaipur." },
+      { property: "og:title", content: "Yadav Homeo Clinic, Jaipur" },
+      { property: "og:description", content: "Clinical operations app for Yadav Homeo Clinic, Jaipur." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "robots", content: "noindex" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -119,9 +121,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
-      <Toaster position="top-center" richColors />
+      <AuthProvider>
+        <Outlet />
+        <Toaster position="top-center" richColors />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
