@@ -2,24 +2,27 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { addPatient, isDuplicateMobile, type Branch, type Patient } from "@/lib/yhc-store";
+import { createPatientWithVisit, isDuplicateMobile } from "@/lib/db";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/register")({
-  head: () => ({ meta: [{ title: "New Patient Registration — YHC Jaipur" }] }),
-  component: RegisterPage,
+  head: () => ({ meta: [{ title: "New Patient — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <RegisterPage />
+    </AuthGate>
+  ),
 });
 
 const genders = ["Male", "Female", "Other"] as const;
-const marital = ["Single", "Married", "Divorced", "Widowed"] as const;
 const blood = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-", "Not Known"] as const;
-const branches = ["Bajaj Nagar", "Jagatpura"] as const satisfies readonly Branch[];
-const visits = ["Walk-in", "Pre-booked", "Online", "Courier"] as const;
-const sources = [
-  "Walk-in", "Patient Referral", "Doctor Referral", "Google",
-  "Instagram", "YouTube", "JustDial", "WhatsApp", "Pamphlet",
+const branchOpts = [
+  { key: "BAJAJ_NAGAR", label: "Bajaj Nagar" },
+  { key: "JAGATPURA", label: "Jagatpura" },
 ] as const;
 
 function Section({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -47,29 +50,38 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 function RegisterPage() {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState<Patient | null>(null);
+  const qc = useQueryClient();
+  const [saved, setSaved] = useState<{ token: string; code: string; branch: string; name: string } | null>(null);
 
   const [f, setF] = useState({
-    name: "", mobile: "", age: "", gender: "" as "" | (typeof genders)[number],
-    marital: "" as "" | (typeof marital)[number],
+    name: "",
+    mobile: "",
+    age: "",
+    gender: "" as "" | (typeof genders)[number],
     blood: "" as "" | (typeof blood)[number],
-    birthday: "", anniversary: "",
-    address: "", city: "Jaipur", pincode: "",
-    chief: "", branch: "" as "" | Branch,
-    visit: "" as "" | (typeof visits)[number],
-    source: "" as "" | (typeof sources)[number],
+    address: "",
+    city: "Jaipur",
+    pincode: "",
+    chief: "",
+    branch: "" as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
 
   const [dupWarn, setDupWarn] = useState(false);
-  const onMobileChange = (v: string) => {
+  const [busy, setBusy] = useState(false);
+
+  const onMobileChange = async (v: string) => {
     const digits = v.replace(/\D/g, "").slice(0, 10);
     set("mobile", digits);
-    setDupWarn(digits.length === 10 && isDuplicateMobile(digits));
+    if (digits.length === 10) {
+      setDupWarn(await isDuplicateMobile(digits));
+    } else {
+      setDupWarn(false);
+    }
   };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: string[] = [];
     if (!f.name.trim()) errs.push("Name");
@@ -82,21 +94,38 @@ function RegisterPage() {
       toast.error(`Missing: ${errs.join(", ")}`);
       return;
     }
-    if (isDuplicateMobile(f.mobile)) {
-      toast.error("This mobile is already registered.");
+    if (await isDuplicateMobile(f.mobile)) {
+      toast.error("Yeh mobile already registered hai.");
       return;
     }
-    const p = addPatient({
-      name: f.name.trim(),
-      mobile: f.mobile,
-      age: Number(f.age),
-      gender: f.gender || "Other",
-      chiefComplaint: f.chief.trim() || "—",
-      branch: (f.branch || "Bajaj Nagar") as Branch,
-      visitType: f.visit || "Walk-in",
-      source: f.source || "Walk-in",
-    });
-    setSaved(p);
+    setBusy(true);
+    try {
+      const { patient, visit } = await createPatientWithVisit({
+        name: f.name.trim(),
+        mobile: f.mobile,
+        age: Number(f.age),
+        gender: f.gender || undefined,
+        blood_group: f.blood || undefined,
+        city: f.city || undefined,
+        pincode: f.pincode || undefined,
+        primary_disease: f.chief.trim() || undefined,
+        wa_consent: f.consent,
+        branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
+        chief_complaint: f.chief.trim() || undefined,
+      });
+      setSaved({
+        token: visit.token_number ?? "T-01",
+        code: patient.patient_code ?? "YHC-—",
+        branch: patient.branch,
+        name: patient.name,
+      });
+      qc.invalidateQueries({ queryKey: ["today-queue"] });
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || "Registration fail hui");
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (saved) {
@@ -117,18 +146,19 @@ function RegisterPage() {
             </div>
             <div className="rounded-xl bg-surface border border-border p-4">
               <div className="text-[10px] uppercase text-muted-foreground">Patient ID</div>
-              <div className="text-lg font-bold text-primary">{saved.id}</div>
-              <div className="text-[10px] text-muted-foreground mt-1">Branch: {saved.branch}</div>
+              <div className="text-lg font-bold text-primary">{saved.code}</div>
+              <div className="text-[10px] text-muted-foreground mt-1">
+                Branch: {saved.branch === "BAJAJ_NAGAR" ? "Bajaj Nagar" : "Jagatpura"}
+              </div>
             </div>
           </div>
 
           <div className="mt-5 w-full rounded-xl bg-[#DCF8C6] border border-success/30 p-3 text-left">
             <div className="flex items-center gap-2 text-success text-xs font-semibold">
-              <MessageCircle className="h-4 w-4" /> WhatsApp sent
+              <MessageCircle className="h-4 w-4" /> WhatsApp (simulated)
             </div>
             <p className="mt-1.5 text-sm text-foreground leading-snug">
-              Namaste {first} ji! Aapka token <b>{saved.token}</b> confirm hua.
-              Dr. Yadav OPD chal raha hai. — YHC 🌿
+              Namaste {first} ji! Aapka token <b>{saved.token}</b> confirm hua. Dr. Yadav OPD chal raha hai. — YHC 🌿
             </p>
           </div>
 
@@ -137,9 +167,8 @@ function RegisterPage() {
               onClick={() => {
                 setSaved(null);
                 setF({
-                  name: "", mobile: "", age: "", gender: "", marital: "", blood: "",
-                  birthday: "", anniversary: "", address: "", city: "Jaipur", pincode: "",
-                  chief: "", branch: "", visit: "", source: "", consent: true,
+                  name: "", mobile: "", age: "", gender: "", blood: "",
+                  address: "", city: "Jaipur", pincode: "", chief: "", branch: "", consent: true,
                 });
               }}
               className="rounded-lg border border-border bg-surface py-2.5 text-sm font-semibold text-primary"
@@ -165,7 +194,7 @@ function RegisterPage() {
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
 
-        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Duplicate — this mobile is already registered." : "10 digits"}>
+        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Duplicate — pehle se registered hai." : "10 digits"}>
           <Field
             inputMode="numeric"
             placeholder="98XXXXXXXX"
@@ -195,19 +224,6 @@ function RegisterPage() {
           <ChipSelect options={genders} value={f.gender} onChange={(v) => set("gender", v)} />
         </Section>
 
-        <Section label="Marital Status">
-          <ChipSelect options={marital} value={f.marital} onChange={(v) => set("marital", v)} />
-        </Section>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Section label="Birthday (DD/MM)">
-            <Field placeholder="15/08" value={f.birthday} onChange={(e) => set("birthday", e.target.value)} />
-          </Section>
-          <Section label="Anniversary (DD/MM)">
-            <Field placeholder="20/11" value={f.anniversary} onChange={(e) => set("anniversary", e.target.value)} />
-          </Section>
-        </div>
-
         <Section label="Full Address">
           <textarea
             rows={2}
@@ -227,26 +243,34 @@ function RegisterPage() {
           </Section>
         </div>
 
-        <Section label="Chief Complaint" hint="Reference only">
+        <Section label="Chief Complaint">
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
         </Section>
 
         <Section label="Branch *">
-          <ChipSelect options={branches} value={f.branch} onChange={(v) => set("branch", v)} />
-        </Section>
-
-        <Section label="Visit Type">
-          <ChipSelect options={visits} value={f.visit} onChange={(v) => set("visit", v)} />
-        </Section>
-
-        <Section label="How did you find YHC?">
-          <ChipSelect options={sources} value={f.source} onChange={(v) => set("source", v)} size="sm" />
+          <div className="flex flex-wrap gap-2">
+            {branchOpts.map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                onClick={() => set("branch", b.key)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition",
+                  f.branch === b.key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-surface text-foreground border-border",
+                )}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
         </Section>
 
         <div className="flex items-center justify-between rounded-xl bg-surface border border-border p-3">
           <div className="min-w-0 pr-3">
             <p className="text-sm font-semibold text-primary">WhatsApp Consent *</p>
-            <p className="text-[11px] text-muted-foreground">Send updates & reminders on WhatsApp</p>
+            <p className="text-[11px] text-muted-foreground">Updates & reminders on WhatsApp</p>
           </div>
           <button
             type="button"
@@ -268,9 +292,10 @@ function RegisterPage() {
 
         <button
           type="submit"
-          className="w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold shadow-md active:scale-[0.99] transition"
+          disabled={busy}
+          className="w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold shadow-md active:scale-[0.99] transition disabled:opacity-60"
         >
-          Register & Generate Token
+          {busy ? "Saving…" : "Register & Generate Token"}
         </button>
       </form>
     </MobileShell>

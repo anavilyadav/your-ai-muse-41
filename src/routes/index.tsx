@@ -1,65 +1,73 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { formatWait, usePatients, type PatientStatus } from "@/lib/yhc-store";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Today's Queue — Yadav Homeo Clinic, Jaipur" },
+      { title: "Today's Queue — YHC Jaipur" },
       { name: "description", content: "Reception queue for Yadav Homeo Clinic Jaipur." },
+      { name: "robots", content: "noindex" },
     ],
   }),
-  component: QueuePage,
+  component: QueuePageGated,
 });
 
-const flowSteps = ["RECP1", "Case Dr", "Wait", "Rx Doctor", "Pharmacy", "Payment"];
-const filters = ["All", "Waiting", "Consultation", "Done", "New Patients"] as const;
+function QueuePageGated() {
+  return (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <QueuePage />
+    </AuthGate>
+  );
+}
+
+const filters = ["All", "Waiting", "Consultation", "Pharmacy", "Done"] as const;
 type Filter = (typeof filters)[number];
 
-const statusStyles: Record<PatientStatus, string> = {
+const statusStyles: Record<string, string> = {
   Waiting: "bg-accent/25 text-accent-foreground border-accent/60",
-  "In Consult": "bg-success/20 text-success border-success/50",
+  "Case Taking": "bg-accent/25 text-accent-foreground border-accent/60",
+  Prescribed: "bg-success/20 text-success border-success/50",
   Pharmacy: "bg-accent/25 text-accent-foreground border-accent/60",
   "Pay Due": "bg-destructive/15 text-destructive border-destructive/40",
   Done: "bg-muted text-muted-foreground border-border",
 };
 
 function QueuePage() {
-  const patients = usePatients();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("All");
-
-  // Avoid hydration mismatch: only compute "now" after mount.
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const stats = useMemo(() => {
-    const waiting = patients.filter((p) => p.status === "Waiting").length;
-    const done = patients.filter((p) => p.status === "Done").length;
-    const revenue = patients.reduce((s, p) => s + p.amountPaid, 0);
-    return { total: patients.length, waiting, done, revenue };
-  }, [patients]);
-
-  const filtered = patients.filter((p) => {
-    if (filter === "All") return true;
-    if (filter === "Waiting") return p.status === "Waiting";
-    if (filter === "Consultation") return p.status === "In Consult";
-    if (filter === "Done") return p.status === "Done";
-    if (filter === "New Patients") return Number(p.id.replace("YHC-", "")) >= 1006;
-    return true;
-  });
-
   const [today, setToday] = useState("");
   useEffect(() => {
     setToday(new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
   }, []);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["today-queue"],
+    queryFn: fetchTodayQueue,
+    refetchInterval: 15_000,
+  });
+
+  const rows = data ?? [];
+  const stats = useMemo(() => {
+    const waiting = rows.filter((r) => ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status)).length;
+    const done = rows.filter((r) => r.visit_status === "DONE").length;
+    return { total: rows.length, waiting, done };
+  }, [rows]);
+
+  const filtered = rows.filter((r) => {
+    const s = statusLabel(r.visit_status);
+    if (filter === "All") return true;
+    if (filter === "Waiting") return s === "Waiting" || s === "Case Taking";
+    if (filter === "Consultation") return s === "Prescribed";
+    if (filter === "Pharmacy") return s === "Pharmacy" || s === "Pay Due";
+    if (filter === "Done") return s === "Done";
+    return true;
+  });
 
   return (
     <MobileShell
@@ -74,12 +82,11 @@ function QueuePage() {
         </Link>
       }
     >
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {[
           { label: "Total", value: stats.total, tone: "primary" },
           { label: "Waiting", value: stats.waiting, tone: "accent" },
           { label: "Done", value: stats.done, tone: "success" },
-          { label: "Revenue", value: `₹${stats.revenue}`, tone: "primary" },
         ].map((s) => (
           <div key={s.label} className="rounded-xl bg-surface border border-border px-2 py-2.5 text-center">
             <div
@@ -97,22 +104,6 @@ function QueuePage() {
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="mt-4 rounded-xl bg-primary/5 border border-primary/10 p-2.5">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
-          Patient Flow
-        </div>
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {flowSteps.map((s, i) => (
-            <div key={s} className="flex items-center gap-1 shrink-0">
-              <span className="px-2 py-1 rounded-md bg-surface border border-border text-[11px] font-semibold text-primary">
-                {s}
-              </span>
-              {i < flowSteps.length - 1 && <span className="text-muted-foreground text-xs">→</span>}
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
@@ -133,49 +124,47 @@ function QueuePage() {
         })}
       </div>
 
-      <ul className="mt-3 space-y-2">
-        {filtered.length === 0 && (
-          <li className="text-center text-sm text-muted-foreground py-10">No patients in this filter.</li>
-        )}
-        {filtered.map((p) => (
-          <li key={p.id}>
-            <button
-              onClick={() => navigate({ to: "/pay/$id", params: { id: p.id } })}
-              className="w-full text-left rounded-xl bg-surface border border-border p-3 flex items-center gap-3 shadow-sm hover:border-primary/40 active:scale-[0.99] transition"
-            >
-              <div className="shrink-0 h-12 w-12 rounded-xl bg-primary text-primary-foreground grid place-items-center">
-                <div className="text-[9px] uppercase opacity-70 leading-none">Token</div>
-                <div className="text-sm font-bold leading-tight">{p.token}</div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="truncate font-semibold text-sm text-primary">{p.name}</p>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {now !== null ? formatWait(now - p.arrivedAt) : ""}
-                  </span>
-                </div>
-                <p className="truncate text-xs text-muted-foreground">{p.chiefComplaint}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-muted-foreground">{p.branch}</span>
-                  <span
-                    className={cn(
-                      "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-                      statusStyles[p.status],
-                    )}
-                  >
-                    {p.status}
-                  </span>
-                  {p.amountDue > 0 && (
-                    <span className="text-[10px] font-semibold text-destructive">
-                      ₹{p.amountDue} due
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {isLoading ? (
+        <LoadingBlock label="Queue load ho rahi hai…" />
+      ) : filtered.length === 0 ? (
+        <EmptyBlock label="Aaj koi patient nahi mila." />
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {filtered.map((r) => {
+            const s = statusLabel(r.visit_status);
+            const due = Number(r.patient?.current_balance ?? 0);
+            return (
+              <li key={r.id}>
+                <button
+                  onClick={() => navigate({ to: "/pay/$id", params: { id: r.id } })}
+                  className="w-full text-left rounded-xl bg-surface border border-border p-3 flex items-center gap-3 shadow-sm hover:border-primary/40 active:scale-[0.99] transition"
+                >
+                  <div className="shrink-0 h-12 w-12 rounded-xl bg-primary text-primary-foreground grid place-items-center">
+                    <div className="text-[9px] uppercase opacity-70 leading-none">Token</div>
+                    <div className="text-sm font-bold leading-tight">{r.token_number ?? "—"}</div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-semibold text-sm text-primary">{r.patient?.name ?? "Unknown"}</p>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">{r.chief_complaint || "—"}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] text-muted-foreground">{branchLabel(r.branch)}</span>
+                      <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", statusStyles[s] ?? "bg-muted text-muted-foreground border-border")}>
+                        {s}
+                      </span>
+                      {due > 0 && (
+                        <span className="text-[10px] font-semibold text-destructive">₹{due} due</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </MobileShell>
   );
 }
