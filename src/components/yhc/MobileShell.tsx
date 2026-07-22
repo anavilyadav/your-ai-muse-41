@@ -1,7 +1,8 @@
-import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, ClipboardList, ListChecks, Search, UserPlus } from "lucide-react";
+import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { ArrowLeft, ClipboardList, ListChecks, LogOut, Search, UserPlus } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 interface Props {
   title: string;
@@ -20,7 +21,14 @@ const navItems = [
 
 export function MobileShell({ title, subtitle, showBack, right, children }: Props) {
   const router = useRouter();
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user, signOut } = useAuth();
+
+  const doLogout = async () => {
+    await signOut();
+    navigate({ to: "/login" });
+  };
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
@@ -47,7 +55,19 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
                 <p className="truncate text-[11px] text-primary-foreground/70">{subtitle}</p>
               )}
             </div>
-            <div className="shrink-0">{right}</div>
+            <div className="shrink-0 flex items-center gap-2">
+              {right}
+              {user && (
+                <button
+                  onClick={doLogout}
+                  className="h-9 w-9 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 transition"
+                  aria-label="Logout"
+                  title="Logout"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
