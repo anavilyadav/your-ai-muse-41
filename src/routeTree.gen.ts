@@ -13,6 +13,7 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as DeliveryRouteImport } from './routes/delivery'
@@ -57,6 +58,11 @@ const SearchRoute = SearchRouteImport.update({
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeadsRoute = LeadsRouteImport.update({
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/delivery'
     | '/follow-up'
     | '/leads'
+    | '/login'
     | '/register'
     | '/search'
     | '/summary'
@@ -318,6 +328,7 @@ export interface FileRouteTypes {
     | '/delivery'
     | '/follow-up'
     | '/leads'
+    | '/login'
     | '/register'
     | '/search'
     | '/summary'
@@ -349,6 +360,7 @@ export interface FileRouteTypes {
     | '/delivery'
     | '/follow-up'
     | '/leads'
+    | '/login'
     | '/register'
     | '/search'
     | '/summary'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   DeliveryRoute: typeof DeliveryRoute
   FollowUpRoute: typeof FollowUpRoute
   LeadsRoute: typeof LeadsRoute
+  LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
   SummaryRoute: typeof SummaryRoute
@@ -435,6 +448,13 @@ declare module '@tanstack/react-router' {
       path: '/register'
       fullPath: '/register'
       preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leads': {
@@ -621,6 +641,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeliveryRoute: DeliveryRoute,
   FollowUpRoute: FollowUpRoute,
   LeadsRoute: LeadsRoute,
+  LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
   SummaryRoute: SummaryRoute,
