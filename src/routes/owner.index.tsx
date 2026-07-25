@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -20,6 +20,7 @@ export const OWNER_NAV: NavItem[] = [
   { to: "/owner/staff", label: "Staff", icon: Users },
   { to: "/owner/reports", label: "Reports", icon: TrendingUp },
   { to: "/owner/control", label: "Control", icon: Settings },
+  { to: "/owner/import", label: "Import", icon: Upload },
 ];
 
 function inr(n: number) {

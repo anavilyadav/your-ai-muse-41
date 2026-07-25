@@ -24,6 +24,7 @@ import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as OwnerIndexRouteImport } from './routes/owner.index'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerHealthRouteImport } from './routes/owner.health'
+import { Route as OwnerImportRouteImport } from './routes/owner.import'
 import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
 import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
@@ -114,6 +115,11 @@ const OwnerControlRoute = OwnerControlRouteImport.update({
 const OwnerHealthRoute = OwnerHealthRouteImport.update({
   id: '/owner/health',
   path: '/owner/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerImportRoute = OwnerImportRouteImport.update({
+  id: '/owner/import',
+  path: '/owner/import',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerIncentivesRoute = OwnerIncentivesRouteImport.update({
@@ -211,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
@@ -278,6 +286,7 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
@@ -313,6 +322,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/owner/control'
     | '/owner/health'
+    | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/owner/control'
     | '/owner/health'
+    | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
@@ -379,6 +390,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/owner/control'
     | '/owner/health'
+    | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
@@ -413,6 +425,7 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerHealthRoute: typeof OwnerHealthRoute
+  OwnerImportRoute: typeof OwnerImportRoute
   OwnerIncentivesRoute: typeof OwnerIncentivesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
   OwnerStaffRoute: typeof OwnerStaffRoute
@@ -538,6 +551,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/health'
       fullPath: '/owner/health'
       preLoaderRoute: typeof OwnerHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/import': {
+      id: '/owner/import'
+      path: '/owner/import'
+      fullPath: '/owner/import'
+      preLoaderRoute: typeof OwnerImportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/incentives': {
@@ -669,6 +689,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   OwnerControlRoute: OwnerControlRoute,
   OwnerHealthRoute: OwnerHealthRoute,
+  OwnerImportRoute: OwnerImportRoute,
   OwnerIncentivesRoute: OwnerIncentivesRoute,
   OwnerReportsRoute: OwnerReportsRoute,
   OwnerStaffRoute: OwnerStaffRoute,

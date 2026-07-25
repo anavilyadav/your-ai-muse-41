@@ -820,7 +820,292 @@ export async function upsertSetting(key: string, value: string) {
   }
 }
 
-// ---------- Search ----------
+// ---------- Bulk Import (Leads / Patients / Visit-Revenue History) ----------
+// Design principles (matching the safety rules this project runs on):
+//  - Dry-run preview ALWAYS before writing anything (valid/duplicate/invalid counts)
+//  - Every inserted row tagged with an imported_batch ID so a bad import can
+//    be undone in one tap without touching anything that was already there
+//  - Dedup by normalized mobile number throughout
+//  - Batched writes (200 rows/request) so large files don't time out
+
+export function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field); field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      rows.push(row); row = [];
+    } else {
+      field += c;
+    }
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+
+export function normalizeMobile(raw: string | number | null | undefined): string {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+export function newImportBatchId(): string {
+  return `IMPORT_${Date.now()}`;
+}
+
+export async function recordImportBatch(entry: { batchId: string; type: string; count: number }) {
+  const { data } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  let list: any[] = [];
+  try { list = data?.value ? JSON.parse(data.value) : []; } catch { list = []; }
+  list.unshift({ ...entry, date: new Date().toISOString() });
+  await upsertSetting("import_batches", JSON.stringify(list.slice(0, 30)));
+}
+
+export async function fetchImportBatches(): Promise<
+  { batchId: string; type: string; count: number; date: string }[]
+> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  try { return data?.value ? JSON.parse(data.value) : []; } catch { return []; }
+}
+
+// Deletes every row tagged with this batch across all four tables — children
+// (payments, visits) before parents (patients) so FK constraints never block it.
+export async function rollbackImportBatch(batchId: string) {
+  const results: Record<string, number> = {};
+  for (const table of ["payments", "visits", "leads", "patients"] as const) {
+    const { data } = await supabase.from(table).delete().eq("imported_batch", batchId).select("id");
+    results[table] = data?.length ?? 0;
+  }
+  const batches = await fetchImportBatches();
+  await upsertSetting("import_batches", JSON.stringify(batches.filter((b) => b.batchId !== batchId)));
+  return results;
+}
+
+// ----- Leads -----
+export interface ImportLeadRow { name: string; mobile: string; source?: string; note?: string }
+
+export async function previewLeadsImport(rows: ImportLeadRow[]) {
+  const [{ data: exLeads }, { data: exPatients }] = await Promise.all([
+    supabase.from("leads").select("mobile"),
+    supabase.from("patients").select("mobile"),
+  ]);
+  const known = new Set([
+    ...(exLeads ?? []).map((r: any) => normalizeMobile(r.mobile)),
+    ...(exPatients ?? []).map((r: any) => normalizeMobile(r.mobile)),
+  ]);
+  const seen = new Set<string>();
+  const valid: ImportLeadRow[] = [];
+  let duplicates = 0, invalid = 0;
+  const invalidSamples: string[] = [];
+  for (const r of rows) {
+    const mobile = normalizeMobile(r.mobile);
+    if (!r.name.trim() || mobile.length !== 10) {
+      invalid++;
+      if (invalidSamples.length < 5) invalidSamples.push(`${r.name || "(no name)"} — ${r.mobile || "(no mobile)"}`);
+      continue;
+    }
+    if (known.has(mobile) || seen.has(mobile)) { duplicates++; continue; }
+    seen.add(mobile);
+    valid.push({ ...r, mobile });
+  }
+  return { valid, duplicates, invalid, invalidSamples, total: rows.length };
+}
+
+export async function commitLeadsImport(rows: ImportLeadRow[], batchId: string) {
+  const BATCH = 200;
+  let imported = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH).map((r) => ({
+      name: r.name.trim(),
+      mobile: r.mobile,
+      source: r.source?.trim() || "Bulk Import",
+      status: "Cold",
+      note: r.note?.trim() || null,
+      imported_batch: batchId,
+    }));
+    const { error } = await supabase.from("leads").insert(chunk);
+    if (error) throw error;
+    imported += chunk.length;
+  }
+  return imported;
+}
+
+// ----- Patients -----
+export interface ImportPatientRow {
+  name: string; mobile: string; age?: string; gender?: string; city?: string;
+  primary_disease?: string; branch?: string;
+}
+
+export async function previewPatientsImport(rows: ImportPatientRow[], defaultBranch: string) {
+  const { data: existing } = await supabase.from("patients").select("mobile");
+  const known = new Set((existing ?? []).map((r: any) => normalizeMobile(r.mobile)));
+  const seen = new Set<string>();
+  const valid: (ImportPatientRow & { mobile: string; branch: string })[] = [];
+  let duplicates = 0, invalid = 0;
+  const invalidSamples: string[] = [];
+  for (const r of rows) {
+    const mobile = normalizeMobile(r.mobile);
+    if (!r.name.trim() || mobile.length !== 10) {
+      invalid++;
+      if (invalidSamples.length < 5) invalidSamples.push(`${r.name || "(no name)"} — ${r.mobile || "(no mobile)"}`);
+      continue;
+    }
+    if (known.has(mobile) || seen.has(mobile)) { duplicates++; continue; }
+    seen.add(mobile);
+    const branch = (r.branch?.trim().toUpperCase().replace(/\s+/g, "_") || defaultBranch) as string;
+    valid.push({ ...r, mobile, branch: branch === "BAJAJ_NAGAR" || branch === "JAGATPURA" ? branch : defaultBranch });
+  }
+  return { valid, duplicates, invalid, invalidSamples, total: rows.length };
+}
+
+export async function commitPatientsImport(
+  rows: (ImportPatientRow & { mobile: string; branch: string })[],
+  batchId: string,
+) {
+  const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
+  let seq = 1000 + (count ?? 0) + 1;
+  const BATCH = 200;
+  let imported = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH).map((r) => ({
+      patient_code: `YHC-${seq++}`,
+      name: r.name.trim(),
+      mobile: r.mobile,
+      age: r.age ? Number(r.age) || null : null,
+      gender: r.gender?.trim() || null,
+      city: r.city?.trim() || null,
+      primary_disease: r.primary_disease?.trim() || null,
+      wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
+      branch: r.branch,
+      lifetime_visits: 0,
+      lifetime_revenue: 0,
+      current_balance: 0,
+      imported_batch: batchId,
+    }));
+    const { error } = await supabase.from("patients").insert(chunk);
+    if (error) throw error;
+    imported += chunk.length;
+  }
+  return imported;
+}
+
+// ----- Visit / Revenue history (run AFTER patients exist — matches by mobile) -----
+export interface ImportVisitRow {
+  mobile: string; visit_date: string; chief_complaint?: string;
+  amount_charged?: string; amount_received?: string; payment_mode?: string;
+}
+
+export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
+  const { data: patients } = await supabase.from("patients").select("id,mobile,branch");
+  const byMobile = new Map((patients ?? []).map((p: any) => [normalizeMobile(p.mobile), p]));
+  let unmatched = 0;
+  const unmatchedSamples: string[] = [];
+  const valid: (ImportVisitRow & { patient_id: string; branch: string })[] = [];
+  for (const r of rows) {
+    const mobile = normalizeMobile(r.mobile);
+    const p = byMobile.get(mobile);
+    if (!p || !r.visit_date?.trim()) {
+      unmatched++;
+      if (unmatchedSamples.length < 5) unmatchedSamples.push(r.mobile || "(no mobile)");
+      continue;
+    }
+    valid.push({ ...r, mobile, patient_id: p.id, branch: p.branch });
+  }
+  return { valid, unmatched, unmatchedSamples, total: rows.length };
+}
+
+export async function commitVisitHistoryImport(
+  rows: (ImportVisitRow & { patient_id: string; branch: string })[],
+  batchId: string,
+) {
+  const BATCH = 150;
+  let visitsImported = 0, paymentsImported = 0;
+  const touched = new Set<string>();
+
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const visitInserts = chunk.map((r) => ({
+      patient_id: r.patient_id,
+      visit_date: r.visit_date,
+      visit_type: "OPD",
+      visit_status: "DONE",
+      branch: r.branch,
+      chief_complaint: r.chief_complaint?.trim() || null,
+      imported_batch: batchId,
+    }));
+    const { data: inserted, error } = await supabase.from("visits").insert(visitInserts).select("id,patient_id");
+    if (error) throw error;
+    visitsImported += inserted?.length ?? 0;
+
+    const paymentInserts: any[] = [];
+    (inserted ?? []).forEach((v: any, idx: number) => {
+      const src = chunk[idx];
+      touched.add(v.patient_id);
+      const charged = Number(src.amount_charged ?? src.amount_received ?? 0);
+      const received = Number(src.amount_received ?? 0);
+      if (charged > 0 || received > 0) {
+        paymentInserts.push({
+          visit_id: v.id,
+          patient_id: v.patient_id,
+          amount_charged: charged,
+          amount_received: received,
+          balance_due: Math.max(0, charged - received),
+          payment_mode: (src.payment_mode?.trim().toUpperCase() || "CASH"),
+          branch: src.branch,
+          notes: "Bulk imported (visit history)",
+          imported_batch: batchId,
+        });
+      }
+    });
+    if (paymentInserts.length) {
+      const { error: pe } = await supabase.from("payments").insert(paymentInserts);
+      if (pe) throw pe;
+      paymentsImported += paymentInserts.length;
+    }
+  }
+
+  // Recompute lifetime totals for every patient touched by this import,
+  // a few at a time so we don't hammer the DB with hundreds of parallel calls.
+  const ids = Array.from(touched);
+  const CONCURRENCY = 8;
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    await Promise.all(
+      ids.slice(i, i + CONCURRENCY).map(async (patientId) => {
+        const [{ count: visitCount }, { data: pays }, { data: lastVisit }] = await Promise.all([
+          supabase.from("visits").select("id", { count: "exact", head: true }).eq("patient_id", patientId),
+          supabase.from("payments").select("amount_received,balance_due").eq("patient_id", patientId),
+          supabase.from("visits").select("visit_date").eq("patient_id", patientId).order("visit_date", { ascending: false }).limit(1).maybeSingle(),
+        ]);
+        const revenue = (pays ?? []).reduce((s: number, p: any) => s + Number(p.amount_received || 0), 0);
+        const balance = (pays ?? []).reduce((s: number, p: any) => s + Number(p.balance_due || 0), 0);
+        await supabase
+          .from("patients")
+          .update({
+            lifetime_visits: visitCount ?? 0,
+            lifetime_revenue: revenue,
+            current_balance: balance,
+            last_visit_date: lastVisit?.visit_date ?? null,
+          })
+          .eq("id", patientId);
+      }),
+    );
+  }
+
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size };
+}
+
+
 export async function searchPatients(term: string) {
   const t = term.trim();
   if (!t) return [];
