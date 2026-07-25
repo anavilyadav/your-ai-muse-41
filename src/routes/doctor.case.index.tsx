@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue } from "@/lib/db";
+import { fetchTodayQueueCaseDR } from "@/lib/db";
 import { Lock } from "lucide-react";
 
 export const Route = createFileRoute("/doctor/case/")({
@@ -30,7 +30,7 @@ function CaseBoardPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ["today-queue"],
-    queryFn: fetchTodayQueue,
+    queryFn: fetchTodayQueueCaseDR,
     refetchInterval: 15_000,
   });
   const rows = (data ?? []).filter((r) =>

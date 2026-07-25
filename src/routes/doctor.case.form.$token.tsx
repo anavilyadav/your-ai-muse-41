@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, saveCaseNotes, uploadCasePhoto } from "@/lib/db";
+import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -97,7 +97,7 @@ function CaseFormPage() {
   const qc = useQueryClient();
   const { data: visit, isLoading } = useQuery({
     queryKey: ["visit", visitId],
-    queryFn: () => fetchVisit(visitId),
+    queryFn: () => fetchVisitForCaseDR(visitId),
   });
 
   const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);

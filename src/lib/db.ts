@@ -147,6 +147,34 @@ export async function fetchVisit(visitId: string) {
   return data as (DBVisit & { patient: DBPatient }) | null;
 }
 
+/**
+ * Hidden Identity Mode — used ONLY by Case-DR screens. Selects just
+ * name/age/gender/primary_disease at the DATABASE query level (not just
+ * hidden in the UI), so mobile/address/etc. never leave the server in the
+ * API response for this role, even via browser dev tools.
+ */
+const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
+
+export async function fetchTodayQueueCaseDR() {
+  const { data, error } = await supabase
+    .from("visits")
+    .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
+    .eq("visit_date", today())
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
+}
+
+export async function fetchVisitForCaseDR(visitId: string) {
+  const { data, error } = await supabase
+    .from("visits")
+    .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
+    .eq("id", visitId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as (DBVisit & { patient: Partial<DBPatient> }) | null;
+}
+
 // ---------- Payments ----------
 export async function collectPayment(input: {
   visit_id: string;
