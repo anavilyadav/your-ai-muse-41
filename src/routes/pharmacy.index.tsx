@@ -1,8 +1,17 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { List, Package, BookOpen } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import type { NavItem } from "@/components/yhc/RoleShell";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
+
+export const PHARMACY_NAV: NavItem[] = [
+  { to: "/pharmacy", label: "Queue", icon: List, exact: true },
+  { to: "/pharmacy/inventory", label: "Inventory", icon: Package },
+  { to: "/pharmacy/master", label: "Master", icon: BookOpen },
+];
+
 
 export const Route = createFileRoute("/pharmacy/")({
   head: () => ({ meta: [{ title: "Pharmacy Queue — YHC" }, { name: "robots", content: "noindex" }] }),
