@@ -496,6 +496,88 @@ export async function fetchReports(period: "week" | "month" | "lastMonth" | "yea
   };
 }
 
+// ---------- Appointments ----------
+export interface NewAppointmentInput {
+  patient_name: string;
+  mobile?: string;
+  appointment_date: string; // YYYY-MM-DD
+  appointment_time?: string;
+  slot_minutes?: number;
+  doctor?: string;
+  reason?: string;
+  branch?: string;
+  patient_id?: string;
+}
+
+export async function fetchAppointments(date?: string) {
+  let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true });
+  if (date) q = q.eq("appointment_date", date);
+  const { data, error } = await q;
+  if (error) return [];
+  return data ?? [];
+}
+
+export async function createAppointment(input: NewAppointmentInput) {
+  const { data, error } = await supabase
+    .from("appointments")
+    .insert({ ...input, status: "Confirmed" })
+    .select()
+    .single();
+  if (error) return { success: false, error: error.message, data: null };
+  return { success: true, error: null, data };
+}
+
+export async function updateAppointmentStatus(id: string, status: string) {
+  const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// ---------- Deliveries ----------
+export const DELIVERY_STEPS = ["Packed", "Dispatched", "Out for Delivery", "Delivered"] as const;
+
+export interface NewDeliveryInput {
+  patient_id?: string;
+  visit_id?: string;
+  patient_name?: string;
+  token?: string;
+  area?: string;
+  partner: string;
+  address?: string;
+  advance_amount_paid: number;
+  branch?: string;
+}
+
+export async function fetchDeliveries() {
+  const { data, error } = await supabase
+    .from("deliveries")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return data ?? [];
+}
+
+export async function createDelivery(input: NewDeliveryInput) {
+  if (!input.advance_amount_paid || input.advance_amount_paid <= 0) {
+    return { success: false, error: "Advance payment is required before creating a delivery", data: null };
+  }
+  const { data, error } = await supabase
+    .from("deliveries")
+    .insert({ ...input, status: "Packed" })
+    .select()
+    .single();
+  if (error) return { success: false, error: error.message, data: null };
+  return { success: true, error: null, data };
+}
+
+export async function updateDelivery(id: string, patch: { status?: string; note?: string }) {
+  const { error } = await supabase.from("deliveries").update(patch).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function updateDeliveryStatus(id: string, status: string) {
+  return updateDelivery(id, { status });
+}
+
 export async function fetchStaff() {
   const { data, error } = await supabase
     .from("users")

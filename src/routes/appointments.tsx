@@ -1,33 +1,89 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import {
-  updateAppointment,
-  useAppointments,
-  type ApptStatus,
-  type Branch,
-} from "@/lib/yhc-store";
+import { fetchAppointments, createAppointment, updateAppointmentStatus } from "@/lib/db";
+import { today } from "@/lib/supabase";
 
 export const Route = createFileRoute("/appointments")({
   head: () => ({ meta: [{ title: "Appointments — YHC Jaipur" }] }),
   component: AppointmentsPage,
 });
 
-const branches: ("All" | Branch)[] = ["All", "Bajaj Nagar", "Jagatpura"];
+const branches: ("All" | "Bajaj Nagar" | "Jagatpura")[] = ["All", "Bajaj Nagar", "Jagatpura"];
 
-const statusStyle: Record<ApptStatus, string> = {
+const statusStyle: Record<string, string> = {
   Confirmed: "bg-success/15 text-success border-success/40",
   Tentative: "bg-accent/25 text-accent-foreground border-accent/50",
   Cancelled: "bg-destructive/15 text-destructive border-destructive/40",
   Arrived: "bg-primary/15 text-primary border-primary/40",
 };
 
+function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [date, setDate] = useState(today());
+  const [time, setTime] = useState("");
+  const [branch, setBranch] = useState("Bajaj Nagar");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!name.trim() || !time.trim()) { toast.error("Naam aur time zaroori hai"); return; }
+    setSaving(true);
+    const res = await createAppointment({
+      patient_name: name.trim(),
+      mobile: mobile.replace(/\D/g, ""),
+      appointment_date: date,
+      appointment_time: time,
+      branch,
+      reason: reason.trim() || undefined,
+    });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success("Appointment ban gaya");
+    onAdded();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">New Appointment</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Patient naam" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <div className="flex gap-2">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          </div>
+          <div className="flex gap-1.5">
+            {["Bajaj Nagar", "Jagatpura"].map((b) => (
+              <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+            ))}
+          </div>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Create Appointment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppointmentsPage() {
-  const appts = useAppointments();
+  const { data, isLoading } = useQuery({ queryKey: ["appointments"], queryFn: () => fetchAppointments() });
+  const queryClient = useQueryClient();
+  const appts = (data ?? []) as any[];
   const [branch, setBranch] = useState<(typeof branches)[number]>("All");
+  const [showNew, setShowNew] = useState(false);
 
   const filtered = useMemo(
     () => (branch === "All" ? appts : appts.filter((a) => a.branch === branch)),
@@ -41,8 +97,28 @@ function AppointmentsPage() {
     return { confirmed, arrived, cancelled };
   }, [appts]);
 
+  const setStatus = async (a: any, status: string) => {
+    const res = await updateAppointmentStatus(a.id, status);
+    if (res.success) {
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      status === "Arrived" ? toast.success(`${a.patient_name} marked arrived`) : toast.error(`${a.patient_name} cancelled`);
+    } else {
+      toast.error("Update nahi hua: " + res.error);
+    }
+  };
+
   return (
-    <MobileShell title="Appointments" subtitle="Today's schedule" showBack>
+    <MobileShell
+      title="Appointments"
+      subtitle="Today's schedule"
+      showBack
+      right={
+        <button onClick={() => setShowNew(true)} className="rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-3 py-1.5 inline-flex items-center gap-1">
+          <Plus className="h-3.5 w-3.5" /> New
+        </button>
+      }
+    >
+      {showNew && <NewAppointmentModal onClose={() => setShowNew(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["appointments"] })} />}
       <div className="grid grid-cols-3 gap-2">
         <StatCard label="Confirmed" value={stats.confirmed} tone="success" />
         <StatCard label="Arrived" value={stats.arrived} />
@@ -66,6 +142,9 @@ function AppointmentsPage() {
         ))}
       </div>
 
+      {isLoading ? (
+        <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : (
       <ul className="mt-3 space-y-2">
         {filtered.length === 0 && (
           <li className="text-center text-sm text-muted-foreground py-8">No appointments.</li>
@@ -84,21 +163,23 @@ function AppointmentsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-primary font-bold text-sm">
-                  <Clock className="h-3.5 w-3.5" /> {a.time}
-                  <span className="text-[10px] font-normal text-muted-foreground">
-                    ({a.slotMinutes} min)
-                  </span>
+                  <Clock className="h-3.5 w-3.5" /> {a.appointment_time}
+                  {a.slot_minutes && (
+                    <span className="text-[10px] font-normal text-muted-foreground">
+                      ({a.slot_minutes} min)
+                    </span>
+                  )}
                 </div>
-                <div className="mt-1 font-semibold text-sm truncate">{a.patientName}</div>
+                <div className="mt-1 font-semibold text-sm truncate">{a.patient_name}</div>
                 <div className="text-[11px] text-muted-foreground truncate">
-                  {a.doctor} • {a.branch}
+                  {a.doctor ?? "Dr. Yadav"} • {a.branch}
                 </div>
-                <div className="text-[11px] text-foreground/70 mt-1 truncate">{a.reason}</div>
+                {a.reason && <div className="text-[11px] text-foreground/70 mt-1 truncate">{a.reason}</div>}
               </div>
               <span
                 className={cn(
                   "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                  statusStyle[a.status],
+                  statusStyle[a.status] ?? statusStyle.Confirmed,
                 )}
               >
                 {a.status}
@@ -122,19 +203,13 @@ function AppointmentsPage() {
                   <MessageCircle className="h-3 w-3" /> WA
                 </a>
                 <button
-                  onClick={() => {
-                    updateAppointment(a.id, { status: "Arrived" });
-                    toast.success(`${a.patientName} marked arrived`);
-                  }}
+                  onClick={() => setStatus(a, "Arrived")}
                   className="rounded-lg bg-primary text-primary-foreground py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
                   <CheckCircle2 className="h-3 w-3" /> Arrived
                 </button>
                 <button
-                  onClick={() => {
-                    updateAppointment(a.id, { status: "Cancelled" });
-                    toast.error(`${a.patientName} cancelled`);
-                  }}
+                  onClick={() => setStatus(a, "Cancelled")}
                   className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
                   <XCircle className="h-3 w-3" /> Cancel
@@ -144,10 +219,11 @@ function AppointmentsPage() {
           </li>
         ))}
       </ul>
+      )}
 
       <div className="mt-6 rounded-xl bg-primary/5 border border-primary/20 p-3 flex items-center gap-2 text-[11px] text-primary">
         <CalendarCheck className="h-4 w-4 shrink-0" />
-        Tap "Arrived" to auto-add the patient to today's queue. (Wired next.)
+        Tap "Arrived" to mark them in for today.
       </div>
     </MobileShell>
   );

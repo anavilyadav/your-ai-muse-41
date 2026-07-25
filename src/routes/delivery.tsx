@@ -1,14 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Truck } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import {
-  DELIVERY_STEPS,
-  updateDelivery,
-  useDeliveries,
-  type DeliveryStatus,
-} from "@/lib/yhc-store";
+import { DELIVERY_STEPS, fetchDeliveries, updateDelivery } from "@/lib/db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/delivery")({
@@ -16,15 +12,16 @@ export const Route = createFileRoute("/delivery")({
   component: DeliveryPage,
 });
 
-const partnerIcon = {
+const partnerIcon: Record<string, typeof Truck> = {
   Swiggy: Truck,
   Porter: Truck,
   Courier: Package,
   "Self-pickup": Package,
-} as const;
+};
 
 function DeliveryPage() {
-  const deliveries = useDeliveries();
+  const { data, isLoading } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
+  const deliveries = (data ?? []) as any[];
 
   const stats = useMemo(() => {
     const active = deliveries.filter(
@@ -43,40 +40,55 @@ function DeliveryPage() {
         <StatCard label="Issues" value={stats.issues} tone="destructive" />
       </div>
 
-      <ul className="mt-4 space-y-3">
-        {deliveries.map((d) => (
-          <DeliveryCard key={d.id} d={d} />
-        ))}
-      </ul>
+      {isLoading ? (
+        <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : deliveries.length === 0 ? (
+        <div className="text-center text-sm text-muted-foreground py-8">Koi active delivery nahi hai.</div>
+      ) : (
+        <ul className="mt-4 space-y-3">
+          {deliveries.map((d) => (
+            <DeliveryCard key={d.id} d={d} />
+          ))}
+        </ul>
+      )}
     </MobileShell>
   );
 }
 
-function DeliveryCard({
-  d,
-}: {
-  d: ReturnType<typeof useDeliveries>[number];
-}) {
+function DeliveryCard({ d }: { d: any }) {
+  const queryClient = useQueryClient();
   const [note, setNote] = useState(d.note ?? "");
-  const Icon = partnerIcon[d.partner];
+  const Icon = partnerIcon[d.partner] ?? Package;
   const isIssue = d.status === "Issue";
 
-  const currentIdx = DELIVERY_STEPS.indexOf(d.status as DeliveryStatus);
+  const currentIdx = DELIVERY_STEPS.indexOf(d.status);
+
+  const save = async (patch: { status?: string; note?: string }) => {
+    const res = await updateDelivery(d.id, patch);
+    if (res.success) queryClient.invalidateQueries({ queryKey: ["deliveries"] });
+    else toast.error("Update nahi hua: " + res.error);
+  };
 
   return (
     <li className="rounded-xl bg-surface border border-border p-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm truncate">{d.patientName}</span>
-            <span className="text-[10px] font-bold text-accent-foreground bg-accent rounded-full px-1.5 py-0.5">
-              {d.token}
-            </span>
+            <span className="font-semibold text-sm truncate">{d.patient_name}</span>
+            {d.token && (
+              <span className="text-[10px] font-bold text-accent-foreground bg-accent rounded-full px-1.5 py-0.5">
+                {d.token}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
             <Icon className="h-3.5 w-3.5" /> {d.partner}
-            <span className="mx-1">•</span>
-            <MapPin className="h-3 w-3" /> {d.area}
+            {d.area && (
+              <>
+                <span className="mx-1">•</span>
+                <MapPin className="h-3 w-3" /> {d.area}
+              </>
+            )}
           </div>
         </div>
         {isIssue && (
@@ -86,7 +98,6 @@ function DeliveryCard({
         )}
       </div>
 
-      {/* Status steps */}
       <div className="mt-3 flex items-center gap-1">
         {DELIVERY_STEPS.map((step, i) => {
           const active = !isIssue && i === currentIdx;
@@ -121,7 +132,7 @@ function DeliveryCard({
       <input
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        onBlur={() => updateDelivery(d.id, { note })}
+        onBlur={() => save({ note })}
         placeholder="Tracking note (AWB, driver, etc.)"
         className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       />
@@ -129,8 +140,8 @@ function DeliveryCard({
       <div className="mt-2.5 grid grid-cols-2 gap-2">
         <button
           onClick={() => {
-            updateDelivery(d.id, { status: "Delivered", note });
-            toast.success(`${d.patientName} — marked delivered`);
+            save({ status: "Delivered", note });
+            toast.success(`${d.patient_name} — marked delivered`);
           }}
           disabled={d.status === "Delivered"}
           className="flex items-center justify-center gap-1 rounded-lg bg-success text-success-foreground py-2 text-xs font-semibold disabled:opacity-50"
@@ -139,8 +150,8 @@ function DeliveryCard({
         </button>
         <button
           onClick={() => {
-            updateDelivery(d.id, { status: "Issue", note });
-            toast.error(`${d.patientName} — issue flagged`);
+            save({ status: "Issue", note });
+            toast.error(`${d.patient_name} — issue flagged`);
           }}
           className="flex items-center justify-center gap-1 rounded-lg bg-destructive text-destructive-foreground py-2 text-xs font-semibold"
         >
