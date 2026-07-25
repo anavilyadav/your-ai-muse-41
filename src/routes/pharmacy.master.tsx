@@ -1,21 +1,86 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchMasterMedicines } from "@/lib/db";
+import { fetchMasterMedicines, addStockEntry } from "@/lib/db";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/master")({
   head: () => ({ meta: [{ title: "Medicine Master — Pharmacy" }, { name: "robots", content: "noindex" }] }),
   component: MasterPage,
 });
 
+const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+
+function AddMedicineModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [medicine, setMedicine] = useState("");
+  const [potency, setPotency] = useState("");
+  const [type, setType] = useState("");
+  const [branch, setBranch] = useState(BRANCHES[0]);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!medicine.trim() || !potency.trim()) {
+      toast.error("Medicine naam aur potency zaroori hai");
+      return;
+    }
+    setSaving(true);
+    // Adds it into the master list with 0 starting stock — pharmacy can
+    // top up quantity anytime from Inventory → + Stock.
+    const res = await addStockEntry({ medicine_name: medicine.trim(), potency: potency.trim(), branch, quantity: 0, type: type.trim() || undefined });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success("Medicine master mein add ho gayi");
+    onAdded();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Add New Medicine</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
+            <input value={medicine} onChange={(e) => setMedicine(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. Nux Vomica" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
+            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 30, 200, 1M" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Type (optional)</label>
+            <input value={type} onChange={(e) => setType(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. Dilution, Mother Tincture" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
+            <div className="flex gap-1.5 mt-1">
+              {BRANCHES.map((b) => (
+                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+              ))}
+            </div>
+          </div>
+          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Add Medicine"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MasterPage() {
   const [q, setQ] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["master-medicines"], queryFn: fetchMasterMedicines });
+  const queryClient = useQueryClient();
   const all = data ?? [];
   const list = q ? all.filter((m) => m.med.toLowerCase().includes(q.toLowerCase())) : all;
   return (
@@ -25,13 +90,16 @@ function MasterPage() {
       nav={PHARMACY_NAV}
       right={
         <button
-          onClick={() => toast("Add new medicine")}
+          onClick={() => setShowAdd(true)}
           className="rounded-full bg-accent text-accent-foreground text-[12px] font-bold px-3 py-1.5"
         >
           + Add
         </button>
       }
     >
+      {showAdd && (
+        <AddMedicineModal onClose={() => setShowAdd(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["master-medicines"] })} />
+      )}
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input

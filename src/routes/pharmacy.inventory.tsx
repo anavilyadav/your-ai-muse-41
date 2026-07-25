@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory } from "@/lib/db";
+import { fetchInventory, addStockEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/inventory")({
@@ -13,15 +14,78 @@ export const Route = createFileRoute("/pharmacy/inventory")({
   component: InventoryPage,
 });
 
+const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+
 function isLow(row: any): boolean {
   const stock = Number(row.stock_drams ?? row.stock ?? 0);
   const low = Number(row.reorder_level ?? row.low ?? 20);
   return stock <= low;
 }
 
+function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [medicine, setMedicine] = useState("");
+  const [potency, setPotency] = useState("");
+  const [branch, setBranch] = useState(BRANCHES[0]);
+  const [qty, setQty] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const q = Number(qty);
+    if (!medicine.trim() || !potency.trim() || !q || q <= 0) {
+      toast.error("Medicine, potency aur valid quantity bharo");
+      return;
+    }
+    setSaving(true);
+    const res = await addStockEntry({ medicine_name: medicine.trim(), potency: potency.trim(), branch, quantity: q });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success("Stock add ho gaya");
+    onAdded();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Add Stock Entry</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
+            <input value={medicine} onChange={(e) => setMedicine(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. Arnica Montana" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
+            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 200, 1M, Q" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
+            <div className="flex gap-1.5 mt-1">
+              {BRANCHES.map((b) => (
+                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Quantity (drams) to add</label>
+            <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 50" />
+          </div>
+          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Add Stock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InventoryPage() {
   const [f, setF] = useState<"All" | "Low Stock">("All");
+  const [showAdd, setShowAdd] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
+  const queryClient = useQueryClient();
   const rows = (data ?? []) as any[];
   const list = f === "Low Stock" ? rows.filter(isLow) : rows;
 
@@ -32,13 +96,16 @@ function InventoryPage() {
       nav={PHARMACY_NAV}
       right={
         <button
-          onClick={() => toast("Add stock entry")}
+          onClick={() => setShowAdd(true)}
           className="rounded-full bg-accent text-accent-foreground text-[12px] font-bold px-3 py-1.5"
         >
           + Stock
         </button>
       }
     >
+      {showAdd && (
+        <AddStockModal onClose={() => setShowAdd(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["inventory"] })} />
+      )}
       <div className="flex gap-2">
         <Stat v={rows.length} l="Total Items" />
         <Stat v={rows.filter(isLow).length} l="Low Stock" tone="destructive" />

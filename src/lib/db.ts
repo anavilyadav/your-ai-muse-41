@@ -312,6 +312,41 @@ export async function fetchInventory() {
   return data ?? [];
 }
 
+export interface StockEntryInput {
+  medicine_name: string;
+  potency: string;
+  branch: string;
+  quantity: number;
+  type?: string;
+}
+
+/** Adds stock: if a row for this medicine+potency+branch exists, increments it; else creates it. */
+export async function addStockEntry(input: StockEntryInput) {
+  const { data: existing } = await supabase
+    .from("inventory")
+    .select("id, stock_drams")
+    .eq("medicine_name", input.medicine_name)
+    .eq("potency", input.potency)
+    .eq("branch", input.branch)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const newStock = Number(existing.stock_drams ?? 0) + input.quantity;
+    const { error } = await supabase.from("inventory").update({ stock_drams: newStock }).eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+    return { success: true, error: null };
+  }
+  const { error } = await supabase.from("inventory").insert({
+    medicine_name: input.medicine_name,
+    potency: input.potency,
+    branch: input.branch,
+    stock_drams: input.quantity,
+    type: input.type ?? null,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}
+
 export async function fetchMasterMedicines() {
   const { data } = await supabase
     .from("inventory")
