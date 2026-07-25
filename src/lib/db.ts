@@ -422,13 +422,66 @@ export async function markDispensed(visitId: string) {
 }
 
 // ---------- Case notes ----------
+
+// Case-paper/tongue/reports photos come straight off a phone camera and can
+// be 3-8 MB each. Uploading that raw over clinic wifi/mobile data is what was
+// showing up as the case-taking page "hanging" — the spinner never resolves
+// because the upload itself is crawling. We shrink to a sane max dimension
+// and re-encode as JPEG client-side first, which typically takes a multi-MB
+// photo down to 150-400 KB with no visible quality loss for reading a case
+// paper. If compression fails for any reason we safely fall back to the
+// original file rather than blocking the upload.
+async function compressImageForUpload(file: File, maxDim = 1600, quality = 0.72): Promise<File> {
+  if (typeof window === "undefined" || !file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob) return file;
+    const newName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+    return new File([blob], newName, { type: "image/jpeg" });
+  } catch {
+    return file; // compression failed — upload the original rather than fail the whole flow
+  }
+}
+
+// Clinic wifi can stall completely rather than error out. Without a hard
+// timeout, "Uploading…" (and the whole submit flow behind it) can sit frozen
+// indefinitely. This forces a clear failure the user can retry instead.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out — check your connection and try again`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" | "reports", file: File) {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${visitId}/${kind}-${Date.now()}.${ext}`;
-  const { error } = await supabase.storage.from("case-photos").upload(path, file, { upsert: true });
-  if (error) return { success: false, error: error.message, url: null };
-  const { data } = supabase.storage.from("case-photos").getPublicUrl(path);
-  return { success: true, error: null, url: data.publicUrl };
+  try {
+    const compressed = await compressImageForUpload(file);
+    const ext = compressed.name.split(".").pop() || "jpg";
+    const path = `${visitId}/${kind}-${Date.now()}.${ext}`;
+    const { error } = await withTimeout(
+      supabase.storage.from("case-photos").upload(path, compressed, { upsert: true }),
+      25_000,
+      "Photo upload",
+    );
+    if (error) return { success: false, error: error.message, url: null };
+    const { data } = supabase.storage.from("case-photos").getPublicUrl(path);
+    return { success: true, error: null, url: data.publicUrl };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "Upload failed", url: null };
+  }
 }
 
 export interface CaseNotesInput {

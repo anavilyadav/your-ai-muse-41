@@ -16,6 +16,11 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
   const navigate = useNavigate();
 
   const permOk = !permKey || hasReceptionPermission(permKey);
+  // `allow` is passed as a fresh array literal on every parent render
+  // (e.g. allow={["CASE_DR","OWNER"]}). Depending on the array reference
+  // itself would re-run this effect on every render; depending on its
+  // contents instead keeps it stable.
+  const allowKey = allow.join(",");
 
   useEffect(() => {
     if (loading) return;
@@ -26,7 +31,8 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
     if (role && (!allow.includes(role) || !permOk)) {
       navigate({ to: roleHome(role), replace: true });
     }
-  }, [loading, user, role, allow, permOk, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user, role, allowKey, permOk, navigate]);
 
   if (loading || !user) {
     return (
