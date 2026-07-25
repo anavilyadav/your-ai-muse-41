@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X } from "lucide-react";
@@ -11,7 +12,11 @@ import { today } from "@/lib/supabase";
 
 export const Route = createFileRoute("/appointments")({
   head: () => ({ meta: [{ title: "Appointments — YHC Jaipur" }] }),
-  component: AppointmentsPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <AppointmentsPage />
+    </AuthGate>
+  ),
 });
 
 const branches: ("All" | "Bajaj Nagar" | "Jagatpura")[] = ["All", "Bajaj Nagar", "Jagatpura"];

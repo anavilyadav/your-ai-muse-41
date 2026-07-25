@@ -4,14 +4,18 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchReports } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/reports")({
   head: () => ({ meta: [{ title: "Reports — Owner" }, { name: "robots", content: "noindex" }] }),
-  component: ReportsPage,
+  component: () => (
+    <AuthGate allow={["OWNER"]}>
+      <ReportsPage />
+    </AuthGate>
+  ),
 });
 
 const PERIODS = [

@@ -1,9 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 
 export const Route = createFileRoute("/doctor/case/reference")({
   head: () => ({ meta: [{ title: "Reference — Doctor App" }, { name: "robots", content: "noindex" }] }),
-  component: ReferencePage,
+  component: () => (
+    <AuthGate allow={["CASE_DR", "DOCTOR", "OWNER"]}>
+      <ReferencePage />
+    </AuthGate>
+  ),
 });
 
 const rubrics: [string, string][] = [

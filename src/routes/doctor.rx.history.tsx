@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
@@ -7,7 +8,11 @@ import { searchPatients, fetchPatientHistory } from "@/lib/db";
 
 export const Route = createFileRoute("/doctor/rx/history")({
   head: () => ({ meta: [{ title: "Patient History — Doctor App" }, { name: "robots", content: "noindex" }] }),
-  component: HistoryPage,
+  component: () => (
+    <AuthGate allow={["DOCTOR", "OWNER"]}>
+      <HistoryPage />
+    </AuthGate>
+  ),
 });
 
 function HistoryPage() {

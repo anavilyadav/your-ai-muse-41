@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Truck } from "lucide-react";
@@ -9,7 +10,11 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/delivery")({
   head: () => ({ meta: [{ title: "Delivery Tracking — YHC Jaipur" }] }),
-  component: DeliveryPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <DeliveryPage />
+    </AuthGate>
+  ),
 });
 
 const partnerIcon: Record<string, typeof Truck> = {

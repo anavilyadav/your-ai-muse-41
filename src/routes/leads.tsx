@@ -3,14 +3,18 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, PhoneCall, UserPlus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { cn } from "@/lib/utils";
 import { fetchLeads, updateLeadStatus, maskMobile, type LeadStatus } from "@/lib/db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
   head: () => ({ meta: [{ title: "Lead CRM — YHC Jaipur" }] }),
-  component: LeadsPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <LeadsPage />
+    </AuthGate>
+  ),
 });
 
 type Filter = "All" | "HOT" | "Follow-up Due" | "New Today";

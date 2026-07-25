@@ -1,13 +1,17 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
-import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue } from "@/lib/db";
 import { Lock } from "lucide-react";
 
 export const Route = createFileRoute("/doctor/case/")({
   head: () => ({ meta: [{ title: "Case Board — Doctor App" }, { name: "robots", content: "noindex" }] }),
-  component: CaseBoardPage,
+  component: () => (
+    <AuthGate allow={["CASE_DR", "OWNER"]}>
+      <CaseBoardPage />
+    </AuthGate>
+  ),
 });
 
 const statusStyle: Record<string, string> = {

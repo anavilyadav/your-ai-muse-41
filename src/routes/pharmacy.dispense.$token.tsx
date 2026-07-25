@@ -4,13 +4,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
   head: () => ({ meta: [{ title: "Dispense — Pharmacy" }, { name: "robots", content: "noindex" }] }),
-  component: DispensePage,
+  component: () => (
+    <AuthGate allow={["PHARMA", "OWNER"]}>
+      <DispensePage />
+    </AuthGate>
+  ),
 });
 
 function DispensePage() {

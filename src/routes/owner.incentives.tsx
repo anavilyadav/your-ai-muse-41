@@ -4,13 +4,17 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchStaff, fetchIncentiveSplits, saveIncentiveSplits } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/incentives")({
   head: () => ({ meta: [{ title: "Incentives — Owner" }, { name: "robots", content: "noindex" }] }),
-  component: IncentivesPage,
+  component: () => (
+    <AuthGate allow={["OWNER"]}>
+      <IncentivesPage />
+    </AuthGate>
+  ),
 });
 
 const INCENTIVE_ROLES = ["RECP1", "RECP2", "CALLING", "TELECALLER"];

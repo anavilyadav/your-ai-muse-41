@@ -4,14 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Activity } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchSettings, upsertSetting } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/control")({
   head: () => ({ meta: [{ title: "Control Centre — Owner" }, { name: "robots", content: "noindex" }] }),
-  component: ControlPage,
+  component: () => (
+    <AuthGate allow={["OWNER"]}>
+      <ControlPage />
+    </AuthGate>
+  ),
 });
 
 const CONTROLS: { section: string; items: { k: string; on: boolean }[] }[] = [

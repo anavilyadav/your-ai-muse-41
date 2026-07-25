@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Circle, Crown, PhoneCall, Pill, Stethoscope, Truck, Users } from "lucide-react";
 import { useState } from "react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -6,7 +7,11 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/tasks")({
   head: () => ({ meta: [{ title: "Reception Tasks — YHC Jaipur" }] }),
-  component: TasksPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <TasksPage />
+    </AuthGate>
+  ),
 });
 
 const seedTasks = [

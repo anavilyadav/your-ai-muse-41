@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Wallet } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -8,7 +9,11 @@ export const Route = createFileRoute("/patient/$id")({
   head: ({ params }) => ({
     meta: [{ title: `Patient ${params.id} — YHC Jaipur` }],
   }),
-  component: PatientProfilePage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <PatientProfilePage />
+    </AuthGate>
+  ),
 });
 
 function PatientProfilePage() {

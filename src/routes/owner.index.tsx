@@ -2,13 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
-import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
 import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
 export const Route = createFileRoute("/owner/")({
   head: () => ({ meta: [{ title: "Owner Dashboard — YHC" }, { name: "robots", content: "noindex" }] }),
-  component: OwnerDashboard,
+  component: () => (
+    <AuthGate allow={["OWNER"]}>
+      <OwnerDashboard />
+    </AuthGate>
+  ),
 });
 
 export const OWNER_NAV: NavItem[] = [

@@ -4,14 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchVisit, saveCaseNotes, uploadCasePhoto } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/doctor/case/form/$token")({
   head: () => ({ meta: [{ title: "Case Taking — Doctor App" }, { name: "robots", content: "noindex" }] }),
-  component: CaseFormPage,
+  component: () => (
+    <AuthGate allow={["CASE_DR", "OWNER"]}>
+      <CaseFormPage />
+    </AuthGate>
+  ),
 });
 
 function PhotoCapture({

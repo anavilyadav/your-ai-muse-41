@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -7,7 +8,11 @@ import { fetchDaySummary } from "@/lib/db";
 
 export const Route = createFileRoute("/summary")({
   head: () => ({ meta: [{ title: "Day Summary — YHC Jaipur" }] }),
-  component: SummaryPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <SummaryPage />
+    </AuthGate>
+  ),
 });
 
 function SummaryPage() {

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,7 +9,11 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
   head: () => ({ meta: [{ title: "System Health — Owner" }, { name: "robots", content: "noindex" }] }),
-  component: HealthPage,
+  component: () => (
+    <AuthGate allow={["OWNER"]}>
+      <HealthPage />
+    </AuthGate>
+  ),
 });
 
 type Result = { label: string; ok: boolean; detail: string };

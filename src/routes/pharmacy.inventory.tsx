@@ -4,14 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
-import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
 import { fetchInventory, fetchInventorySearch, addStockEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/inventory")({
   head: () => ({ meta: [{ title: "Inventory — Pharmacy" }, { name: "robots", content: "noindex" }] }),
-  component: InventoryPage,
+  component: () => (
+    <AuthGate allow={["PHARMA", "OWNER"]}>
+      <InventoryPage />
+    </AuthGate>
+  ),
 });
 
 const BRANCHES = ["Bajaj Nagar", "Jagatpura"];

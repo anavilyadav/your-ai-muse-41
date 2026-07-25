@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useState } from "react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { Eye, EyeOff } from "lucide-react";
@@ -6,7 +7,11 @@ import { useDoctorSession } from "@/lib/yhc-doctor";
 
 export const Route = createFileRoute("/doctor/rx/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — Doctor App" }, { name: "robots", content: "noindex" }] }),
-  component: DashboardPage,
+  component: () => (
+    <AuthGate allow={["DOCTOR", "OWNER"]}>
+      <DashboardPage />
+    </AuthGate>
+  ),
 });
 
 function DashboardPage() {

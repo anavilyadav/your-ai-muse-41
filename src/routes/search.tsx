@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -6,7 +7,11 @@ import { searchPatients } from "@/lib/db";
 
 export const Route = createFileRoute("/search")({
   head: () => ({ meta: [{ title: "Search Patients — YHC Jaipur" }] }),
-  component: SearchPage,
+  component: () => (
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+      <SearchPage />
+    </AuthGate>
+  ),
 });
 
 function SearchPage() {
