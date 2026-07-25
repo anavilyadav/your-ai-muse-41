@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { getCaseItem } from "@/lib/yhc-doctor";
+import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { fetchVisit, saveCaseNotes } from "@/lib/db";
 import { Camera, Check, Save, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -48,9 +50,13 @@ function Multi({ options, sel, setSel }: { options: string[]; sel: string[]; set
 }
 
 function CaseFormPage() {
-  const { token } = Route.useParams();
-  const caseData = getCaseItem(token);
+  const { token: visitId } = Route.useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { data: visit, isLoading } = useQuery({
+    queryKey: ["visit", visitId],
+    queryFn: () => fetchVisit(visitId),
+  });
 
   const [hasPhoto, setHasPhoto] = useState(false);
   const [thermals, setThermals] = useState<string | "">("");
@@ -61,15 +67,44 @@ function CaseFormPage() {
   const [mentals, setMentals] = useState<string[]>([]);
   const [worse, setWorse] = useState<string[]>([]);
   const [better, setBetter] = useState<string[]>([]);
+  const [detail, setDetail] = useState("");
+  const [past, setPast] = useState("");
+  const [flag, setFlag] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if (!hasPhoto) return toast.error("Case paper photo is required");
     if (!window.confirm("Submit case to the prescribing doctor? Cannot be edited after submit.")) return;
-    toast.success("Case submitted — moved to prescriber's queue");
-    navigate({ to: "/doctor/case" });
+    const notes = [
+      thermals && `Thermals: ${thermals}`,
+      thirst && `Thirst: ${thirst}`,
+      sleep && `Sleep: ${sleep}`,
+      appetite && `Appetite: ${appetite}`,
+      sweat && `Sweat: ${sweat}`,
+      mentals.length && `Mentals: ${mentals.join(", ")}`,
+      worse.length && `Worse: ${worse.join(", ")}`,
+      better.length && `Better: ${better.join(", ")}`,
+      detail && `Detail: ${detail}`,
+      past && `Past history: ${past}`,
+      flag && `Flag to Rx: ${flag}`,
+    ].filter(Boolean).join("\n");
+    setBusy(true);
+    try {
+      await saveCaseNotes(visitId, notes);
+      qc.invalidateQueries({ queryKey: ["today-queue"] });
+      toast.success("Case submitted — moved to prescriber's queue");
+      navigate({ to: "/doctor/case" });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to submit");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  if (!caseData) {
+  if (isLoading) {
+    return <DoctorShell title="Case Taking" showBack><LoadingBlock /></DoctorShell>;
+  }
+  if (!visit) {
     return (
       <DoctorShell title="Case Taking" showBack>
         <p className="text-sm text-muted-foreground">Case not found on your board.</p>
@@ -77,17 +112,19 @@ function CaseFormPage() {
     );
   }
 
+  const p = visit.patient;
+
   return (
-    <DoctorShell title="Case Taking" subtitle={`${caseData.token} • Contact hidden`} showBack>
+    <DoctorShell title="Case Taking" subtitle={`${visit.token_number ?? "—"} • Contact hidden`} showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 text-center">
         <span className="inline-block rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-2.5 py-1">
-          {caseData.token}
+          {visit.token_number ?? "—"}
         </span>
-        <div className="text-lg font-extrabold mt-2">{caseData.name}</div>
+        <div className="text-lg font-extrabold mt-2">{p?.name}</div>
         <div className="text-[12px] text-primary-foreground/70 mt-0.5">
-          {caseData.age}y • {caseData.gender} • {caseData.marital} • {caseData.job}
+          {p?.age ? `${p.age}y` : "—"} • {p?.gender ?? "—"}
         </div>
-        <div className="text-[12px] text-primary-foreground/70">{caseData.complaint}</div>
+        <div className="text-[12px] text-primary-foreground/70">{visit.chief_complaint ?? "—"}</div>
       </div>
 
       <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
@@ -135,7 +172,7 @@ function CaseFormPage() {
       <Section n={5} title="Particulars">
         <div>
           <Label>Chief complaint detail (in patient's words)</Label>
-          <textarea rows={3} placeholder="Onset, duration, character, location — plain language" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
+          <textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Onset, duration, character, location — plain language" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => toast("Tongue photo captured")} className="rounded-xl bg-accent/20 text-primary text-[12px] font-semibold py-2.5">👅 Tongue photo</button>
@@ -146,11 +183,11 @@ function CaseFormPage() {
       <Section n={6} title="Notes">
         <div>
           <Label>Past history</Label>
-          <textarea rows={2} placeholder="Past illnesses, surgeries, family history…" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
+          <textarea rows={2} value={past} onChange={(e) => setPast(e.target.value)} placeholder="Past illnesses, surgeries, family history…" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
         </div>
         <div>
           <Label>Notes for prescribing doctor</Label>
-          <textarea rows={2} placeholder="Anything important to flag…" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
+          <textarea rows={2} value={flag} onChange={(e) => setFlag(e.target.value)} placeholder="Anything important to flag…" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
         </div>
       </Section>
 
@@ -161,8 +198,8 @@ function CaseFormPage() {
         <BookOpen className="h-4 w-4" /> Performa reference — check if you're forgetting something
       </button>
 
-      <button onClick={submit} className="mt-4 w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2">
-        <Check className="h-4 w-4" /> Send to prescribing doctor
+      <button onClick={submit} disabled={busy} className="mt-4 w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+        <Check className="h-4 w-4" /> {busy ? "Submitting…" : "Send to prescribing doctor"}
       </button>
       <button onClick={() => toast("Draft saved")} className="mt-2 w-full rounded-full bg-surface border border-border text-primary font-bold py-3 text-sm inline-flex items-center justify-center gap-2">
         <Save className="h-4 w-4" /> Save draft

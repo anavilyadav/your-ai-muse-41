@@ -289,6 +289,7 @@ export async function markFollowupDone(id: string) {
 }
 
 // ---------- Leads ----------
+export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
 export async function fetchLeads() {
   const { data, error } = await supabase
     .from("leads")
@@ -296,6 +297,9 @@ export async function fetchLeads() {
     .order("created_at", { ascending: false });
   if (error) return [];
   return data ?? [];
+}
+export async function updateLeadStatus(id: string, status: LeadStatus) {
+  await supabase.from("leads").update({ status }).eq("id", id);
 }
 
 // ---------- Inventory ----------
@@ -308,21 +312,147 @@ export async function fetchInventory() {
   return data ?? [];
 }
 
+export async function fetchMasterMedicines() {
+  const { data } = await supabase
+    .from("inventory")
+    .select("medicine_name, potency, type")
+    .order("medicine_name", { ascending: true });
+  const map = new Map<string, { med: string; potencies: string[]; type: string }>();
+  (data ?? []).forEach((r: any) => {
+    const cur: { med: string; potencies: string[]; type: string } =
+      map.get(r.medicine_name) ?? { med: r.medicine_name, potencies: [], type: r.type ?? "" };
+    if (r.potency && !cur.potencies.includes(r.potency)) cur.potencies.push(r.potency);
+    if (r.type && !cur.type) cur.type = r.type;
+    map.set(r.medicine_name, cur);
+  });
+  return Array.from(map.values());
+}
+
+// ---------- Dispense ----------
+export async function fetchVisitPrescriptions(visitId: string) {
+  const { data } = await supabase
+    .from("prescriptions")
+    .select("*")
+    .eq("visit_id", visitId)
+    .order("created_at", { ascending: true });
+  return (data ?? []) as DBPrescription[];
+}
+
+export async function markDispensed(visitId: string) {
+  await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
+}
+
+// ---------- Case notes ----------
+export async function saveCaseNotes(visitId: string, notes: string) {
+  await supabase
+    .from("visits")
+    .update({ visit_status: "WAITING_DOCTOR", doctor_notes: notes })
+    .eq("id", visitId);
+}
+
 // ---------- Owner ----------
 export async function fetchOwnerStats() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
-  const [todayVisits, todayPay, monthPay] = await Promise.all([
-    supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t),
-    supabase.from("payments").select("amount_received").gte("created_at", t),
-    supabase.from("payments").select("amount_received").gte("created_at", monthStart),
-  ]);
-  const sum = (rows: any[] | null) =>
-    (rows ?? []).reduce((s, r) => s + Number(r.amount_received ?? 0), 0);
+  const [todayVisitsBajaj, todayVisitsJagatpura, todayPay, monthPay, newToday, followupsToday] =
+    await Promise.all([
+      supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
+      supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
+      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", t),
+      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", monthStart),
+      supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", t),
+      supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", t),
+    ]);
+  const sum = (rows: any[] | null, filt?: (r: any) => boolean) =>
+    (rows ?? []).filter((r) => (filt ? filt(r) : true)).reduce((s, r) => s + Number(r.amount_received ?? 0), 0);
   return {
-    todayVisits: todayVisits.count ?? 0,
+    todayVisits: (todayVisitsBajaj.count ?? 0) + (todayVisitsJagatpura.count ?? 0),
+    todayVisitsBajaj: todayVisitsBajaj.count ?? 0,
+    todayVisitsJagatpura: todayVisitsJagatpura.count ?? 0,
     todayRevenue: sum(todayPay.data),
+    todayRevenueBajaj: sum(todayPay.data, (r) => r.branch === "BAJAJ_NAGAR"),
+    todayRevenueJagatpura: sum(todayPay.data, (r) => r.branch === "JAGATPURA"),
     monthRevenue: sum(monthPay.data),
+    monthCash: sum(monthPay.data, (r) => r.payment_mode === "CASH"),
+    monthUpi: sum(monthPay.data, (r) => r.payment_mode === "UPI"),
+    monthCard: sum(monthPay.data, (r) => r.payment_mode === "CARD"),
+    newToday: newToday.count ?? 0,
+    followupsToday: followupsToday.count ?? 0,
+  };
+}
+
+export async function fetchWeekRevenue() {
+  const days: { d: string; label: string }[] = [];
+  const now = new Date();
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(now);
+    dt.setDate(now.getDate() - i);
+    days.push({ d: dt.toISOString().slice(0, 10), label: labels[dt.getDay()] });
+  }
+  const start = days[0].d;
+  const { data } = await supabase
+    .from("payments")
+    .select("amount_received,created_at")
+    .gte("created_at", start);
+  return days.map((day) => {
+    const total = (data ?? [])
+      .filter((r: any) => (r.created_at ?? "").slice(0, 10) === day.d)
+      .reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
+    return [day.label, total] as [string, number];
+  });
+}
+
+export async function fetchReports(period: "week" | "month" | "lastMonth" | "year") {
+  const now = new Date();
+  let start: string;
+  let end: string | null = null;
+  if (period === "week") {
+    const d = new Date(now); d.setDate(now.getDate() - 6);
+    start = d.toISOString().slice(0, 10);
+  } else if (period === "month") {
+    start = now.toISOString().slice(0, 8) + "01";
+  } else if (period === "lastMonth") {
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const e = new Date(now.getFullYear(), now.getMonth(), 0);
+    start = d.toISOString().slice(0, 10);
+    end = e.toISOString().slice(0, 10);
+  } else {
+    start = now.getFullYear() + "-01-01";
+  }
+  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", start);
+  let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
+  let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", start);
+  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted").gte("created_at", start);
+  if (end) {
+    payQ = payQ.lte("created_at", end + "T23:59:59");
+    visQ = visQ.lte("visit_date", end);
+    patQ = patQ.lte("created_at", end + "T23:59:59");
+    leadQ = leadQ.lte("created_at", end + "T23:59:59");
+  }
+  const [pay, vis, pat, lead] = await Promise.all([payQ, visQ, patQ, leadQ]);
+  const rows = pay.data ?? [];
+  const sum = (f: (r: any) => number) => rows.reduce((s, r) => s + f(r), 0);
+  const totalRev = sum((r) => Number(r.amount_received ?? 0));
+  const outstanding = sum((r) => Number(r.balance_due ?? 0));
+  const cash = sum((r) => (r.payment_mode === "CASH" ? Number(r.amount_received ?? 0) : 0));
+  const upi = sum((r) => (r.payment_mode === "UPI" ? Number(r.amount_received ?? 0) : 0));
+  const card = sum((r) => (r.payment_mode === "CARD" ? Number(r.amount_received ?? 0) : 0));
+  const totalPatients = new Set((vis.data ?? []).map((v: any) => v.patient_id)).size;
+  const newPatients = pat.count ?? 0;
+  const avg = totalPatients ? Math.round(totalRev / totalPatients) : 0;
+  return {
+    rows: [
+      ["Total Revenue", `₹${totalRev.toLocaleString("en-IN")}`],
+      ["Total Patients", String(totalPatients)],
+      ["New Patients", String(newPatients)],
+      ["Avg per Patient", `₹${avg.toLocaleString("en-IN")}`],
+      ["Cash Collection", `₹${cash.toLocaleString("en-IN")}`],
+      ["UPI Collection", `₹${upi.toLocaleString("en-IN")}`],
+      ["Card Collection", `₹${card.toLocaleString("en-IN")}`],
+      ["Outstanding", `₹${outstanding.toLocaleString("en-IN")}`],
+      ["Leads Converted", String(lead.count ?? 0)],
+    ] as [string, string][],
   };
 }
 
@@ -341,8 +471,13 @@ export async function fetchSettings() {
   return data ?? [];
 }
 
-export async function updateSetting(key: string, value: string) {
-  await supabase.from("settings").update({ value }).eq("key", key);
+export async function upsertSetting(key: string, value: string) {
+  const { data } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
+  if (data?.id) {
+    await supabase.from("settings").update({ value }).eq("id", data.id);
+  } else {
+    await supabase.from("settings").insert({ key, value });
+  }
 }
 
 // ---------- Search ----------
@@ -378,3 +513,11 @@ export function statusLabel(s: string): string {
   };
   return map[s] ?? s;
 }
+
+export function maskMobile(m: string | null | undefined): string {
+  if (!m) return "";
+  const s = String(m);
+  if (s.length < 6) return s;
+  return s.slice(0, 2) + "XXXX" + s.slice(-4);
+}
+

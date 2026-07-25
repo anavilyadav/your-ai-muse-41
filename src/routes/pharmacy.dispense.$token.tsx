@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { getPharmaPatient } from "@/lib/yhc-pharmacy";
+import { LoadingBlock } from "@/components/yhc/AuthGate";
+import { fetchVisit, fetchVisitPrescriptions, markDispensed, branchLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
@@ -12,74 +14,96 @@ export const Route = createFileRoute("/pharmacy/dispense/$token")({
 });
 
 function DispensePage() {
-  const { token } = Route.useParams();
+  const { token: visitId } = Route.useParams();
   const navigate = useNavigate();
-  const patient = getPharmaPatient(token);
+  const qc = useQueryClient();
+  const { data: visit, isLoading: lv } = useQuery({ queryKey: ["visit", visitId], queryFn: () => fetchVisit(visitId) });
+  const { data: rxData, isLoading: lr } = useQuery({ queryKey: ["rx", visitId], queryFn: () => fetchVisitPrescriptions(visitId) });
+  const rx = rxData ?? [];
   const [checked, setChecked] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  if (!patient) {
+  if (lv || lr) {
+    return <RoleShell title="Dispense" showBack><LoadingBlock /></RoleShell>;
+  }
+  if (!visit) {
     return (
       <RoleShell title="Dispense" showBack>
         <p className="text-sm text-muted-foreground">Patient not found in pharmacy queue.</p>
       </RoleShell>
     );
   }
-  const rx = patient.rx;
-  const toggle = (i: number) => setChecked((c) => (c.includes(i) ? c.filter((x) => x !== i) : [...c, i]));
-  const allDone = checked.length === rx.length;
 
-  const submit = () => {
+  const toggle = (i: number) => setChecked((c) => (c.includes(i) ? c.filter((x) => x !== i) : [...c, i]));
+  const allDone = rx.length > 0 && checked.length === rx.length;
+
+  const submit = async () => {
     if (!allDone) return toast.error("Please check all items first");
-    toast.success("Dispensed — patient sent to payment counter");
-    navigate({ to: "/pharmacy" });
+    setBusy(true);
+    try {
+      await markDispensed(visitId);
+      qc.invalidateQueries({ queryKey: ["today-queue"] });
+      toast.success("Dispensed — patient sent to payment counter");
+      navigate({ to: "/pharmacy" });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to update");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <RoleShell title="Dispense Medicines" showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4">
         <div className="flex justify-between items-center">
-          <span className="font-extrabold text-base">{patient.name}</span>
-          <Badge tone="warn">{patient.token}</Badge>
+          <span className="font-extrabold text-base">{visit.patient?.name}</span>
+          <Badge tone="warn">{visit.token_number ?? "—"}</Badge>
         </div>
-        <div className="text-[12px] text-primary-foreground/70 mt-1">{patient.branch}</div>
+        <div className="text-[12px] text-primary-foreground/70 mt-1">{branchLabel(visit.branch)}</div>
       </div>
 
       <div className="mt-4 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
         Prescription — check each item
       </div>
-      <ul className="mt-2 space-y-2">
-        {rx.map((r, i) => {
-          const on = checked.includes(i);
-          return (
-            <li key={i}>
-              <button
-                onClick={() => toggle(i)}
-                className={cn(
-                  "w-full text-left rounded-2xl p-3.5 border-2 flex items-center gap-3 transition",
-                  on ? "bg-success/10 border-success" : "bg-surface border-border",
-                )}
-              >
-                <div
+      {rx.length === 0 ? (
+        <div className="mt-2 rounded-xl bg-accent/20 text-primary p-3 text-[12px]">No prescription found for this visit.</div>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {rx.map((r, i) => {
+            const on = checked.includes(i);
+            return (
+              <li key={r.id ?? i}>
+                <button
+                  onClick={() => toggle(i)}
                   className={cn(
-                    "h-6 w-6 rounded-full grid place-items-center border-2",
-                    on ? "bg-success border-success text-success-foreground" : "border-muted-foreground",
+                    "w-full text-left rounded-2xl p-3.5 border-2 flex items-center gap-3 transition",
+                    on ? "bg-success/10 border-success" : "bg-surface border-border",
                   )}
                 >
-                  {on && <Check className="h-4 w-4" />}
-                </div>
-                <div className="flex-1">
-                  <div className="font-bold text-primary text-sm">
-                    {r.med} {r.potency !== "—" && r.potency}
+                  <div
+                    className={cn(
+                      "h-6 w-6 rounded-full grid place-items-center border-2",
+                      on ? "bg-success border-success text-success-foreground" : "border-muted-foreground",
+                    )}
+                  >
+                    {on && <Check className="h-4 w-4" />}
                   </div>
-                  <div className="text-[12px] text-muted-foreground">
-                    {r.qty} {r.form} • {r.freq}
+                  <div className="flex-1">
+                    <div className="font-bold text-primary text-sm">
+                      {r.medicine_name} {r.potency && r.potency !== "—" && r.potency}
+                    </div>
+                    <div className="text-[12px] text-muted-foreground">
+                      {r.dose ?? "—"} • {r.frequency ?? "—"}
+                      {r.duration_days ? ` • ${r.duration_days}d` : ""}
+                      {r.is_slx ? " • SLX" : ""}
+                    </div>
                   </div>
-                </div>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <div className="mt-3 rounded-xl bg-accent/25 text-accent-foreground p-3 text-[12px]">
         💡 Dispensing se stock automatically kam hoga (drams/globules)
@@ -87,6 +111,7 @@ function DispensePage() {
 
       <button
         onClick={submit}
+        disabled={busy}
         className={cn(
           "mt-4 w-full rounded-full font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2",
           allDone ? "bg-success text-success-foreground" : "bg-muted text-muted-foreground",
