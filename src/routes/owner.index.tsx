@@ -4,6 +4,7 @@ import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target } from "
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
+import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
 export const Route = createFileRoute("/owner/")({
   head: () => ({ meta: [{ title: "Owner Dashboard — YHC" }, { name: "robots", content: "noindex" }] }),
@@ -39,12 +40,15 @@ function OwnerDashboard() {
       subtitle="Yadav Homeo Clinic • Both Branches"
       nav={OWNER_NAV}
       right={
-        <Link
-          to="/owner/health"
-          className="rounded-full bg-white/15 text-primary-foreground text-[11px] px-3 py-1.5 font-semibold inline-flex items-center gap-1"
-        >
-          <Activity className="h-3.5 w-3.5" /> Health
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <RoleSwitcher />
+          <Link
+            to="/owner/health"
+            className="rounded-full bg-white/15 text-primary-foreground text-[11px] px-3 py-1.5 font-semibold inline-flex items-center gap-1"
+          >
+            <Activity className="h-3.5 w-3.5" /> Health
+          </Link>
+        </div>
       }
     >
       {stats.isLoading ? (

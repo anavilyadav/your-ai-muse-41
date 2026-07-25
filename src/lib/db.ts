@@ -403,7 +403,7 @@ export async function fetchWeekRevenue() {
   });
 }
 
-export async function fetchReports(period: "week" | "month" | "lastMonth" | "year") {
+export async function fetchReports(period: "week" | "month" | "lastMonth" | "year", branch?: string) {
   const now = new Date();
   let start: string;
   let end: string | null = null;
@@ -424,6 +424,11 @@ export async function fetchReports(period: "week" | "month" | "lastMonth" | "yea
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", start);
   let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted").gte("created_at", start);
+  if (branch) {
+    payQ = payQ.eq("branch", branch);
+    visQ = visQ.eq("branch", branch);
+    patQ = patQ.eq("branch", branch);
+  }
   if (end) {
     payQ = payQ.lte("created_at", end + "T23:59:59");
     visQ = visQ.lte("visit_date", end);
@@ -465,10 +470,77 @@ export async function fetchStaff() {
   return data ?? [];
 }
 
+export interface NewStaffInput {
+  name: string;
+  mobile: string;
+  role: string;
+  branch: string | null;
+}
+
+/**
+ * Adds a staff PROFILE row to the "users" table only. This does NOT create
+ * their login (Supabase Auth requires an email+password account, which
+ * needs a service-role key and can't be done from the browser). After
+ * running this, the login account must be created once via the
+ * create-staff-login Edge Function (see supabase/functions/create-staff-login)
+ * or manually in the Supabase dashboard, matching mobile@yhcos.in + PIN.
+ */
+export async function addStaffProfile(input: NewStaffInput) {
+  const { data, error } = await supabase
+    .from("users")
+    .insert({ name: input.name, mobile: input.mobile, role: input.role, branch: input.branch })
+    .select()
+    .single();
+  if (error) return { success: false, error: error.message, data: null };
+  return { success: true, error: null, data };
+}
+
+export async function runHealthChecks() {
+  const results: { label: string; ok: boolean; detail: string }[] = [];
+
+  try {
+    const { error } = await supabase.from("settings").select("id").limit(1);
+    results.push({ label: "Supabase connectivity", ok: !error, detail: error ? error.message : "Connected" });
+  } catch (e: any) {
+    results.push({ label: "Supabase connectivity", ok: false, detail: String(e?.message ?? e) });
+  }
+
+  const tables = ["patients", "visits", "prescriptions", "payments", "users", "inventory"];
+  for (const t of tables) {
+    try {
+      const { count, error } = await supabase.from(t).select("*", { count: "exact", head: true });
+      results.push({
+        label: `Table: ${t}`,
+        ok: !error,
+        detail: error ? error.message : `${count ?? 0} rows`,
+      });
+    } catch (e: any) {
+      results.push({ label: `Table: ${t}`, ok: false, detail: String(e?.message ?? e) });
+    }
+  }
+
+  return results;
+}
+
 // ---------- Settings ----------
 export async function fetchSettings() {
   const { data } = await supabase.from("settings").select("*");
   return data ?? [];
+}
+
+/** Manual incentive split: { [userId]: percentageWeight }. Stored as one JSON blob in settings. */
+export async function fetchIncentiveSplits(): Promise<Record<string, number>> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "incentive_splits").maybeSingle();
+  if (!data?.value) return {};
+  try {
+    return JSON.parse(data.value);
+  } catch {
+    return {};
+  }
+}
+
+export async function saveIncentiveSplits(splits: Record<string, number>) {
+  await upsertSetting("incentive_splits", JSON.stringify(splits));
 }
 
 export async function upsertSetting(key: string, value: string) {
