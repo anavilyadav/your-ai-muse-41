@@ -431,7 +431,16 @@ export async function markDispensed(visitId: string) {
 // photo down to 150-400 KB with no visible quality loss for reading a case
 // paper. If compression fails for any reason we safely fall back to the
 // original file rather than blocking the upload.
-async function compressImageForUpload(file: File, maxDim = 1600, quality = 0.72): Promise<File> {
+//
+// `documentMode` additionally boosts contrast/brightness so a handwritten
+// case paper or lab report photo reads like a flat scan instead of a dim,
+// shadowy phone photo — this is deliberately NOT applied to tongue photos,
+// where true color is clinically meaningful (coating/color assessment).
+async function compressImageForUpload(
+  file: File,
+  opts: { maxDim?: number; quality?: number; documentMode?: boolean } = {},
+): Promise<File> {
+  const { maxDim = 1600, quality = 0.72, documentMode = false } = opts;
   if (typeof window === "undefined" || !file.type.startsWith("image/")) return file;
   try {
     const bitmap = await createImageBitmap(file);
@@ -443,6 +452,11 @@ async function compressImageForUpload(file: File, maxDim = 1600, quality = 0.72)
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
+    if (documentMode && "filter" in ctx) {
+      // Flattens uneven lighting/shadows and lifts ink contrast — the same
+      // idea document-scanner apps use, without full edge-detection/crop.
+      (ctx as any).filter = "contrast(1.35) brightness(1.12) saturate(0.85)";
+    }
     ctx.drawImage(bitmap, 0, 0, w, h);
     const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
     if (!blob) return file;
@@ -468,7 +482,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" | "reports", file: File) {
   try {
-    const compressed = await compressImageForUpload(file);
+    const compressed = await compressImageForUpload(file, { documentMode: kind !== "tongue" });
     const ext = compressed.name.split(".").pop() || "jpg";
     const path = `${visitId}/${kind}-${Date.now()}.${ext}`;
     const { error } = await withTimeout(
