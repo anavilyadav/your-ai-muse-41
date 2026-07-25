@@ -319,7 +319,8 @@ export async function fetchMasterMedicines() {
     .order("medicine_name", { ascending: true });
   const map = new Map<string, { med: string; potencies: string[]; type: string }>();
   (data ?? []).forEach((r: any) => {
-    const cur = map.get(r.medicine_name) ?? { med: r.medicine_name, potencies: [], type: r.type ?? "" };
+    const cur: { med: string; potencies: string[]; type: string } =
+      map.get(r.medicine_name) ?? { med: r.medicine_name, potencies: [], type: r.type ?? "" };
     if (r.potency && !cur.potencies.includes(r.potency)) cur.potencies.push(r.potency);
     if (r.type && !cur.type) cur.type = r.type;
     map.set(r.medicine_name, cur);
