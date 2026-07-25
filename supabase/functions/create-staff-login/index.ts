@@ -3,12 +3,10 @@
 //
 // WHY THIS EXISTS: creating a Supabase Auth user requires the service-role
 // key, which must never be shipped to the browser. This function holds that
-// key server-side. Deploy once, then call it after Add Staff.
-//
-// DEPLOY (one-time):
-//   supabase functions deploy create-staff-login
-//   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service role key from
-//     Supabase Dashboard → Project Settings → API>
+// key server-side. Deploy once via the Supabase Dashboard (see chat for
+// step-by-step) — no CLI or secrets setup needed, SUPABASE_URL and
+// SUPABASE_SERVICE_ROLE_KEY are automatically available inside every
+// Edge Function.
 //
 // CALL from the app (already wired in owner.staff.tsx's AddStaffModal — see
 // the callCreateLogin() TODO there):
