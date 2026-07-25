@@ -13,10 +13,10 @@ function DoctorEntry() {
   const navigate = useNavigate();
   useEffect(() => {
     if (loading) return;
-    if (!user) return void navigate({ to: "/login" });
-    if (user.role === "DOCTOR" || user.role === "OWNER") return void navigate({ to: "/doctor/rx" });
-    if (user.role === "CASE_DR") return void navigate({ to: "/doctor/case" });
-    navigate({ to: roleHome(user.role) });
+    if (!user) return void navigate({ to: "/login", replace: true });
+    if (user.role === "DOCTOR" || user.role === "OWNER") return void navigate({ to: "/doctor/rx", replace: true });
+    if (user.role === "CASE_DR") return void navigate({ to: "/doctor/case", replace: true });
+    navigate({ to: roleHome(user.role), replace: true });
   }, [user, loading, navigate]);
 
   return (
