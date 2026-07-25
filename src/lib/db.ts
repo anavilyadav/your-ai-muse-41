@@ -378,11 +378,34 @@ export async function markDispensed(visitId: string) {
 }
 
 // ---------- Case notes ----------
-export async function saveCaseNotes(visitId: string, notes: string) {
-  await supabase
-    .from("visits")
-    .update({ visit_status: "WAITING_DOCTOR", doctor_notes: notes })
-    .eq("id", visitId);
+export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" | "reports", file: File) {
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `${visitId}/${kind}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("case-photos").upload(path, file, { upsert: true });
+  if (error) return { success: false, error: error.message, url: null };
+  const { data } = supabase.storage.from("case-photos").getPublicUrl(path);
+  return { success: true, error: null, url: data.publicUrl };
+}
+
+export interface CaseNotesInput {
+  notes: string;
+  draft?: boolean; // true = keep in CASE_TAKING status (not submitted yet)
+  case_photo_url?: string | null;
+  tongue_photo_url?: string | null;
+  reports_photo_url?: string | null;
+}
+
+export async function saveCaseNotes(visitId: string, input: string | CaseNotesInput) {
+  const payload: Record<string, any> =
+    typeof input === "string" ? { doctor_notes: input } : { doctor_notes: input.notes };
+  if (typeof input !== "string") {
+    if (input.case_photo_url !== undefined) payload.case_photo_url = input.case_photo_url;
+    if (input.tongue_photo_url !== undefined) payload.tongue_photo_url = input.tongue_photo_url;
+    if (input.reports_photo_url !== undefined) payload.reports_photo_url = input.reports_photo_url;
+  }
+  const isDraft = typeof input !== "string" && input.draft;
+  if (!isDraft) payload.visit_status = "WAITING_DOCTOR";
+  await supabase.from("visits").update(payload).eq("id", visitId);
 }
 
 // ---------- Owner ----------
@@ -576,6 +599,27 @@ export async function updateDelivery(id: string, patch: { status?: string; note?
 
 export async function updateDeliveryStatus(id: string, status: string) {
   return updateDelivery(id, { status });
+}
+
+export async function fetchStockIssues(limit = 10) {
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("*")
+    .eq("action", "STOCK_ISSUE")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data ?? [];
+}
+
+export async function reportStockIssue(visitId: string, note: string) {
+  const { error } = await supabase.from("audit_log").insert({
+    action: "STOCK_ISSUE",
+    table_name: "visits",
+    record_id: visitId,
+    new_value: note,
+  });
+  return { success: !error, error: error?.message ?? null };
 }
 
 export async function fetchStaff() {

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { runHealthChecks } from "@/lib/db";
+import { runHealthChecks, fetchStockIssues } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
@@ -15,6 +16,7 @@ type Result = { label: string; ok: boolean; detail: string };
 function HealthPage() {
   const [results, setResults] = useState<Result[] | null>(null);
   const [running, setRunning] = useState(false);
+  const issues = useQuery({ queryKey: ["stock-issues"], queryFn: () => fetchStockIssues() });
 
   const run = async () => {
     setRunning(true);
@@ -62,6 +64,23 @@ function HealthPage() {
             ))}
           </ul>
         </>
+      )}
+      {issues.data && issues.data.length > 0 && (
+        <div className="mt-4">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+            Recent Stock Issues (Pharmacy)
+          </div>
+          <ul className="space-y-2">
+            {issues.data.map((i: any) => (
+              <li key={i.id} className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+                <div className="text-[13px] text-primary">{i.new_value}</div>
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  {i.created_at ? new Date(i.created_at).toLocaleString("en-IN") : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <button
         onClick={run}

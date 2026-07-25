@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, fetchVisitPrescriptions, markDispensed, branchLabel } from "@/lib/db";
+import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
@@ -36,6 +36,14 @@ function DispensePage() {
 
   const toggle = (i: number) => setChecked((c) => (c.includes(i) ? c.filter((x) => x !== i) : [...c, i]));
   const allDone = rx.length > 0 && checked.length === rx.length;
+
+  const reportIssue = async () => {
+    const note = window.prompt("Kaunsi medicine/kya issue hai? (Owner ko dikhega)");
+    if (!note || !note.trim()) return;
+    const res = await reportStockIssue(visitId, note.trim());
+    if (res.success) toast.success("Owner ko report ho gaya");
+    else toast.error("Report nahi hua: " + res.error);
+  };
 
   const submit = async () => {
     if (!allDone) return toast.error("Please check all items first");
@@ -120,7 +128,7 @@ function DispensePage() {
         <Check className="h-4 w-4" /> {allDone ? "Mark Dispensed & Send to Payment" : `Check all ${rx.length} items first`}
       </button>
       <button
-        onClick={() => toast("Stock issue reported to owner")}
+        onClick={reportIssue}
         className="mt-2 w-full rounded-full bg-surface border-2 border-destructive text-destructive font-bold py-3 text-sm"
       >
         Report Stock Issue

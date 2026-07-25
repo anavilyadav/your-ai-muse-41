@@ -5,14 +5,52 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, saveCaseNotes } from "@/lib/db";
-import { Camera, Check, Save, BookOpen } from "lucide-react";
+import { fetchVisit, saveCaseNotes, uploadCasePhoto } from "@/lib/db";
+import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/doctor/case/form/$token")({
   head: () => ({ meta: [{ title: "Case Taking — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: CaseFormPage,
 });
+
+function PhotoCapture({
+  label,
+  icon,
+  url,
+  uploading,
+  onPick,
+  required,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  url: string | null;
+  uploading: boolean;
+  onPick: (file: File) => void;
+  required?: boolean;
+}) {
+  const inputId = `photo-${label.replace(/\s+/g, "-")}`;
+  return (
+    <label
+      htmlFor={inputId}
+      className={cn(
+        "rounded-xl text-[12px] font-semibold py-2.5 flex flex-col items-center justify-center gap-1 cursor-pointer",
+        url ? "bg-success/15 text-success" : "bg-accent/20 text-primary",
+      )}
+    >
+      <input
+        id={inputId}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onPick(f); }}
+      />
+      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : url ? <Check className="h-4 w-4" /> : icon}
+      {uploading ? "Uploading…" : url ? `${label} ✓` : `${label}${required ? " *" : ""}`}
+    </label>
+  );
+}
 
 function Section({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -58,7 +96,10 @@ function CaseFormPage() {
     queryFn: () => fetchVisit(visitId),
   });
 
-  const [hasPhoto, setHasPhoto] = useState(false);
+  const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);
+  const [tonguePhotoUrl, setTonguePhotoUrl] = useState<string | null>(null);
+  const [reportsPhotoUrl, setReportsPhotoUrl] = useState<string | null>(null);
+  const [uploadingKind, setUploadingKind] = useState<string | null>(null);
   const [thermals, setThermals] = useState<string | "">("");
   const [thirst, setThirst] = useState<string | "">("");
   const [sleep, setSleep] = useState<string | "">("");
@@ -72,8 +113,22 @@ function CaseFormPage() {
   const [flag, setFlag] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const handlePhoto = async (kind: "case" | "tongue" | "reports", file: File) => {
+    setUploadingKind(kind);
+    const res = await uploadCasePhoto(visitId, kind, file);
+    setUploadingKind(null);
+    if (!res.success) {
+      toast.error("Photo upload nahi hui: " + res.error);
+      return;
+    }
+    if (kind === "case") setCasePhotoUrl(res.url);
+    if (kind === "tongue") setTonguePhotoUrl(res.url);
+    if (kind === "reports") setReportsPhotoUrl(res.url);
+    toast.success("Photo save ho gayi");
+  };
+
   const submit = async () => {
-    if (!hasPhoto) return toast.error("Case paper photo is required");
+    if (!casePhotoUrl) return toast.error("Case paper photo is required");
     if (!window.confirm("Submit case to the prescribing doctor? Cannot be edited after submit.")) return;
     const notes = [
       thermals && `Thermals: ${thermals}`,
@@ -90,12 +145,48 @@ function CaseFormPage() {
     ].filter(Boolean).join("\n");
     setBusy(true);
     try {
-      await saveCaseNotes(visitId, notes);
+      await saveCaseNotes(visitId, {
+        notes,
+        case_photo_url: casePhotoUrl,
+        tongue_photo_url: tonguePhotoUrl,
+        reports_photo_url: reportsPhotoUrl,
+      });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       toast.success("Case submitted — moved to prescriber's queue");
       navigate({ to: "/doctor/case" });
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to submit");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDraft = async () => {
+    const notes = [
+      thermals && `Thermals: ${thermals}`,
+      thirst && `Thirst: ${thirst}`,
+      sleep && `Sleep: ${sleep}`,
+      appetite && `Appetite: ${appetite}`,
+      sweat && `Sweat: ${sweat}`,
+      mentals.length && `Mentals: ${mentals.join(", ")}`,
+      worse.length && `Worse: ${worse.join(", ")}`,
+      better.length && `Better: ${better.join(", ")}`,
+      detail && `Detail: ${detail}`,
+      past && `Past history: ${past}`,
+      flag && `Flag to Rx: ${flag}`,
+    ].filter(Boolean).join("\n");
+    setBusy(true);
+    try {
+      await saveCaseNotes(visitId, {
+        notes,
+        draft: true,
+        case_photo_url: casePhotoUrl,
+        tongue_photo_url: tonguePhotoUrl,
+        reports_photo_url: reportsPhotoUrl,
+      });
+      toast.success("Draft saved — case abhi bhi tumhare paas hai");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Draft save nahi hua");
     } finally {
       setBusy(false);
     }
@@ -130,23 +221,40 @@ function CaseFormPage() {
       <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
         1 — Case paper photo (primary)
       </div>
-      <button
-        onClick={() => setHasPhoto(true)}
+      <label
+        htmlFor="photo-case-paper"
         className={cn(
-          "w-full rounded-2xl p-6 text-center border-2 border-dashed",
-          hasPhoto ? "bg-success/10 border-success" : "bg-surface border-accent",
+          "w-full rounded-2xl p-6 text-center border-2 border-dashed block cursor-pointer",
+          casePhotoUrl ? "bg-success/10 border-success" : "bg-surface border-accent",
         )}
       >
+        <input
+          id="photo-case-paper"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhoto("case", f); }}
+        />
         <div className="grid place-items-center mb-1">
-          {hasPhoto ? <Check className="h-7 w-7 text-success" /> : <Camera className="h-7 w-7 text-primary" />}
+          {uploadingKind === "case" ? (
+            <Loader2 className="h-7 w-7 text-primary animate-spin" />
+          ) : casePhotoUrl ? (
+            <Check className="h-7 w-7 text-success" />
+          ) : (
+            <Camera className="h-7 w-7 text-primary" />
+          )}
         </div>
-        <div className={cn("text-sm font-bold", hasPhoto ? "text-success" : "text-primary")}>
-          {hasPhoto ? "Case paper captured" : "Scan or click the case paper"}
+        <div className={cn("text-sm font-bold", casePhotoUrl ? "text-success" : "text-primary")}>
+          {uploadingKind === "case" ? "Uploading…" : casePhotoUrl ? "Case paper captured" : "Scan or click the case paper"}
         </div>
         <div className="text-[11px] text-muted-foreground mt-0.5">
-          {hasPhoto ? "Tap to retake" : "Required — submission blocked without this"}
+          {casePhotoUrl ? "Tap to retake" : "Required — submission blocked without this"}
         </div>
-      </button>
+        {casePhotoUrl && (
+          <img src={casePhotoUrl} alt="Case paper" className="mt-3 mx-auto max-h-32 rounded-lg border border-border" />
+        )}
+      </label>
 
       <Section n={2} title="Generals">
         <div><Label>Thermals</Label><ChipSelect size="sm" options={["Chilly", "Hot", "Ambi-thermal"]} value={thermals} onChange={setThermals} /></div>
@@ -175,8 +283,20 @@ function CaseFormPage() {
           <textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Onset, duration, character, location — plain language" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => toast("Tongue photo captured")} className="rounded-xl bg-accent/20 text-primary text-[12px] font-semibold py-2.5">👅 Tongue photo</button>
-          <button onClick={() => toast("Reports scanned")} className="rounded-xl bg-accent/20 text-primary text-[12px] font-semibold py-2.5">📋 Reports scan</button>
+          <PhotoCapture
+            label="Tongue photo"
+            icon={<span>👅</span>}
+            url={tonguePhotoUrl}
+            uploading={uploadingKind === "tongue"}
+            onPick={(f) => handlePhoto("tongue", f)}
+          />
+          <PhotoCapture
+            label="Reports scan"
+            icon={<span>📋</span>}
+            url={reportsPhotoUrl}
+            uploading={uploadingKind === "reports"}
+            onPick={(f) => handlePhoto("reports", f)}
+          />
         </div>
       </Section>
 
@@ -201,8 +321,8 @@ function CaseFormPage() {
       <button onClick={submit} disabled={busy} className="mt-4 w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
         <Check className="h-4 w-4" /> {busy ? "Submitting…" : "Send to prescribing doctor"}
       </button>
-      <button onClick={() => toast("Draft saved")} className="mt-2 w-full rounded-full bg-surface border border-border text-primary font-bold py-3 text-sm inline-flex items-center justify-center gap-2">
-        <Save className="h-4 w-4" /> Save draft
+      <button onClick={saveDraft} disabled={busy} className="mt-2 w-full rounded-full bg-surface border border-border text-primary font-bold py-3 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+        <Save className="h-4 w-4" /> {busy ? "Saving…" : "Save draft"}
       </button>
     </DoctorShell>
   );
