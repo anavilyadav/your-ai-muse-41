@@ -147,12 +147,21 @@ export async function fetchVisit(visitId: string) {
   return data as (DBVisit & { patient: DBPatient }) | null;
 }
 
-/**
- * Hidden Identity Mode — used ONLY by Case-DR screens. Selects just
- * name/age/gender/primary_disease at the DATABASE query level (not just
- * hidden in the UI), so mobile/address/etc. never leave the server in the
- * API response for this role, even via browser dev tools.
- */
+// ---------- Case-DR eligibility (Junior sees Simple only, Senior sees all) ----------
+export async function fetchCaseDrLevels(): Promise<Record<string, "Junior" | "Senior">> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "case_dr_levels").maybeSingle();
+  if (!data?.value) return {};
+  try {
+    return JSON.parse(data.value);
+  } catch {
+    return {};
+  }
+}
+
+export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior">) {
+  await upsertSetting("case_dr_levels", JSON.stringify(levels));
+}
+
 const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
 
 export async function fetchTodayQueueCaseDR() {
@@ -163,6 +172,11 @@ export async function fetchTodayQueueCaseDR() {
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
+}
+
+export async function updateCaseComplexity(visitId: string, complexity: "Simple" | "Complex") {
+  const { error } = await supabase.from("visits").update({ case_complexity: complexity }).eq("id", visitId);
+  return { success: !error, error: error?.message ?? null };
 }
 
 export async function fetchVisitForCaseDR(visitId: string) {

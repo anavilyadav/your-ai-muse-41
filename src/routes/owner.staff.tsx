@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchStaff, branchLabel, addStaffProfile } from "@/lib/db";
+import { fetchStaff, branchLabel, addStaffProfile, fetchCaseDrLevels, saveCaseDrLevels } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -206,10 +206,17 @@ function capFor(role: string): string {
 
 function StaffPage() {
   const { data, isLoading } = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
+  const { data: levels } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [editingEmail, setEditingEmail] = useState<any | null>(null);
   const staff = (data ?? []) as any[];
+
+  const setLevel = async (userId: string, level: "Junior" | "Senior") => {
+    const next = { ...(levels ?? {}), [userId]: level };
+    await saveCaseDrLevels(next);
+    queryClient.invalidateQueries({ queryKey: ["case-dr-levels"] });
+  };
   const active = staff.filter((s) => (s.status ?? "Active") === "Active").length;
   const leave = staff.length - active;
 
@@ -274,6 +281,25 @@ function StaffPage() {
                   >
                     {s.email ? s.email : "Set login email →"}
                   </button>
+                  {role === "CASE_DR" && (
+                    <div className="flex gap-1.5 mt-1.5">
+                      {(["Junior", "Senior"] as const).map((lvl) => {
+                        const active = (levels?.[s.id] ?? "Senior") === lvl;
+                        return (
+                          <button
+                            key={lvl}
+                            onClick={() => setLevel(s.id, lvl)}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[10px] font-bold border",
+                              active ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                            )}
+                          >
+                            {lvl}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <Badge tone={status === "Active" ? "success" : "warn"}>{status}</Badge>
               </li>

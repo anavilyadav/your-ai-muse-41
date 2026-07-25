@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueueCaseDR } from "@/lib/db";
-import { Lock } from "lucide-react";
+import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
+import { Lock, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/doctor/case/")({
   head: () => ({ meta: [{ title: "Case Board — Doctor App" }, { name: "robots", content: "noindex" }] }),
@@ -28,17 +30,36 @@ function mapStatus(s: string): "Pending" | "In Progress" | "Submitted" {
 
 function CaseBoardPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { user } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ["today-queue"],
     queryFn: fetchTodayQueueCaseDR,
     refetchInterval: 15_000,
   });
-  const rows = (data ?? []).filter((r) =>
+  const { data: levels } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
+  const myLevel = (user && levels?.[user.id]) || "Senior"; // default Senior (full access) until Owner sets otherwise
+  const isJunior = myLevel === "Junior";
+
+  const allRows = (data ?? []).filter((r) =>
     ["REGISTERED", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status),
   );
+  const rows = isJunior ? allRows.filter((r: any) => (r.case_complexity ?? "Simple") === "Simple") : allRows;
+  const hiddenForJunior = allRows.length - rows.length;
   const assigned = rows.length;
   const submitted = rows.filter((r) => r.visit_status === "WAITING_DOCTOR").length;
   const remaining = assigned - submitted;
+
+  const markComplex = async (visitId: string, current: string) => {
+    const next = current === "Complex" ? "Simple" : "Complex";
+    const res = await updateCaseComplexity(visitId, next as "Simple" | "Complex");
+    if (res.success) {
+      qc.invalidateQueries({ queryKey: ["today-queue"] });
+      toast.success(next === "Complex" ? "Complex mark kiya — sirf Senior Case-DR dekhenge" : "Simple mark kiya");
+    } else {
+      toast.error("Update nahi hua: " + res.error);
+    }
+  };
 
   return (
     <DoctorShell title="My Cases" subtitle="Contact details hidden" showLogout nav="case">
@@ -56,41 +77,66 @@ function CaseBoardPage() {
         </span>
       </div>
 
+      {isJunior && hiddenForJunior > 0 && (
+        <div className="mt-2 rounded-xl bg-primary/10 border border-primary/30 p-3 text-[12px] text-primary flex gap-2">
+          <Sparkles className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{hiddenForJunior} complex case(s) sirf Senior Case-DR ko dikh rahe hain — aapke level ke hisaab se.</span>
+        </div>
+      )}
+
       {isLoading ? (
         <LoadingBlock />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi case pending nahi." />
       ) : (
         <ul className="mt-3 space-y-2.5">
-          {rows.map((c) => {
+          {rows.map((c: any) => {
             const status = mapStatus(c.visit_status);
             const clickable = status !== "Submitted";
+            const complexity = c.case_complexity ?? "Simple";
             return (
               <li key={c.id}>
-                <button
-                  disabled={!clickable}
-                  onClick={() => navigate({ to: "/doctor/case/form/$token", params: { token: c.id } })}
+                <div
                   className={
-                    "w-full text-left rounded-2xl bg-surface border border-border p-3.5 shadow-sm transition " +
-                    (clickable ? "hover:border-primary/40 active:scale-[0.99]" : "opacity-60 cursor-not-allowed")
+                    "rounded-2xl bg-surface border border-border p-3.5 shadow-sm transition " +
+                    (clickable ? "hover:border-primary/40" : "opacity-60")
                   }
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-2.5 py-1">
-                        {c.token_number ?? "—"}
+                  <button
+                    disabled={!clickable}
+                    onClick={() => navigate({ to: "/doctor/case/form/$token", params: { token: c.id } })}
+                    className={"w-full text-left " + (clickable ? "active:scale-[0.99]" : "cursor-not-allowed")}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-2.5 py-1">
+                          {c.token_number ?? "—"}
+                        </span>
+                        <span className="font-bold text-[15px] text-primary">{c.patient?.name}</span>
+                      </div>
+                      <span className={"rounded-full text-[11px] font-bold px-2.5 py-1 border " + statusStyle[status]}>
+                        {status}
                       </span>
-                      <span className="font-bold text-[15px] text-primary">{c.patient?.name}</span>
                     </div>
-                    <span className={"rounded-full text-[11px] font-bold px-2.5 py-1 border " + statusStyle[status]}>
-                      {status}
-                    </span>
-                  </div>
-                  <div className="text-[12px] text-muted-foreground mt-1.5">
-                    {c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}
-                  </div>
-                  <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
-                </button>
+                    <div className="text-[12px] text-muted-foreground mt-1.5">
+                      {c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}
+                    </div>
+                    <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
+                  </button>
+                  {!isJunior && (
+                    <button
+                      onClick={() => markComplex(c.id, complexity)}
+                      className={
+                        "mt-2 rounded-full text-[10px] font-bold px-2.5 py-1 border " +
+                        (complexity === "Complex"
+                          ? "bg-destructive/15 text-destructive border-destructive/40"
+                          : "bg-muted text-muted-foreground border-border")
+                      }
+                    >
+                      {complexity === "Complex" ? "🔴 Complex — sirf Senior" : "Mark as Complex"}
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}
