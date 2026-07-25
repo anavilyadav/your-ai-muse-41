@@ -71,8 +71,12 @@ function LeadsPage() {
   }), [leads]);
 
   const doUpdate = async (id: string, s: LeadStatus) => {
-    await updateLeadStatus(id, s);
-    qc.invalidateQueries({ queryKey: ["leads"] });
+    try {
+      await updateLeadStatus(id, s);
+      qc.invalidateQueries({ queryKey: ["leads"] });
+    } catch (e: any) {
+      toast.error("Status update nahi hua: " + (e?.message ?? "unknown error"));
+    }
   };
 
   return (

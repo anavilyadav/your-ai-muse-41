@@ -51,11 +51,16 @@ function BackupDoctorModal({ onClose }: { onClose: () => void }) {
       end: end ? new Date(end).toISOString() : "",
       enabled,
     };
-    await upsertSetting("backup_doctor_config", JSON.stringify(cfg));
-    setSaving(false);
-    qc.invalidateQueries({ queryKey: ["settings"] });
-    toast.success(enabled ? "Backup doctor access ON kar diya" : "Backup doctor access OFF kar diya");
-    if (!enabled) onClose();
+    try {
+      await upsertSetting("backup_doctor_config", JSON.stringify(cfg));
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast.success(enabled ? "Backup doctor access ON kar diya" : "Backup doctor access OFF kar diya");
+      if (!enabled) onClose();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, MessageCircle, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchFollowups, markFollowupDone } from "@/lib/db";
@@ -24,8 +25,12 @@ function FollowUpPage() {
   const daysDiff = (d: string) => Math.floor((Date.parse(today) - Date.parse(d)) / 86_400_000);
 
   const done = async (id: string) => {
-    await markFollowupDone(id);
-    qc.invalidateQueries({ queryKey: ["followups"] });
+    try {
+      await markFollowupDone(id);
+      qc.invalidateQueries({ queryKey: ["followups"] });
+    } catch (e: any) {
+      toast.error("Update nahi hua: " + (e?.message ?? "unknown error"));
+    }
   };
 
   const overdue = rows.filter((r) => daysDiff(r.due_date) > 7).length;

@@ -214,8 +214,12 @@ function StaffPage() {
 
   const setLevel = async (userId: string, level: "Junior" | "Senior") => {
     const next = { ...(levels ?? {}), [userId]: level };
-    await saveCaseDrLevels(next);
-    queryClient.invalidateQueries({ queryKey: ["case-dr-levels"] });
+    try {
+      await saveCaseDrLevels(next);
+      queryClient.invalidateQueries({ queryKey: ["case-dr-levels"] });
+    } catch (e: any) {
+      toast.error("Save nahi hua: " + (e?.message ?? "unknown error"));
+    }
   };
   const active = staff.filter((s) => (s.status ?? "Active") === "Active").length;
   const leave = staff.length - active;

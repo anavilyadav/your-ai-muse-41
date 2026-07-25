@@ -221,14 +221,15 @@ export async function collectPayment(input: {
     .eq("id", input.patient_id)
     .maybeSingle();
   const newRev = Number(pat?.lifetime_revenue ?? 0) + input.amount_received;
-  await supabase
+  const { error: patErr } = await supabase
     .from("patients")
     .update({ lifetime_revenue: newRev, current_balance: balance })
     .eq("id", input.patient_id);
 
   // update visit + create followup if fully paid
+  let statusErr = null;
   if (balance === 0) {
-    await supabase.from("visits").update({ visit_status: "DONE" }).eq("id", input.visit_id);
+    ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "DONE" }).eq("id", input.visit_id));
     const due = new Date();
     due.setDate(due.getDate() + 30);
     await supabase.from("followups").insert({
@@ -239,7 +240,18 @@ export async function collectPayment(input: {
       status: "PENDING",
     });
   } else {
-    await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", input.visit_id);
+    ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", input.visit_id));
+  }
+
+  // Payment itself is already recorded at this point (money was taken) —
+  // but if either update below failed, the visit will look stuck in the
+  // queue and the patient's totals will be stale, so this needs to be
+  // visibly flagged rather than silently reported as a clean success.
+  if (patErr || statusErr) {
+    throw new Error(
+      "Payment save ho gaya, lekin visit/patient record update nahi ho paya — refresh karke check karo: " +
+        (patErr?.message || statusErr?.message),
+    );
   }
 }
 
@@ -329,7 +341,8 @@ export async function fetchFollowups() {
 }
 
 export async function markFollowupDone(id: string) {
-  await supabase.from("followups").update({ status: "DONE" }).eq("id", id);
+  const { error } = await supabase.from("followups").update({ status: "DONE" }).eq("id", id);
+  if (error) throw error;
 }
 
 // ---------- Leads ----------
@@ -343,7 +356,8 @@ export async function fetchLeads() {
   return data ?? [];
 }
 export async function updateLeadStatus(id: string, status: LeadStatus) {
-  await supabase.from("leads").update({ status }).eq("id", id);
+  const { error } = await supabase.from("leads").update({ status }).eq("id", id);
+  if (error) throw error;
 }
 
 // ---------- Inventory ----------
@@ -418,7 +432,8 @@ export async function fetchVisitPrescriptions(visitId: string) {
 }
 
 export async function markDispensed(visitId: string) {
-  await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
+  const { error } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
+  if (error) throw error;
 }
 
 // ---------- Case notes ----------
@@ -516,7 +531,8 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
   }
   const isDraft = typeof input !== "string" && input.draft;
   if (!isDraft) payload.visit_status = "WAITING_DOCTOR";
-  await supabase.from("visits").update(payload).eq("id", visitId);
+  const { error } = await supabase.from("visits").update(payload).eq("id", visitId);
+  if (error) throw error; // caller (submit/saveDraft) shows this — was silently "succeeding" before
 }
 
 // ---------- Owner ----------
@@ -827,11 +843,10 @@ export async function saveIncentiveSplits(splits: Record<string, number>) {
 
 export async function upsertSetting(key: string, value: string) {
   const { data } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
-  if (data?.id) {
-    await supabase.from("settings").update({ value }).eq("id", data.id);
-  } else {
-    await supabase.from("settings").insert({ key, value });
-  }
+  const { error } = data?.id
+    ? await supabase.from("settings").update({ value }).eq("id", data.id)
+    : await supabase.from("settings").insert({ key, value });
+  if (error) throw error;
 }
 
 // ---------- Bulk Import (Leads / Patients / Visit-Revenue History) ----------
