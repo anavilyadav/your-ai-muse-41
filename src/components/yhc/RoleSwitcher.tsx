@@ -89,3 +89,14 @@ export function ViewAsBanner() {
     </div>
   );
 }
+
+/** Banner for staff who currently have temporary Backup Doctor access. */
+export function BackupDoctorBanner() {
+  const { user, backupDoctorActive } = useAuth();
+  if (!user || user.role === "OWNER" || !backupDoctorActive) return null;
+  return (
+    <div className="sticky top-0 z-50 bg-success text-success-foreground text-[12px] font-bold text-center py-1.5">
+      🩺 Aapko temporary Backup Doctor access mila hai
+    </div>
+  );
+}

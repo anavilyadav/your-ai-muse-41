@@ -650,6 +650,16 @@ export async function reportStockIssue(visitId: string, note: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+export async function fetchOutstandingPatients() {
+  const { data, error } = await supabase
+    .from("patients")
+    .select("id, name, mobile, patient_code, current_balance, last_visit_date, branch")
+    .gt("current_balance", 0)
+    .order("current_balance", { ascending: false });
+  if (error) return [];
+  return data ?? [];
+}
+
 export async function fetchStaff() {
   const { data, error } = await supabase
     .from("users")

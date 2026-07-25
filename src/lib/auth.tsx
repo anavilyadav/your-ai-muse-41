@@ -1,10 +1,18 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { supabase, type AppUser, type Role } from "./supabase";
+
+export interface BackupDoctorConfig {
+  userId: string;
+  start: string; // ISO datetime
+  end: string; // ISO datetime
+  enabled: boolean;
+}
 
 interface AuthCtx {
   user: AppUser | null;
   viewAsRole: Role | null; // OWNER can preview other roles
   loading: boolean;
+  backupDoctorActive: boolean; // true if THIS user currently has temporary backup-doctor access
   signIn: (mobile: string, pin: string) => Promise<string | null>; // null = ok, else error msg
   signOut: () => Promise<void>;
   setViewAsRole: (r: Role | null) => void;
@@ -14,10 +22,22 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 const LS_VIEW = "yhc-viewas";
 
+function isBackupActiveNow(cfg: BackupDoctorConfig | null, userId: string | undefined): boolean {
+  if (!cfg || !cfg.enabled || !userId) return false;
+  if (cfg.userId !== userId) return false;
+  const now = Date.now();
+  const start = Date.parse(cfg.start);
+  const end = Date.parse(cfg.end);
+  if (Number.isNaN(start) || Number.isNaN(end)) return false;
+  return now >= start && now <= end;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewAsRole, setViewAsRoleState] = useState<Role | null>(null);
+  const [backupDoctorActive, setBackupDoctorActive] = useState(false);
+  const userIdRef = useRef<string | undefined>(undefined);
 
   const loadUser = async (uid: string) => {
     const { data, error } = await supabase
@@ -29,6 +49,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data as AppUser;
   };
 
+  const refreshBackupDoctorStatus = async (currentUserId: string | undefined) => {
+    if (!currentUserId) {
+      setBackupDoctorActive(false);
+      return;
+    }
+    try {
+      const { data } = await supabase.from("settings").select("value").eq("key", "backup_doctor_config").maybeSingle();
+      const cfg: BackupDoctorConfig | null = data?.value ? JSON.parse(data.value) : null;
+      setBackupDoctorActive(isBackupActiveNow(cfg, currentUserId));
+    } catch {
+      setBackupDoctorActive(false);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(async ({ data }) => {
@@ -36,6 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user) {
         const u = await loadUser(data.session.user.id);
         if (mounted) setUser(u);
+        userIdRef.current = u?.id;
+        await refreshBackupDoctorStatus(u?.id);
       }
       if (mounted) {
         try {
@@ -49,13 +85,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         const u = await loadUser(session.user.id);
         setUser(u);
+        userIdRef.current = u?.id;
+        await refreshBackupDoctorStatus(u?.id);
       } else {
         setUser(null);
+        userIdRef.current = undefined;
+        setBackupDoctorActive(false);
       }
     });
+    // Re-check every 5 minutes in case a backup window starts/ends mid-session.
+    const interval = setInterval(() => refreshBackupDoctorStatus(userIdRef.current), 5 * 60 * 1000);
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
+      clearInterval(interval);
     };
   }, []);
 
@@ -92,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, viewAsRole, loading, signIn, signOut, setViewAsRole }}>
+    <Ctx.Provider value={{ user, viewAsRole, loading, backupDoctorActive, signIn, signOut, setViewAsRole }}>
       {children}
     </Ctx.Provider>
   );
@@ -104,10 +147,12 @@ export function useAuth() {
   return c;
 }
 
-/** Effective role: owner can view as another role. */
+/** Effective role: owner can view as another role; a designated backup
+ * doctor gets temporary DOCTOR access during their configured window. */
 export function useEffectiveRole(): Role | null {
-  const { user, viewAsRole } = useAuth();
+  const { user, viewAsRole, backupDoctorActive } = useAuth();
   if (!user) return null;
   if (user.role === "OWNER" && viewAsRole) return viewAsRole;
+  if (backupDoctorActive && user.role !== "OWNER") return "DOCTOR";
   return user.role;
 }

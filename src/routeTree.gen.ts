@@ -15,6 +15,7 @@ import { Route as DeliveryRouteImport } from './routes/delivery'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as OutstandingRouteImport } from './routes/outstanding'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as SummaryRouteImport } from './routes/summary'
@@ -68,6 +69,11 @@ const LeadsRoute = LeadsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OutstandingRoute = OutstandingRouteImport.update({
+  id: '/outstanding',
+  path: '/outstanding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegisterRoute = RegisterRouteImport.update({
@@ -198,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/outstanding': typeof OutstandingRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/outstanding': typeof OutstandingRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/follow-up': typeof FollowUpRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/outstanding': typeof OutstandingRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
@@ -297,6 +306,7 @@ export interface FileRouteTypes {
     | '/follow-up'
     | '/leads'
     | '/login'
+    | '/outstanding'
     | '/register'
     | '/search'
     | '/summary'
@@ -329,6 +339,7 @@ export interface FileRouteTypes {
     | '/follow-up'
     | '/leads'
     | '/login'
+    | '/outstanding'
     | '/register'
     | '/search'
     | '/summary'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/follow-up'
     | '/leads'
     | '/login'
+    | '/outstanding'
     | '/register'
     | '/search'
     | '/summary'
@@ -394,6 +406,7 @@ export interface RootRouteChildren {
   FollowUpRoute: typeof FollowUpRoute
   LeadsRoute: typeof LeadsRoute
   LoginRoute: typeof LoginRoute
+  OutstandingRoute: typeof OutstandingRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
   SummaryRoute: typeof SummaryRoute
@@ -462,6 +475,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/outstanding': {
+      id: '/outstanding'
+      path: '/outstanding'
+      fullPath: '/outstanding'
+      preLoaderRoute: typeof OutstandingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -642,6 +662,7 @@ const rootRouteChildren: RootRouteChildren = {
   FollowUpRoute: FollowUpRoute,
   LeadsRoute: LeadsRoute,
   LoginRoute: LoginRoute,
+  OutstandingRoute: OutstandingRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,
   SummaryRoute: SummaryRoute,

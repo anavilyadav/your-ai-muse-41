@@ -10,7 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
-import { ViewAsBanner } from "@/components/yhc/RoleSwitcher";
+import { ViewAsBanner, BackupDoctorBanner } from "@/components/yhc/RoleSwitcher";
 import { InstallPrompt } from "@/components/yhc/InstallPrompt";
 
 import appCss from "../styles.css?url";
@@ -127,6 +127,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ViewAsBanner />
+        <BackupDoctorBanner />
         <Outlet />
         <InstallPrompt />
         <Toaster position="top-center" richColors />
