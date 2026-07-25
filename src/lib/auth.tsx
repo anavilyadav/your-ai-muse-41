@@ -62,7 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (mobile: string, pin: string) => {
     const cleaned = mobile.replace(/\D/g, "");
     if (cleaned.length !== 10 || pin.length < 4) return "Mobile ya PIN galat hai";
-    const email = `${cleaned}@yhcos.in`;
+    const { data: profile } = await supabase
+      .from("users")
+      .select("email")
+      .eq("mobile", cleaned)
+      .maybeSingle();
+    // Real email if set; falls back to the old synthetic address for
+    // accounts created before real emails were supported.
+    const email = profile?.email || `${cleaned}@yhcos.in`;
     const { error } = await supabase.auth.signInWithPassword({ email, password: pin });
     if (error) return "Mobile ya PIN galat hai";
     return null;

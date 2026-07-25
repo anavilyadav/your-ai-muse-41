@@ -1,16 +1,10 @@
-// Supabase Edge Function — creates the Auth login (email+password) for a
-// staff profile that already exists in the "users" table.
+// Supabase Edge Function — creates AND updates the Auth login for staff.
+// Uses REAL email addresses (not a fake @yhcos.in one) so password resets
+// and account recovery actually work.
 //
-// WHY THIS EXISTS: creating a Supabase Auth user requires the service-role
-// key, which must never be shipped to the browser. This function holds that
-// key server-side. Deploy once via the Supabase Dashboard (see chat for
-// step-by-step) — no CLI or secrets setup needed, SUPABASE_URL and
-// SUPABASE_SERVICE_ROLE_KEY are automatically available inside every
-// Edge Function.
-//
-// CALL from the app (already wired in owner.staff.tsx's AddStaffModal — see
-// the callCreateLogin() TODO there):
-//   POST /functions/v1/create-staff-login  { mobile: "9876543210", pin: "1234" }
+// Called with:
+//   { action: "create", mobile, email, pin }        — first-time login setup
+//   { action: "update-email", mobile, email }        — change email later
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -19,9 +13,14 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
   }
   try {
-    const { mobile, pin } = await req.json();
-    if (!mobile || !pin || String(mobile).length !== 10 || String(pin).length < 4) {
-      return new Response(JSON.stringify({ error: "Valid 10-digit mobile and 4+ digit PIN required" }), { status: 400 });
+    const body = await req.json();
+    const { action, mobile, email, pin } = body;
+
+    if (!mobile || String(mobile).length !== 10) {
+      return new Response(JSON.stringify({ error: "Valid 10-digit mobile required" }), { status: 400 });
+    }
+    if (!email || !String(email).includes("@")) {
+      return new Response(JSON.stringify({ error: "Valid email required" }), { status: 400 });
     }
 
     const supabaseAdmin = createClient(
@@ -29,21 +28,38 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const email = `${mobile}@yhcos.in`;
+    const { data: profile } = await supabaseAdmin
+      .from("users")
+      .select("id, has_login")
+      .eq("mobile", mobile)
+      .maybeSingle();
+
+    if (!profile) {
+      return new Response(JSON.stringify({ error: "No staff profile found for this mobile — add the staff member first" }), { status: 404 });
+    }
+
+    if (action === "update-email") {
+      if (profile.has_login) {
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { email });
+        if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+      }
+      await supabaseAdmin.from("users").update({ email }).eq("mobile", mobile);
+      return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // default action: create the login
+    if (!pin || String(pin).length < 4) {
+      return new Response(JSON.stringify({ error: "4+ digit PIN required" }), { status: 400 });
+    }
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password: pin,
       email_confirm: true,
     });
-
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 400 });
     }
-
-    // Link the new auth user's id to the existing profile row in "users"
-    // (matched by mobile) so id's match for RLS/queries going forward.
-    await supabaseAdmin.from("users").update({ id: data.user.id }).eq("mobile", mobile);
-
+    await supabaseAdmin.from("users").update({ id: data.user.id, email, has_login: true }).eq("mobile", mobile);
     return new Response(JSON.stringify({ success: true, userId: data.user.id }), {
       headers: { "Content-Type": "application/json" },
     });

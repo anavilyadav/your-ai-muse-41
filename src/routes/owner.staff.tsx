@@ -15,6 +15,8 @@ const BRANCH_OPTIONS = ["Bajaj Nagar", "Jagatpura", "Both"];
 function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
   const [role, setRole] = useState(ROLE_OPTIONS[0]);
   const [branch, setBranch] = useState(BRANCH_OPTIONS[0]);
   const [saving, setSaving] = useState(false);
@@ -25,14 +27,45 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       toast.error("Naam aur 10-digit mobile number zaroori hai");
       return;
     }
+    if (email.trim() && !email.includes("@")) {
+      toast.error("Email sahi format mein daalo (ya khaali chhod do)");
+      return;
+    }
+    if (email.trim() && pin.trim().length < 4) {
+      toast.error("Login banane ke liye PIN kam se kam 4 digit ka hona chahiye");
+      return;
+    }
     setSaving(true);
     const res = await addStaffProfile({ name: name.trim(), mobile: cleanMobile, role, branch: branch === "Both" ? null : branch });
-    setSaving(false);
     if (!res.success) {
+      setSaving(false);
       toast.error("Save nahi hua: " + res.error);
       return;
     }
-    toast.success(name + " add ho gaye. Login banane ke liye Supabase mein " + cleanMobile + "@yhcos.in ka account banana hoga (PIN set karke) — ek baar ka manual step hai.");
+
+    if (email.trim() && pin.trim()) {
+      try {
+        const fnRes = await fetch(
+          "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/create-staff-login",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "create", mobile: cleanMobile, email: email.trim(), pin: pin.trim() }),
+          },
+        );
+        const fnData = await fnRes.json();
+        if (!fnRes.ok || fnData.error) {
+          toast.error(name + " add ho gaye, lekin login banane mein dikkat: " + (fnData.error ?? "unknown error"));
+        } else {
+          toast.success(name + " add ho gaye aur login bhi ban gaya");
+        }
+      } catch {
+        toast.error(name + " add ho gaye, lekin login create karte waqt network error aaya");
+      }
+    } else {
+      toast.success(name + " add ho gaye. Login baad mein 'Set Login' se bana sakte ho.");
+    }
+    setSaving(false);
     onAdded();
     onClose();
   };
@@ -69,6 +102,13 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
               ))}
             </div>
           </div>
+          <div className="border-t border-border pt-3 mt-1">
+            <div className="text-[11px] font-bold text-muted-foreground uppercase mb-2">Login (optional — ab ya baad mein)</div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Real Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="unki asli email" />
+            <label className="text-[11px] font-bold text-muted-foreground uppercase mt-2 block">PIN</label>
+            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="4-6 digit PIN" />
+          </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Add Staff"}
           </button>
@@ -82,6 +122,67 @@ export const Route = createFileRoute("/owner/staff")({
   head: () => ({ meta: [{ title: "Staff — Owner" }, { name: "robots", content: "noindex" }] }),
   component: StaffPage,
 });
+
+function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; onSaved: () => void }) {
+  const [email, setEmail] = useState(s.email ?? "");
+  const [pin, setPin] = useState("");
+  const [saving, setSaving] = useState(false);
+  const needsPin = !s.has_login;
+
+  const submit = async () => {
+    if (!email.includes("@")) { toast.error("Sahi email daalo"); return; }
+    if (needsPin && pin.trim().length < 4) { toast.error("Pehli baar login banane ke liye PIN chahiye (4+ digit)"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(
+        "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/create-staff-login",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            needsPin
+              ? { action: "create", mobile: s.mobile, email: email.trim(), pin: pin.trim() }
+              : { action: "update-email", mobile: s.mobile, email: email.trim() },
+          ),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        toast.error("Nahi hua: " + (data.error ?? "unknown error"));
+      } else {
+        toast.success("Email update ho gayi");
+        onSaved();
+        onClose();
+      }
+    } catch {
+      toast.error("Network error — dobara try karo");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">{s.name} — Login Email</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          {needsPin ? "Abhi is staff ka login bana nahi hai — email + PIN daalo." : "Login pehle se hai — sirf email badal rahe ho, PIN wahi rahega."}
+        </p>
+        <div className="flex flex-col gap-3">
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Real email" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          {needsPin && (
+            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} placeholder="4-6 digit PIN" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          )}
+          <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ROLE_COLOR: Record<string, string> = {
   RECP1: "bg-accent text-accent-foreground",
@@ -103,6 +204,7 @@ function StaffPage() {
   const { data, isLoading } = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingEmail, setEditingEmail] = useState<any | null>(null);
   const staff = (data ?? []) as any[];
   const active = staff.filter((s) => (s.status ?? "Active") === "Active").length;
   const leave = staff.length - active;
@@ -125,6 +227,13 @@ function StaffPage() {
         <AddStaffModal
           onClose={() => setShowAdd(false)}
           onAdded={() => queryClient.invalidateQueries({ queryKey: ["owner-staff"] })}
+        />
+      )}
+      {editingEmail && (
+        <EditEmailModal
+          s={editingEmail}
+          onClose={() => setEditingEmail(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ["owner-staff"] })}
         />
       )}
       <div className="flex gap-2">
@@ -155,6 +264,12 @@ function StaffPage() {
                   <div className="text-[12px] text-muted-foreground truncate">
                     {role} • {branchLabel(s.branch) || "Both"} • Cap: {cap}
                   </div>
+                  <button
+                    onClick={() => setEditingEmail(s)}
+                    className="text-[11px] text-primary underline mt-0.5 truncate block"
+                  >
+                    {s.email ? s.email : "Set login email →"}
+                  </button>
                 </div>
                 <Badge tone={status === "Active" ? "success" : "warn"}>{status}</Badge>
               </li>
