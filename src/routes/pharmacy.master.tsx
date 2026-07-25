@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Search } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { MASTER } from "@/lib/yhc-pharmacy";
+import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
+import { fetchMasterMedicines } from "@/lib/db";
 
 export const Route = createFileRoute("/pharmacy/master")({
   head: () => ({ meta: [{ title: "Medicine Master — Pharmacy" }, { name: "robots", content: "noindex" }] }),
@@ -13,7 +15,9 @@ export const Route = createFileRoute("/pharmacy/master")({
 
 function MasterPage() {
   const [q, setQ] = useState("");
-  const list = q ? MASTER.filter((m) => m.med.toLowerCase().includes(q.toLowerCase())) : MASTER;
+  const { data, isLoading } = useQuery({ queryKey: ["master-medicines"], queryFn: fetchMasterMedicines });
+  const all = data ?? [];
+  const list = q ? all.filter((m) => m.med.toLowerCase().includes(q.toLowerCase())) : all;
   return (
     <RoleShell
       title="Medicine Master"
@@ -37,15 +41,21 @@ function MasterPage() {
           className="w-full rounded-full bg-surface border-2 border-accent pl-10 pr-4 py-3 text-sm text-primary outline-none"
         />
       </div>
-      <ul className="mt-4 space-y-2.5">
-        {list.map((m, i) => (
-          <li key={i} className="rounded-2xl bg-surface border border-border p-3.5">
-            <div className="font-bold text-primary text-[15px]">{m.med}</div>
-            <div className="text-[12px] text-muted-foreground mt-0.5">Potencies: {m.potencies}</div>
-            <div className="text-[12px] text-muted-foreground">{m.type}</div>
-          </li>
-        ))}
-      </ul>
+      {isLoading ? (
+        <LoadingBlock />
+      ) : list.length === 0 ? (
+        <EmptyBlock label="No medicines found." />
+      ) : (
+        <ul className="mt-4 space-y-2.5">
+          {list.map((m, i) => (
+            <li key={i} className="rounded-2xl bg-surface border border-border p-3.5">
+              <div className="font-bold text-primary text-[15px]">{m.med}</div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">Potencies: {m.potencies.join(", ") || "—"}</div>
+              {m.type && <div className="text-[12px] text-muted-foreground">{m.type}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
     </RoleShell>
   );
 }
