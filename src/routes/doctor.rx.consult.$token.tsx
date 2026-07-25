@@ -13,6 +13,7 @@ import {
   branchLabel,
   type RxRow,
 } from "@/lib/db";
+import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
@@ -85,11 +86,8 @@ function RxWrite() {
   const updateRow = (i: number, patch: Partial<EditableRow>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  const submit = async () => {
-    if (!visit) return;
+  const buildFinalRows = (): RxRow[] => {
     const valid = rows.filter((r) => r.medicine_name.trim());
-    if (valid.length === 0) return toast.error("At least one medicine daalo");
-
     const finalRows: RxRow[] = [];
     for (const r of valid) {
       finalRows.push({
@@ -111,6 +109,32 @@ function RxWrite() {
         });
       }
     }
+    return finalRows;
+  };
+
+  const downloadPdf = () => {
+    const finalRows = buildFinalRows();
+    if (finalRows.length === 0) return toast.error("At least one medicine daalo pehle");
+    downloadPrescriptionPdf({
+      branch: branchLabel(visit!.branch),
+      patientName: visit!.patient?.name ?? "",
+      age: visit!.patient?.age,
+      gender: visit!.patient?.gender,
+      patientCode: visit!.patient?.patient_code,
+      tokenNumber: visit!.token_number,
+      chiefComplaint: visit!.chief_complaint,
+      doctorNotes: notes,
+      nextVisitDate: nextVisit || null,
+      rows: finalRows,
+    });
+  };
+
+  const submit = async () => {
+    if (!visit) return;
+    const valid = rows.filter((r) => r.medicine_name.trim());
+    if (valid.length === 0) return toast.error("At least one medicine daalo");
+
+    const finalRows = buildFinalRows();
 
     setBusy(true);
     try {
@@ -246,6 +270,14 @@ function RxWrite() {
               />
             </div>
           </div>
+
+          <button
+            onClick={downloadPdf}
+            type="button"
+            className="w-full rounded-xl border border-primary/40 text-primary py-2.5 text-sm font-bold"
+          >
+            🖨️ Print / Download PDF
+          </button>
 
           <button
             onClick={submit}
