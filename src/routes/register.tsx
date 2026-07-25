@@ -5,6 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { createPatientWithVisit, isDuplicateMobile } from "@/lib/db";
+import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,14 @@ function RegisterPage() {
         name: patient.name,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      if (f.consent) {
+        sendWhatsApp({
+          campaignName: "REGISTRATION_CONFIRM",
+          destination: f.mobile,
+          userName: f.name.trim(),
+          templateParams: [f.name.trim(), visit.token_number ?? ""],
+        });
+      }
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message || "Registration fail hui");

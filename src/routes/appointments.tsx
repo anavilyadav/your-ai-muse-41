@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
 import { fetchAppointments, createAppointment, updateAppointmentStatus } from "@/lib/db";
+import { sendWhatsApp } from "@/lib/whatsapp";
 import { today } from "@/lib/supabase";
 
 export const Route = createFileRoute("/appointments")({
@@ -45,6 +46,14 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
     setSaving(false);
     if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
     toast.success("Appointment ban gaya");
+    if (mobile.replace(/\D/g, "").length === 10) {
+      sendWhatsApp({
+        campaignName: "APPOINTMENT_REMINDER",
+        destination: mobile.replace(/\D/g, ""),
+        userName: name.trim(),
+        templateParams: [name.trim(), date, time],
+      });
+    }
     onAdded();
     onClose();
   };
