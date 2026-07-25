@@ -314,7 +314,7 @@ export async function submitPrescription(input: {
     })),
   );
   if (re) throw re;
-  await supabase
+  const { error: ve } = await supabase
     .from("visits")
     .update({
       visit_status: "PHARMACY",
@@ -322,10 +322,12 @@ export async function submitPrescription(input: {
       next_visit_date: input.next_visit_date,
     })
     .eq("id", input.visit_id);
-  await supabase
+  if (ve) throw ve;
+  const { error: pe } = await supabase
     .from("patients")
     .update({ last_visit_date: today() })
     .eq("id", input.patient_id);
+  if (pe) throw pe;
 }
 
 // ---------- Follow-ups ----------
@@ -680,6 +682,111 @@ export async function createAppointment(input: NewAppointmentInput) {
 export async function updateAppointmentStatus(id: string, status: string) {
   const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
   return { success: !error, error: error?.message ?? null };
+}
+
+// ---------- Appointment slot config + VIP reserved slots ----------
+// Deliberately built on the existing `settings` key-value table (already
+// used for backup-doctor config, reception permissions, Case-DR levels) —
+// no new table/column needed, so this needs no SQL step to turn on.
+
+export type ApptBranch = "Bajaj Nagar" | "Jagatpura";
+
+export interface SlotConfig {
+  slotMinutes: number;
+  capacityPerSlot: number;
+  hours: Record<ApptBranch, { start: string; end: string }>;
+}
+
+export const DEFAULT_SLOT_CONFIG: SlotConfig = {
+  slotMinutes: 15,
+  capacityPerSlot: 2,
+  hours: {
+    "Bajaj Nagar": { start: "09:00", end: "20:00" },
+    "Jagatpura": { start: "09:00", end: "20:00" },
+  },
+};
+
+export async function fetchSlotConfig(): Promise<SlotConfig> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "appointment_slot_config").maybeSingle();
+  if (!data?.value) return DEFAULT_SLOT_CONFIG;
+  try {
+    const parsed = JSON.parse(data.value);
+    return {
+      slotMinutes: parsed.slotMinutes ?? DEFAULT_SLOT_CONFIG.slotMinutes,
+      capacityPerSlot: parsed.capacityPerSlot ?? DEFAULT_SLOT_CONFIG.capacityPerSlot,
+      hours: { ...DEFAULT_SLOT_CONFIG.hours, ...(parsed.hours ?? {}) },
+    };
+  } catch {
+    return DEFAULT_SLOT_CONFIG;
+  }
+}
+
+export async function saveSlotConfig(cfg: SlotConfig) {
+  await upsertSetting("appointment_slot_config", JSON.stringify(cfg));
+}
+
+// Generates "HH:MM" strings from start (inclusive) to end (exclusive) at the given interval.
+export function generateSlots(start: string, end: string, minutes: number): string[] {
+  const slots: string[] = [];
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  let h = sh, m = sm;
+  let guard = 0; // safety valve against a bad config (e.g. end before start) looping forever
+  while ((h < eh || (h === eh && m < em)) && guard < 500) {
+    slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    m += minutes;
+    while (m >= 60) { m -= 60; h += 1; }
+    guard++;
+  }
+  return slots;
+}
+
+export interface VipSlot { id: string; branch: ApptBranch; date: string; time: string; note?: string }
+
+export async function fetchVipSlots(): Promise<VipSlot[]> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "vip_reserved_slots").maybeSingle();
+  try { return data?.value ? JSON.parse(data.value) : []; } catch { return []; }
+}
+
+export async function addVipSlot(slot: Omit<VipSlot, "id">) {
+  const list = await fetchVipSlots();
+  const withId: VipSlot = { ...slot, id: `VIP_${Date.now()}` };
+  list.push(withId);
+  await upsertSetting("vip_reserved_slots", JSON.stringify(list));
+  return withId;
+}
+
+export async function removeVipSlot(id: string) {
+  const list = await fetchVipSlots();
+  await upsertSetting("vip_reserved_slots", JSON.stringify(list.filter((s) => s.id !== id)));
+}
+
+export interface SlotInfo { time: string; booked: number; capacity: number; vip: boolean; vipNote?: string; full: boolean }
+
+// Combines slot config + today's actual bookings + any VIP holds for this
+// exact date/branch into one list the New Appointment picker can render directly.
+export async function fetchSlotAvailability(date: string, branch: ApptBranch): Promise<SlotInfo[]> {
+  const [cfg, vip, appts] = await Promise.all([
+    fetchSlotConfig(),
+    fetchVipSlots(),
+    fetchAppointments(date),
+  ]);
+  const hours = cfg.hours[branch] ?? DEFAULT_SLOT_CONFIG.hours[branch];
+  const times = generateSlots(hours.start, hours.end, cfg.slotMinutes);
+  const activeAppts = (appts as any[]).filter((a) => a.branch === branch && a.status !== "Cancelled");
+  const vipForThis = vip.filter((v) => v.date === date && v.branch === branch);
+  return times.map((t) => {
+    const booked = activeAppts.filter((a) => (a.appointment_time ?? "").slice(0, 5) === t).length;
+    const vipMatch = vipForThis.find((v) => v.time === t);
+    return {
+      time: t,
+      booked,
+      capacity: cfg.capacityPerSlot,
+      vip: !!vipMatch,
+      vipNote: vipMatch?.note,
+      full: booked >= cfg.capacityPerSlot,
+    };
+  });
 }
 
 // ---------- Deliveries ----------

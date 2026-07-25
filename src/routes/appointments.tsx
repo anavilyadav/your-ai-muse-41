@@ -1,12 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
-import { useMemo, useState } from "react";
+import { useEffectiveRole } from "@/lib/auth";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X } from "lucide-react";
+import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { fetchAppointments, createAppointment, updateAppointmentStatus, searchPatients } from "@/lib/db";
+import {
+  fetchAppointments,
+  createAppointment,
+  updateAppointmentStatus,
+  searchPatients,
+  fetchSlotAvailability,
+  fetchSlotConfig,
+  saveSlotConfig,
+  fetchVipSlots,
+  addVipSlot,
+  removeVipSlot,
+  DEFAULT_SLOT_CONFIG,
+  type ApptBranch,
+  type SlotConfig,
+} from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { today } from "@/lib/supabase";
 
@@ -28,14 +43,62 @@ const statusStyle: Record<string, string> = {
   Arrived: "bg-primary/15 text-primary border-primary/40",
 };
 
+function SlotPicker({
+  date, branch, value, onChange, isOwner,
+}: {
+  date: string; branch: ApptBranch; value: string; onChange: (t: string) => void; isOwner: boolean;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["slot-availability", date, branch],
+    queryFn: () => fetchSlotAvailability(date, branch),
+  });
+
+  if (isLoading) return <div className="text-center text-xs text-muted-foreground py-4">Slots load ho rahe hain…</div>;
+  if (!data || data.length === 0) return <div className="text-center text-xs text-muted-foreground py-4">Is branch ke liye slot hours set nahi hain — Owner Settings se set karo.</div>;
+
+  return (
+    <div className="grid grid-cols-3 gap-2 max-h-56 overflow-y-auto py-1">
+      {data.map((s) => {
+        const isVip = s.vip;
+        const blocked = s.full || (isVip && !isOwner);
+        const selected = value === s.time;
+        return (
+          <button
+            key={s.time}
+            type="button"
+            disabled={blocked}
+            onClick={() => onChange(s.time)}
+            className={cn(
+              "rounded-lg border py-2 text-[11.5px] font-semibold flex flex-col items-center gap-0.5",
+              selected ? "bg-primary text-primary-foreground border-primary" :
+              blocked ? "bg-muted text-muted-foreground border-border opacity-60 cursor-not-allowed" :
+              isVip ? "bg-accent/20 text-accent-foreground border-accent/50" :
+              "bg-surface text-primary border-border",
+            )}
+          >
+            <span>{s.time}</span>
+            {isVip ? (
+              <span className="inline-flex items-center gap-0.5 text-[9px]"><Star className="h-2.5 w-2.5" /> VIP</span>
+            ) : (
+              <span className="text-[9px] opacity-80">{s.booked}/{s.capacity}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const role = useEffectiveRole();
+  const isOwner = role === "OWNER";
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [patientId, setPatientId] = useState<string | undefined>(undefined);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
-  const [branch, setBranch] = useState("Bajaj Nagar");
+  const [branch, setBranch] = useState<ApptBranch>("Bajaj Nagar");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -46,14 +109,16 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   });
 
   const submit = async () => {
-    if (!name.trim() || !time.trim()) { toast.error("Naam aur time zaroori hai"); return; }
+    if (!name.trim() || !time.trim()) { toast.error("Naam aur slot chuno"); return; }
     setSaving(true);
+    const cfg = await fetchSlotConfig();
     const res = await createAppointment({
       patient_id: patientId,
       patient_name: name.trim(),
       mobile: mobile.replace(/\D/g, ""),
       appointment_date: date,
       appointment_time: time,
+      slot_minutes: cfg.slotMinutes,
       branch,
       reason: reason.trim() || undefined,
     });
@@ -114,14 +179,22 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
             )}
           </div>
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
-          <div className="flex gap-2">
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
-          </div>
+          <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <div className="flex gap-1.5">
-            {["Bajaj Nagar", "Jagatpura"].map((b) => (
-              <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+            {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
+              <button key={b} onClick={() => { setBranch(b); setTime(""); }} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
             ))}
+          </div>
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+              Slot {time && <span className="normal-case font-semibold text-primary">— {time} selected</span>}
+            </div>
+            <SlotPicker date={date} branch={branch} value={time} onChange={setTime} isOwner={isOwner} />
+            {!isOwner && (
+              <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                <Star className="h-2.5 w-2.5" /> VIP-reserved slots sirf Owner book kar sakta hai
+              </div>
+            )}
           </div>
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
@@ -133,12 +206,177 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   );
 }
 
+function SlotSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const cfgQuery = useQuery({ queryKey: ["slot-config"], queryFn: fetchSlotConfig });
+  const vipQuery = useQuery({ queryKey: ["vip-slots"], queryFn: fetchVipSlots });
+  const [cfg, setCfg] = useState<SlotConfig>(DEFAULT_SLOT_CONFIG);
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  const [savingCfg, setSavingCfg] = useState(false);
+
+  useEffect(() => {
+    if (cfgQuery.data && !loadedOnce) {
+      setCfg(cfgQuery.data);
+      setLoadedOnce(true);
+    }
+  }, [cfgQuery.data, loadedOnce]);
+
+  const [vDate, setVDate] = useState(today());
+  const [vBranch, setVBranch] = useState<ApptBranch>("Bajaj Nagar");
+  const [vTime, setVTime] = useState("");
+  const [vNote, setVNote] = useState("");
+  const [addingVip, setAddingVip] = useState(false);
+
+  const saveCfg = async () => {
+    setSavingCfg(true);
+    try {
+      await saveSlotConfig(cfg);
+      qc.invalidateQueries({ queryKey: ["slot-config"] });
+      qc.invalidateQueries({ queryKey: ["slot-availability"] });
+      toast.success("Slot settings saved");
+    } catch (e: any) {
+      toast.error("Save nahi hua: " + (e?.message ?? "unknown error"));
+    } finally {
+      setSavingCfg(false);
+    }
+  };
+
+  const addVip = async () => {
+    if (!vTime) { toast.error("Time chuno"); return; }
+    setAddingVip(true);
+    try {
+      await addVipSlot({ branch: vBranch, date: vDate, time: vTime, note: vNote.trim() || undefined });
+      qc.invalidateQueries({ queryKey: ["vip-slots"] });
+      qc.invalidateQueries({ queryKey: ["slot-availability"] });
+      toast.success("VIP slot reserved");
+      setVTime(""); setVNote("");
+    } catch (e: any) {
+      toast.error("Reserve nahi hua: " + (e?.message ?? "unknown error"));
+    } finally {
+      setAddingVip(false);
+    }
+  };
+
+  const removeVip = async (id: string) => {
+    try {
+      await removeVipSlot(id);
+      qc.invalidateQueries({ queryKey: ["vip-slots"] });
+      qc.invalidateQueries({ queryKey: ["slot-availability"] });
+      toast.success("VIP reservation hataayi");
+    } catch (e: any) {
+      toast.error("Hata nahi paaya: " + (e?.message ?? "unknown error"));
+    }
+  };
+
+  const vipSlotOptions = useMemo(() => {
+    const hours = cfg.hours[vBranch] ?? DEFAULT_SLOT_CONFIG.hours[vBranch];
+    const out: string[] = [];
+    let [h, m] = hours.start.split(":").map(Number);
+    const [eh, em] = hours.end.split(":").map(Number);
+    let guard = 0;
+    while ((h < eh || (h === eh && m < em)) && guard < 500) {
+      out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+      m += cfg.slotMinutes;
+      while (m >= 60) { m -= 60; h += 1; }
+      guard++;
+    }
+    return out;
+  }, [cfg, vBranch]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Appointment Slot Settings</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Slot length & capacity</div>
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-medium text-primary">Slot duration</span>
+            <select
+              className="rounded-lg border border-border bg-background text-[12px] px-2 py-1.5"
+              value={cfg.slotMinutes}
+              onChange={(e) => setCfg({ ...cfg, slotMinutes: Number(e.target.value) })}
+            >
+              {[10, 15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
+            </select>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-medium text-primary">Patients per slot</span>
+            <input
+              type="number" min={1} max={20}
+              className="w-16 rounded-lg border border-border bg-background text-[12px] px-2 py-1.5 text-center"
+              value={cfg.capacityPerSlot}
+              onChange={(e) => setCfg({ ...cfg, capacityPerSlot: Math.max(1, Number(e.target.value) || 1) })}
+            />
+          </div>
+          {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
+            <div key={b}>
+              <div className="text-[12px] font-bold text-primary mb-1">{b} hours</div>
+              <div className="flex gap-2">
+                <input type="time" value={cfg.hours[b].start} onChange={(e) => setCfg({ ...cfg, hours: { ...cfg.hours, [b]: { ...cfg.hours[b], start: e.target.value } } })} className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
+                <span className="self-center text-muted-foreground text-xs">to</span>
+                <input type="time" value={cfg.hours[b].end} onChange={(e) => setCfg({ ...cfg, hours: { ...cfg.hours, [b]: { ...cfg.hours[b], end: e.target.value } } })} className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
+              </div>
+            </div>
+          ))}
+          <button disabled={savingCfg} onClick={saveCfg} className="w-full rounded-full bg-primary text-primary-foreground font-bold py-2.5 text-sm disabled:opacity-60">
+            {savingCfg ? "Saving…" : "Save slot settings"}
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <Star className="h-3 w-3" /> Reserve a VIP slot
+          </div>
+          <input type="date" value={vDate} onChange={(e) => setVDate(e.target.value)} className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
+          <div className="flex gap-1.5">
+            {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
+              <button key={b} onClick={() => { setVBranch(b); setVTime(""); }} className={cn("flex-1 rounded-full py-1.5 text-[11px] font-bold border", vBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>{b}</button>
+            ))}
+          </div>
+          <select className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" value={vTime} onChange={(e) => setVTime(e.target.value)}>
+            <option value="">— time chuno —</option>
+            {vipSlotOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input value={vNote} onChange={(e) => setVNote(e.target.value)} placeholder="Note (e.g. patient/family name)" className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
+          <button disabled={addingVip} onClick={addVip} className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-60">
+            {addingVip ? "Reserving…" : "Reserve this slot"}
+          </button>
+
+          {(vipQuery.data?.length ?? 0) > 0 && (
+            <div className="pt-1 space-y-1.5">
+              <div className="text-[10px] uppercase text-muted-foreground font-bold">Current VIP reservations</div>
+              {vipQuery.data!.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map((v) => (
+                <div key={v.id} className="flex items-center justify-between gap-2 rounded-lg bg-accent/10 border border-accent/30 px-2.5 py-1.5">
+                  <div className="text-[11px] text-primary min-w-0">
+                    <span className="font-bold">{v.date} • {v.time}</span> — {v.branch}
+                    {v.note && <span className="text-muted-foreground"> ({v.note})</span>}
+                  </div>
+                  <button onClick={() => removeVip(v.id)} className="shrink-0 h-6 w-6 grid place-items-center rounded-full bg-destructive/10 text-destructive">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppointmentsPage() {
+  const role = useEffectiveRole();
+  const isOwner = role === "OWNER";
   const { data, isLoading } = useQuery({ queryKey: ["appointments"], queryFn: () => fetchAppointments() });
   const queryClient = useQueryClient();
   const appts = (data ?? []) as any[];
   const [branch, setBranch] = useState<(typeof branches)[number]>("All");
   const [showNew, setShowNew] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const filtered = useMemo(
     () => (branch === "All" ? appts : appts.filter((a) => a.branch === branch)),
@@ -168,12 +406,20 @@ function AppointmentsPage() {
       subtitle="Today's schedule"
       showBack
       right={
-        <button onClick={() => setShowNew(true)} className="rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-3 py-1.5 inline-flex items-center gap-1">
-          <Plus className="h-3.5 w-3.5" /> New
-        </button>
+        <div className="flex items-center gap-1.5">
+          {isOwner && (
+            <button onClick={() => setShowSettings(true)} className="h-8 w-8 grid place-items-center rounded-full bg-white/15" aria-label="Slot settings">
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
+          <button onClick={() => setShowNew(true)} className="rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-3 py-1.5 inline-flex items-center gap-1">
+            <Plus className="h-3.5 w-3.5" /> New
+          </button>
+        </div>
       }
     >
       {showNew && <NewAppointmentModal onClose={() => setShowNew(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["appointments"] })} />}
+      {showSettings && <SlotSettingsModal onClose={() => setShowSettings(false)} />}
       <div className="grid grid-cols-3 gap-2">
         <StatCard label="Confirmed" value={stats.confirmed} tone="success" />
         <StatCard label="Arrived" value={stats.arrived} />
