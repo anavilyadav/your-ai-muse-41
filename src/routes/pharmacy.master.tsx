@@ -15,6 +15,8 @@ export const Route = createFileRoute("/pharmacy/master")({
 });
 
 const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
+const COMMON_TYPES = ["Dilution", "Mother Tincture", "Biochemic", "Trituration"];
 
 function AddMedicineModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [medicine, setMedicine] = useState("");
@@ -53,11 +55,20 @@ function AddMedicineModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
-            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 30, 200, 1M" />
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {COMMON_POTENCIES.map((p) => (
+                <button key={p} type="button" onClick={() => setPotency(p)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", potency === p ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{p}</button>
+              ))}
+            </div>
+            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="Ya alag potency likho" />
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Type (optional)</label>
-            <input value={type} onChange={(e) => setType(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. Dilution, Mother Tincture" />
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {COMMON_TYPES.map((t) => (
+                <button key={t} type="button" onClick={() => setType(t)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", type === t ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{t}</button>
+              ))}
+            </div>
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>

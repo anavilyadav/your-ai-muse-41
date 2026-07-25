@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addStockEntry } from "@/lib/db";
+import { fetchInventory, fetchInventorySearch, addStockEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/inventory")({
@@ -15,11 +15,49 @@ export const Route = createFileRoute("/pharmacy/inventory")({
 });
 
 const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
 
 function isLow(row: any): boolean {
   const stock = Number(row.stock_drams ?? row.stock ?? 0);
   const low = Number(row.reorder_level ?? row.low ?? 20);
   return stock <= low;
+}
+
+function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery({
+    queryKey: ["med-autocomplete", value],
+    queryFn: () => fetchInventorySearch(value),
+    enabled: value.trim().length >= 2,
+  });
+  const suggestions = Array.from(new Set((data ?? []).map((m: any) => m.medicine_name)));
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+        placeholder="Type karo — existing medicine dikhengi, ya nayi likh do"
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-10 w-full mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
+          {suggestions.map((name: any) => (
+            <li key={name}>
+              <button
+                type="button"
+                onMouseDown={() => { onChange(name); setOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
+              >
+                {name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
@@ -54,11 +92,16 @@ function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
         <div className="flex flex-col gap-3">
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
-            <input value={medicine} onChange={(e) => setMedicine(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. Arnica Montana" />
+            <MedicineAutocomplete value={medicine} onChange={setMedicine} />
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
-            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 200, 1M, Q" />
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {COMMON_POTENCIES.map((p) => (
+                <button key={p} type="button" onClick={() => setPotency(p)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", potency === p ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{p}</button>
+              ))}
+            </div>
+            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="Ya alag potency likho" />
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>

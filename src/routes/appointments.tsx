@@ -5,7 +5,7 @@ import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, 
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { fetchAppointments, createAppointment, updateAppointmentStatus } from "@/lib/db";
+import { fetchAppointments, createAppointment, updateAppointmentStatus, searchPatients } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { today } from "@/lib/supabase";
 
@@ -26,16 +26,25 @@ const statusStyle: Record<string, string> = {
 function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
+  const [patientId, setPatientId] = useState<string | undefined>(undefined);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
   const [branch, setBranch] = useState("Bajaj Nagar");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const patientSearch = useQuery({
+    queryKey: ["appt-patient-search", name],
+    queryFn: () => searchPatients(name),
+    enabled: !patientId && name.trim().length >= 2,
+  });
+
   const submit = async () => {
     if (!name.trim() || !time.trim()) { toast.error("Naam aur time zaroori hai"); return; }
     setSaving(true);
     const res = await createAppointment({
+      patient_id: patientId,
       patient_name: name.trim(),
       mobile: mobile.replace(/\D/g, ""),
       appointment_date: date,
@@ -66,7 +75,39 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Patient naam" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <div className="relative">
+            <input
+              value={name}
+              onChange={(e) => { setName(e.target.value); setPatientId(undefined); setShowSuggestions(true); }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              placeholder="Patient naam — existing patient search hoga"
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+            {showSuggestions && !patientId && (patientSearch.data?.length ?? 0) > 0 && (
+              <ul className="absolute z-10 w-full mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
+                {patientSearch.data!.map((p: any) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onMouseDown={() => {
+                        setName(p.name);
+                        setMobile(p.mobile ?? "");
+                        setPatientId(p.id);
+                        setShowSuggestions(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
+                    >
+                      {p.name} — {p.mobile}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {patientId && (
+              <div className="mt-1 text-[11px] text-success font-semibold">✓ Existing patient selected</div>
+            )}
+          </div>
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <div className="flex gap-2">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
