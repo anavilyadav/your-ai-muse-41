@@ -1,9 +1,111 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
-import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Wallet } from "lucide-react";
+import { toast } from "sonner";
+import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { fetchPatientById, fetchPatientHistory, type DBPatient } from "@/lib/db";
+import {
+  fetchPatientById,
+  fetchPatientHistory,
+  fetchFamilyMembers,
+  linkFamilyMember,
+  unlinkFamilyMember,
+  searchPatients,
+  type DBPatient,
+} from "@/lib/db";
+
+const RELATIONSHIPS = ["Spouse", "Son", "Daughter", "Parent", "Sibling", "Other"];
+
+function LinkFamilyModal({
+  patientId,
+  onClose,
+  onLinked,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any | null>(null);
+  const [relationship, setRelationship] = useState(RELATIONSHIPS[0]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); return; }
+    let cancelled = false;
+    searchPatients(q).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
+    return () => { cancelled = true; };
+  }, [q, patientId]);
+
+  const submit = async () => {
+    if (!selected) { toast.error("Pehle patient select karo"); return; }
+    setSaving(true);
+    const res = await linkFamilyMember(patientId, selected.id, relationship);
+    setSaving(false);
+    if (!res.success) { toast.error("Link nahi hua: " + res.error); return; }
+    toast.success(`${selected.name} family mein link ho gaye`);
+    onLinked();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Add Family Member</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Patient dhoondo</label>
+            <input
+              value={selected ? `${selected.name} — ${selected.mobile}` : q}
+              onChange={(e) => { setSelected(null); setQ(e.target.value); }}
+              placeholder="Naam ya mobile"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+            {!selected && results.length > 0 && (
+              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
+                {results.map((p: any) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => { setSelected(p); setQ(""); setResults([]); }}
+                      className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
+                    >
+                      {p.name} — {p.mobile}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Yeh patient family mein kaun hai?</label>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {RELATIONSHIPS.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRelationship(r)}
+                  className={
+                    "rounded-full px-3 py-1.5 text-[12px] font-bold border " +
+                    (relationship === r ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground")
+                  }
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Linking…" : "Link Family Member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/patient/$id")({
   head: ({ params }) => ({
@@ -20,21 +122,21 @@ function PatientProfilePage() {
   const { id } = Route.useParams();
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
+  const [family, setFamily] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+
+  const reload = async () => {
+    setLoading(true);
+    const [p, vs, fam] = await Promise.all([fetchPatientById(id), fetchPatientHistory(id, 20), fetchFamilyMembers(id)]);
+    setPatient(p);
+    setVisits(vs);
+    setFamily(fam);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      const [p, vs] = await Promise.all([fetchPatientById(id), fetchPatientHistory(id, 20)]);
-      if (cancelled) return;
-      setPatient(p);
-      setVisits(vs);
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    reload();
   }, [id]);
 
   if (loading) {
@@ -61,6 +163,9 @@ function PatientProfilePage() {
 
   return (
     <MobileShell title={patient.name} subtitle={patient.patient_code ?? patient.id.slice(0, 8)} showBack>
+      {showLinkModal && (
+        <LinkFamilyModal patientId={id} onClose={() => setShowLinkModal(false)} onLinked={reload} />
+      )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="h-14 w-14 rounded-full bg-accent text-accent-foreground grid place-items-center text-xl font-bold">
@@ -94,6 +199,44 @@ function PatientProfilePage() {
         <Row icon={PhoneCall} label="Mobile" value={patient.mobile} />
         <Row icon={MapPin} label="Branch" value={branchLabel} />
         <Row icon={Cake} label="City" value={patient.city ?? "—"} />
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between px-1 mb-2">
+          <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <Users className="h-3 w-3" /> Family
+          </h2>
+          <button onClick={() => setShowLinkModal(true)} className="text-[11px] font-bold text-primary underline">
+            + Add
+          </button>
+        </div>
+        {family.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-4 rounded-xl bg-surface border border-border">
+            Koi family member link nahi hai. Naam yaad rakhne ki zarurat nahi — yahan se link kar do.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {family.map((f: any) => (
+              <li key={f.id}>
+                <Link
+                  to="/patient/$id"
+                  params={{ id: f.id }}
+                  className="flex items-center justify-between rounded-xl bg-surface border border-border p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-primary truncate">{f.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {f.family_relationship ?? "—"} • {f.age ?? "?"}y • {f.gender ?? "—"}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {f.last_visit_date ? new Date(f.last_visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "—"}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="mt-5">

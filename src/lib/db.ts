@@ -18,6 +18,8 @@ export interface DBPatient {
   lifetime_revenue: number;
   current_balance: number;
   last_visit_date: string | null;
+  family_group_id: string | null;
+  family_relationship: string | null;
 }
 
 export interface DBVisit {
@@ -787,6 +789,55 @@ export async function fetchPatientById(id: string) {
     .maybeSingle();
   if (error) return null;
   return data as DBPatient | null;
+}
+
+// ---------- Family linking ----------
+export async function fetchFamilyMembers(patientId: string) {
+  const me = await fetchPatientById(patientId);
+  if (!me?.family_group_id) return [];
+  const { data, error } = await supabase
+    .from("patients")
+    .select("id, name, mobile, age, gender, family_relationship, last_visit_date, patient_code")
+    .eq("family_group_id", me.family_group_id)
+    .neq("id", patientId);
+  if (error) return [];
+  return data ?? [];
+}
+
+/**
+ * Links two patients into the same family group. If neither has a group
+ * yet, creates one. `relatedRelationship` describes what the OTHER patient
+ * is relative to this family (e.g. "Spouse", "Son") — shown on both profiles.
+ */
+export async function linkFamilyMember(patientId: string, relatedPatientId: string, relatedRelationship: string) {
+  const me = await fetchPatientById(patientId);
+  if (!me) return { success: false, error: "Patient not found" };
+
+  let groupId = me.family_group_id;
+  if (!groupId) {
+    groupId = crypto.randomUUID();
+    const { error: e1 } = await supabase
+      .from("patients")
+      .update({ family_group_id: groupId, family_relationship: me.family_relationship ?? "Head" })
+      .eq("id", patientId);
+    if (e1) return { success: false, error: e1.message };
+  }
+
+  const { error: e2 } = await supabase
+    .from("patients")
+    .update({ family_group_id: groupId, family_relationship: relatedRelationship })
+    .eq("id", relatedPatientId);
+  if (e2) return { success: false, error: e2.message };
+
+  return { success: true, error: null };
+}
+
+export async function unlinkFamilyMember(patientId: string) {
+  const { error } = await supabase
+    .from("patients")
+    .update({ family_group_id: null, family_relationship: null })
+    .eq("id", patientId);
+  return { success: !error, error: error?.message ?? null };
 }
 
 export async function fetchDaySummary(branch?: string) {
