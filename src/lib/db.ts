@@ -494,6 +494,62 @@ export async function searchPatients(term: string) {
   return data ?? [];
 }
 
+export async function fetchPatientById(id: string) {
+  const { data, error } = await supabase
+    .from("patients")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return null;
+  return data as DBPatient | null;
+}
+
+export async function fetchDaySummary(branch?: string) {
+  const t = today();
+  let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);
+  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,branch,payment_mode").gte("created_at", t);
+  if (branch) {
+    visQ = visQ.eq("branch", branch);
+    payQ = payQ.eq("branch", branch);
+  }
+  const [visRes, payRes] = await Promise.all([visQ, payQ]);
+  const visits = visRes.data ?? [];
+  const pays = payRes.data ?? [];
+  const patientIds = visits.map((v: any) => v.patient_id).filter(Boolean);
+  let newCount = 0;
+  let followupCount = 0;
+  if (patientIds.length) {
+    const { data: pats } = await supabase
+      .from("patients")
+      .select("id,created_at")
+      .in("id", patientIds);
+    (pats ?? []).forEach((p: any) => {
+      if ((p.created_at ?? "").slice(0, 10) === t) newCount++;
+      else followupCount++;
+    });
+  }
+  const revenue = pays.reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  const outstanding = pays.reduce((s, r: any) => s + Number(r.balance_due ?? 0), 0);
+  const cash = pays.filter((r: any) => r.payment_mode === "CASH").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  const upi = pays.filter((r: any) => r.payment_mode === "UPI").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  const card = pays.filter((r: any) => r.payment_mode === "CARD").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  return {
+    totalPatients: visits.length,
+    newPatients: newCount,
+    followupPatients: followupCount,
+    done: visits.filter((v: any) => v.visit_status === "DONE").length,
+    waiting: visits.filter((v: any) => ["REGISTERED", "CASE_TAKING", "WAITING", "WAITING_DOCTOR"].includes(v.visit_status)).length,
+    pendingPayments: visits.filter((v: any) => v.visit_status === "PAYMENT").length,
+    revenue,
+    outstanding,
+    cash,
+    upi,
+    card,
+    bajaj: visits.filter((v: any) => v.branch === "BAJAJ_NAGAR").length,
+    jagat: visits.filter((v: any) => v.branch === "JAGATPURA").length,
+  };
+}
+
 export function branchLabel(b: string | null | undefined): string {
   if (b === "BAJAJ_NAGAR") return "Bajaj Nagar";
   if (b === "JAGATPURA") return "Jagatpura";
