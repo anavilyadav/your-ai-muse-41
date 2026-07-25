@@ -11,7 +11,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/delivery")({
   head: () => ({ meta: [{ title: "Delivery Tracking — YHC Jaipur" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="delivery">
       <DeliveryPage />
     </AuthGate>
   ),

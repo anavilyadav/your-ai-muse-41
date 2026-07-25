@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/outstanding")({
   head: () => ({ meta: [{ title: "Outstanding Dues — YHC" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="outstanding">
       <OutstandingPage />
     </AuthGate>
   ),

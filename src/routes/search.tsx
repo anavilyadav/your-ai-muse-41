@@ -8,7 +8,7 @@ import { searchPatients } from "@/lib/db";
 export const Route = createFileRoute("/search")({
   head: () => ({ meta: [{ title: "Search Patients — YHC Jaipur" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="search">
       <SearchPage />
     </AuthGate>
   ),

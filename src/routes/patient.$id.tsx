@@ -10,7 +10,7 @@ export const Route = createFileRoute("/patient/$id")({
     meta: [{ title: `Patient ${params.id} — YHC Jaipur` }],
   }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="patientDetail">
       <PatientProfilePage />
     </AuthGate>
   ),

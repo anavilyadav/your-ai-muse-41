@@ -20,7 +20,7 @@ export const Route = createFileRoute("/")({
 
 function QueuePageGated() {
   return (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="queue">
       <QueuePage />
     </AuthGate>
   );

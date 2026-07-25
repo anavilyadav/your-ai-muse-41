@@ -8,11 +8,26 @@ export interface BackupDoctorConfig {
   enabled: boolean;
 }
 
+export const RECEPTION_SCREENS: { key: string; label: string }[] = [
+  { key: "register", label: "Registration" },
+  { key: "queue", label: "Queue / Token Board" },
+  { key: "search", label: "Patient Search" },
+  { key: "patientDetail", label: "Patient Detail" },
+  { key: "payment", label: "Payment Collection" },
+  { key: "summary", label: "Day Summary" },
+  { key: "followup", label: "Follow-up Calls" },
+  { key: "leads", label: "Lead CRM" },
+  { key: "delivery", label: "Delivery Tracking" },
+  { key: "appointments", label: "Appointments" },
+  { key: "outstanding", label: "Outstanding Dues" },
+];
+
 interface AuthCtx {
   user: AppUser | null;
   viewAsRole: Role | null; // OWNER can preview other roles
   loading: boolean;
   backupDoctorActive: boolean; // true if THIS user currently has temporary backup-doctor access
+  hasReceptionPermission: (screenKey: string) => boolean;
   signIn: (mobile: string, pin: string) => Promise<string | null>; // null = ok, else error msg
   signOut: () => Promise<void>;
   setViewAsRole: (r: Role | null) => void;
@@ -37,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [viewAsRole, setViewAsRoleState] = useState<Role | null>(null);
   const [backupDoctorActive, setBackupDoctorActive] = useState(false);
+  const [receptionPerms, setReceptionPerms] = useState<Record<string, boolean>>({});
   const userIdRef = useRef<string | undefined>(undefined);
 
   const loadUser = async (uid: string) => {
@@ -63,6 +79,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshReceptionPerms = async () => {
+    try {
+      const { data } = await supabase.from("settings").select("key,value").like("key", "recp_perm:%");
+      const map: Record<string, boolean> = {};
+      (data ?? []).forEach((r: any) => {
+        map[r.key] = r.value === "true" || r.value === true;
+      });
+      setReceptionPerms(map);
+    } catch {
+      setReceptionPerms({});
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(async ({ data }) => {
@@ -72,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (mounted) setUser(u);
         userIdRef.current = u?.id;
         await refreshBackupDoctorStatus(u?.id);
+        await refreshReceptionPerms();
       }
       if (mounted) {
         try {
@@ -87,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
         userIdRef.current = u?.id;
         await refreshBackupDoctorStatus(u?.id);
+        await refreshReceptionPerms();
       } else {
         setUser(null);
         userIdRef.current = undefined;
@@ -134,8 +165,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
   };
 
+  const hasReceptionPermission = (screenKey: string): boolean => {
+    if (!user) return false;
+    if (user.role !== "RECP1" && user.role !== "RECP2") return true; // only gates RECP1/RECP2
+    const k = `recp_perm:${user.role}:${screenKey}`;
+    // Default ON (true) if never explicitly toggled off — nothing breaks for existing staff.
+    return receptionPerms[k] !== false;
+  };
+
   return (
-    <Ctx.Provider value={{ user, viewAsRole, loading, backupDoctorActive, signIn, signOut, setViewAsRole }}>
+    <Ctx.Provider
+      value={{ user, viewAsRole, loading, backupDoctorActive, hasReceptionPermission, signIn, signOut, setViewAsRole }}
+    >
       {children}
     </Ctx.Provider>
   );

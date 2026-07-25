@@ -7,6 +7,7 @@ import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchSettings, upsertSetting, fetchStaff } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
+import { RECEPTION_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -99,6 +100,87 @@ function BackupDoctorModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
+  const qc = useQueryClient();
+  const [pending, setPending] = useState<string | null>(null);
+
+  const isOn = (role: "RECP1" | "RECP2", key: string) => {
+    const row = settings.find((r: any) => r.key === `recp_perm:${role}:${key}`);
+    return row ? (row.value === "true" || row.value === true) : true; // default ON
+  };
+
+  const toggle = async (role: "RECP1" | "RECP2", key: string) => {
+    const k = `recp_perm:${role}:${key}`;
+    const next = !isOn(role, key);
+    setPending(k);
+    try {
+      await upsertSetting(k, String(next));
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setPending(null);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Reception Permissions — per screen ON/OFF
+      </div>
+      <div className="rounded-2xl bg-surface border border-border overflow-hidden">
+        <div className="grid grid-cols-[1fr_auto_auto] bg-primary text-primary-foreground text-[11px] font-bold px-3 py-2">
+          <span>Screen</span>
+          <span className="w-12 text-center">RECP1</span>
+          <span className="w-12 text-center">RECP2</span>
+        </div>
+        {RECEPTION_SCREENS.map((s, i) => (
+          <div
+            key={s.key}
+            className={cn(
+              "grid grid-cols-[1fr_auto_auto] items-center px-3 py-2.5",
+              i < RECEPTION_SCREENS.length - 1 && "border-b border-border",
+            )}
+          >
+            <span className="text-[13px] text-primary truncate pr-2">{s.label}</span>
+            {(["RECP1", "RECP2"] as const).map((role) => {
+              const on = isOn(role, s.key);
+              const k = `recp_perm:${role}:${s.key}`;
+              return (
+                <button
+                  key={role}
+                  onClick={() => toggle(role, s.key)}
+                  disabled={pending === k}
+                  className={cn(
+                    "w-12 flex justify-center",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "relative h-5 w-9 rounded-full transition inline-block",
+                      on ? "bg-success" : "bg-border",
+                      pending === k && "opacity-50",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all",
+                        on ? "left-[18px]" : "left-0.5",
+                      )}
+                    />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        Default sabke liye ON hai. Jisko rokna ho us role ka wahi switch OFF kar do — turant apply hoga.
+      </p>
     </div>
   );
 }
@@ -197,6 +279,7 @@ function ControlPage() {
       ) : (
         <div className="space-y-4">
           {showBackupModal && <BackupDoctorModal onClose={() => setShowBackupModal(false)} />}
+          <ReceptionPermissionsGrid settings={data ?? []} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
               Backup Doctor

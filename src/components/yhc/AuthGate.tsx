@@ -7,11 +7,15 @@ import { roleHome } from "@/lib/supabase";
 /**
  * Wraps role-restricted pages. Redirects to /login if not signed in,
  * or to the user's role home if their role is not in `allow`.
+ * Optional `permKey` additionally checks the Owner's per-screen
+ * RECP1/RECP2 ON/OFF permission toggles (Owner Control Centre).
  */
-export function AuthGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
-  const { user, loading } = useAuth();
+export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?: string; children: ReactNode }) {
+  const { user, loading, hasReceptionPermission } = useAuth();
   const role = useEffectiveRole();
   const navigate = useNavigate();
+
+  const permOk = !permKey || hasReceptionPermission(permKey);
 
   useEffect(() => {
     if (loading) return;
@@ -19,10 +23,10 @@ export function AuthGate({ allow, children }: { allow: Role[]; children: ReactNo
       navigate({ to: "/login", replace: true });
       return;
     }
-    if (role && !allow.includes(role)) {
+    if (role && (!allow.includes(role) || !permOk)) {
       navigate({ to: roleHome(role), replace: true });
     }
-  }, [loading, user, role, allow, navigate]);
+  }, [loading, user, role, allow, permOk, navigate]);
 
   if (loading || !user) {
     return (
@@ -31,7 +35,7 @@ export function AuthGate({ allow, children }: { allow: Role[]; children: ReactNo
       </div>
     );
   }
-  if (role && !allow.includes(role)) {
+  if (role && (!allow.includes(role) || !permOk)) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
         <div className="text-sm text-muted-foreground">Redirecting…</div>

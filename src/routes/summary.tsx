@@ -9,7 +9,7 @@ import { fetchDaySummary } from "@/lib/db";
 export const Route = createFileRoute("/summary")({
   head: () => ({ meta: [{ title: "Day Summary — YHC Jaipur" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="summary">
       <SummaryPage />
     </AuthGate>
   ),

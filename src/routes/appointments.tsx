@@ -13,7 +13,7 @@ import { today } from "@/lib/supabase";
 export const Route = createFileRoute("/appointments")({
   head: () => ({ meta: [{ title: "Appointments — YHC Jaipur" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="appointments">
       <AppointmentsPage />
     </AuthGate>
   ),
