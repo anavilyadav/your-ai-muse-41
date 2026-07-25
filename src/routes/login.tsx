@@ -17,7 +17,7 @@ function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) navigate({ to: roleHome(user.role) });
+    if (!loading && user) navigate({ to: roleHome(user.role), replace: true });
   }, [user, loading, navigate]);
 
   const submit = async (e: React.FormEvent) => {

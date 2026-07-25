@@ -16,11 +16,11 @@ export function AuthGate({ allow, children }: { allow: Role[]; children: ReactNo
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      navigate({ to: "/login" });
+      navigate({ to: "/login", replace: true });
       return;
     }
     if (role && !allow.includes(role)) {
-      navigate({ to: roleHome(role) });
+      navigate({ to: roleHome(role), replace: true });
     }
   }, [loading, user, role, allow, navigate]);
 
