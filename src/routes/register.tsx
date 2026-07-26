@@ -122,11 +122,12 @@ function RegisterPage() {
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       if (f.consent) {
+        const todayFormatted = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
         sendWhatsApp({
           campaignName: "REGISTRATION_CONFIRM",
           destination: f.mobile,
           userName: f.name.trim(),
-          templateParams: [f.name.trim(), visit.token_number ?? ""],
+          templateParams: [f.name.trim(), todayFormatted],
         });
       }
     } catch (e: any) {
