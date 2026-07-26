@@ -1325,6 +1325,71 @@ export async function unlinkFamilyMember(patientId: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+// ---------- Patient Documents (general staff upload — follow-up notes, new case notes, reports) ----------
+// Lets Dr. Yadav keep writing on paper; any staff with access to this
+// screen just photographs the page against the right patient. Reuses the
+// same compress + scan-enhance + upload-timeout pipeline as case-taking
+// photos, so this needs no separate tuning.
+export const DOC_TYPES = ["Follow-up Notes", "New Case Notes", "Lab Report", "Other"] as const;
+export type DocType = (typeof DOC_TYPES)[number];
+
+export interface PatientDocument {
+  id: string;
+  patient_id: string;
+  doc_type: string;
+  photo_url: string;
+  note: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export async function uploadPatientDocument(
+  patientId: string,
+  docType: DocType,
+  file: File,
+  note?: string,
+  uploadedBy?: string,
+) {
+  try {
+    const compressed = await compressImageForUpload(file, { documentMode: true });
+    const ext = compressed.name.split(".").pop() || "jpg";
+    const path = `${patientId}/${Date.now()}.${ext}`;
+    const { error: upErr } = await withTimeout(
+      supabase.storage.from("patient-documents").upload(path, compressed, { upsert: true }),
+      25_000,
+      "Document upload",
+    );
+    if (upErr) return { success: false, error: upErr.message };
+    const { data: pub } = supabase.storage.from("patient-documents").getPublicUrl(path);
+    const { error } = await supabase.from("patient_documents").insert({
+      patient_id: patientId,
+      doc_type: docType,
+      photo_url: pub.publicUrl,
+      note: note?.trim() || null,
+      uploaded_by: uploadedBy || null,
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true, error: null };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "Upload failed" };
+  }
+}
+
+export async function fetchPatientDocuments(patientId: string): Promise<PatientDocument[]> {
+  const { data, error } = await supabase
+    .from("patient_documents")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return data ?? [];
+}
+
+export async function deletePatientDocument(id: string) {
+  const { error } = await supabase.from("patient_documents").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 export async function fetchDaySummary(branch?: string) {
   const t = today();
   let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);

@@ -2,8 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet } from "lucide-react";
+import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2 } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { useAuth } from "@/lib/auth";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -11,6 +12,12 @@ import {
   linkFamilyMember,
   unlinkFamilyMember,
   searchPatients,
+  fetchPatientDocuments,
+  uploadPatientDocument,
+  deletePatientDocument,
+  DOC_TYPES,
+  type DocType,
+  type PatientDocument,
   type DBPatient,
 } from "@/lib/db";
 
@@ -107,6 +114,98 @@ function LinkFamilyModal({
   );
 }
 
+function UploadDocumentModal({
+  patientId,
+  onClose,
+  onUploaded,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const { user } = useAuth();
+  const [docType, setDocType] = useState<DocType>("Follow-up Notes");
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const pickFile = (f: File) => {
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  };
+
+  const submit = async () => {
+    if (!file) { toast.error("Photo lo ya chuno"); return; }
+    setSaving(true);
+    const res = await uploadPatientDocument(patientId, docType, file, note, user?.name);
+    setSaving(false);
+    if (!res.success) { toast.error("Upload nahi hua: " + res.error); return; }
+    toast.success("Document upload ho gaya");
+    onUploaded();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Upload Document</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Type</label>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {DOC_TYPES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setDocType(t)}
+                  className={
+                    "rounded-full px-3 py-1.5 text-[12px] font-bold border " +
+                    (docType === t ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground")
+                  }
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="w-full rounded-2xl border-2 border-dashed border-accent bg-accent/10 p-5 text-center flex flex-col items-center gap-2 cursor-pointer">
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) pickFile(f); e.target.value = ""; }}
+            />
+            {preview ? (
+              <img src={preview} alt="Preview" className="max-h-40 rounded-lg border border-border" />
+            ) : (
+              <>
+                <Camera className="h-7 w-7 text-primary" />
+                <div className="text-sm font-bold text-primary">Photo lo ya chuno</div>
+              </>
+            )}
+            {preview && <div className="text-[11px] text-muted-foreground">Badalne ke liye tap karo</div>}
+          </label>
+
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Note (optional — e.g. date on paper, visit context)"
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+          />
+          <button onClick={submit} disabled={saving || !file} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Uploading…" : "Upload"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/patient/$id")({
   head: ({ params }) => ({
     meta: [{ title: `Patient ${params.id} — YHC Jaipur` }],
@@ -123,15 +222,23 @@ function PatientProfilePage() {
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [family, setFamily] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const reload = async () => {
     setLoading(true);
-    const [p, vs, fam] = await Promise.all([fetchPatientById(id), fetchPatientHistory(id, 20), fetchFamilyMembers(id)]);
+    const [p, vs, fam, docs] = await Promise.all([
+      fetchPatientById(id),
+      fetchPatientHistory(id, 20),
+      fetchFamilyMembers(id),
+      fetchPatientDocuments(id),
+    ]);
     setPatient(p);
     setVisits(vs);
     setFamily(fam);
+    setDocuments(docs);
     setLoading(false);
   };
 
@@ -165,6 +272,9 @@ function PatientProfilePage() {
     <MobileShell title={patient.name} subtitle={patient.patient_code ?? patient.id.slice(0, 8)} showBack>
       {showLinkModal && (
         <LinkFamilyModal patientId={id} onClose={() => setShowLinkModal(false)} onLinked={reload} />
+      )}
+      {showUploadModal && (
+        <UploadDocumentModal patientId={id} onClose={() => setShowUploadModal(false)} onUploaded={reload} />
       )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
@@ -233,6 +343,51 @@ function PatientProfilePage() {
                     {f.last_visit_date ? new Date(f.last_visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "—"}
                   </span>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between px-1 mb-2">
+          <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <FileText className="h-3 w-3" /> Documents
+          </h2>
+          <button onClick={() => setShowUploadModal(true)} className="text-[11px] font-bold text-primary underline inline-flex items-center gap-1">
+            <Camera className="h-3 w-3" /> Upload
+          </button>
+        </div>
+        {documents.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-4 rounded-xl bg-surface border border-border">
+            Koi document upload nahi hua. Paper pe likha follow-up ya case note yahan se photo khinch ke upload kar do.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {documents.map((d) => (
+              <li key={d.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center gap-2.5">
+                <a href={d.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
+                  <img src={d.photo_url} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
+                </a>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-bold text-primary">{d.doc_type}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {new Date(d.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    {d.uploaded_by && ` • ${d.uploaded_by}`}
+                  </div>
+                  {d.note && <div className="text-[11px] text-foreground/80 truncate mt-0.5">{d.note}</div>}
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm("Yeh document delete karein?")) return;
+                    const res = await deletePatientDocument(d.id);
+                    if (res.success) { toast.success("Document hataaya"); reload(); }
+                    else toast.error("Delete nahi hua: " + res.error);
+                  }}
+                  className="shrink-0 h-7 w-7 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </li>
             ))}
           </ul>
