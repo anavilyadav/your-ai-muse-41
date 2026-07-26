@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
+import { today } from "@/lib/supabase";
 
 export const Route = createFileRoute("/doctor/rx/")({
   head: () => ({ meta: [{ title: "Rx Queue — Doctor" }, { name: "robots", content: "noindex" }] }),
@@ -12,6 +13,10 @@ export const Route = createFileRoute("/doctor/rx/")({
     </AuthGate>
   ),
 });
+
+function daysPending(visitDate: string): number {
+  return Math.max(0, Math.floor((Date.parse(today()) - Date.parse(visitDate)) / 86_400_000));
+}
 
 function RxQueue() {
   const navigate = useNavigate();
@@ -26,14 +31,16 @@ function RxQueue() {
   );
 
   return (
-    <MobileShell title="Doctor — Rx Queue" subtitle="Today">
+    <MobileShell title="Doctor — Rx Queue" subtitle="Today + any pending">
       {isLoading ? (
         <LoadingBlock />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi patient Rx ke liye pending nahi." />
       ) : (
         <ul className="space-y-2.5">
-          {rows.map((r) => (
+          {rows.map((r) => {
+            const d = daysPending(r.visit_date);
+            return (
             <li key={r.id}>
               <button
                 onClick={() => navigate({ to: "/doctor/rx/consult/$token", params: { token: r.id } })}
@@ -51,12 +58,17 @@ function RxQueue() {
                   </span>
                 </div>
                 <div className="text-sm text-primary mt-1.5">{r.chief_complaint || "—"}</div>
-                <div className="text-[11px] text-muted-foreground mt-1">
-                  {branchLabel(r.branch)} • {r.visit_status}
+                <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                  <span>{branchLabel(r.branch)} • {r.visit_status}</span>
+                  {d > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
+                      {d}d pending
+                    </span>
+                  )}
                 </div>
               </button>
             </li>
-          ))}
+          );})}
         </ul>
       )}
     </MobileShell>

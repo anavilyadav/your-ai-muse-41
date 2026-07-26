@@ -129,11 +129,20 @@ export async function isDuplicateMobile(mobile: string): Promise<boolean> {
 }
 
 // ---------- Queue reads ----------
+// IMPORTANT: this used to filter strictly on visit_date = today, which meant
+// any visit not resolved the same day it was registered (e.g. an online
+// case taken today with the doctor's actual consult scheduled days later)
+// would silently disappear from every queue forever once the date rolled
+// over — nobody would ever see it again unless they manually searched for
+// the patient by name. Now: still-open visits (anything not DONE) show up
+// regardless of which day they were registered, so nothing gets lost.
+// Only DONE visits are date-scoped, so "today's completed count" still
+// means today, not all-time.
 export async function fetchTodayQueue() {
   const { data, error } = await supabase
     .from("visits")
     .select("*, patient:patients(*)")
-    .eq("visit_date", today())
+    .or(`visit_date.eq.${today()},visit_status.neq.DONE`)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: DBPatient })[];
@@ -166,11 +175,13 @@ export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior
 
 const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
 
+// Same fix as fetchTodayQueue — an unfinished case-taking (e.g. a Junior
+// Case-DR's draft) must not vanish from the board just because a day passed.
 export async function fetchTodayQueueCaseDR() {
   const { data, error } = await supabase
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
-    .eq("visit_date", today())
+    .or(`visit_date.eq.${today()},visit_status.neq.DONE`)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];

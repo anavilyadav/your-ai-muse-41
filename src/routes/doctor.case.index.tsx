@@ -5,6 +5,7 @@ import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
+import { today } from "@/lib/supabase";
 import { Lock, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/doctor/case/")({
@@ -94,6 +95,7 @@ function CaseBoardPage() {
             const status = mapStatus(c.visit_status);
             const clickable = status !== "Submitted";
             const complexity = c.case_complexity ?? "Simple";
+            const daysWaiting = Math.max(0, Math.floor((Date.parse(today()) - Date.parse(c.visit_date)) / 86_400_000));
             return (
               <li key={c.id}>
                 <div
@@ -118,8 +120,13 @@ function CaseBoardPage() {
                         {status}
                       </span>
                     </div>
-                    <div className="text-[12px] text-muted-foreground mt-1.5">
-                      {c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}
+                    <div className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span>{c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}</span>
+                      {daysWaiting > 0 && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
+                          {daysWaiting}d pending
+                        </span>
+                      )}
                     </div>
                     <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
                   </button>

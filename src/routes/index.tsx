@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
+import { today as todayStr } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -133,6 +134,9 @@ function QueuePage() {
           {filtered.map((r) => {
             const s = statusLabel(r.visit_status);
             const due = Number(r.patient?.current_balance ?? 0);
+            const daysOld = r.visit_status !== "DONE" && r.visit_date !== todayStr()
+              ? Math.max(0, Math.floor((Date.parse(todayStr()) - Date.parse(r.visit_date)) / 86_400_000))
+              : 0;
             return (
               <li key={r.id}>
                 <button
@@ -149,11 +153,16 @@ function QueuePage() {
                       <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{r.chief_complaint || "—"}</p>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-[10px] text-muted-foreground">{branchLabel(r.branch)}</span>
                       <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", statusStyles[s] ?? "bg-muted text-muted-foreground border-border")}>
                         {s}
                       </span>
+                      {daysOld > 0 && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
+                          {daysOld}d pending
+                        </span>
+                      )}
                       {due > 0 && (
                         <span className="text-[10px] font-semibold text-destructive">₹{due} due</span>
                       )}

@@ -5,6 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import type { NavItem } from "@/components/yhc/RoleShell";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
+import { today } from "@/lib/supabase";
 
 export const PHARMACY_NAV: NavItem[] = [
   { to: "/pharmacy", label: "Queue", icon: List, exact: true },
@@ -39,7 +40,9 @@ function PharmacyQueue() {
         <EmptyBlock label="Koi patient dispense ke liye pending nahi." />
       ) : (
         <ul className="space-y-2.5">
-          {rows.map((r) => (
+          {rows.map((r) => {
+            const d = Math.max(0, Math.floor((Date.parse(today()) - Date.parse(r.visit_date)) / 86_400_000));
+            return (
             <li key={r.id}>
               <button
                 onClick={() => navigate({ to: "/pharmacy/dispense/$token", params: { token: r.id } })}
@@ -54,10 +57,17 @@ function PharmacyQueue() {
                   </div>
                   <span className="text-[11px] text-muted-foreground">{branchLabel(r.branch)}</span>
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">{r.chief_complaint || "—"}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                  <span>{r.chief_complaint || "—"}</span>
+                  {d > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
+                      {d}d pending
+                    </span>
+                  )}
+                </div>
               </button>
             </li>
-          ))}
+          );})}
         </ul>
       )}
     </MobileShell>
