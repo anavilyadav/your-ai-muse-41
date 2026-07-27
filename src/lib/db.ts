@@ -16,6 +16,10 @@ export interface DBPatient {
   pincode: string | null;
   primary_disease: string | null;
   wa_consent: boolean;
+  dob: string | null;
+  anniversary_date: string | null;
+  profession: string | null;
+  annual_income: number | null;
   branch: string;
   lifetime_visits: number;
   lifetime_revenue: number;
@@ -109,6 +113,10 @@ export async function createPatientWithVisit(input: {
   pincode?: string;
   primary_disease?: string;
   wa_consent: boolean;
+  dob?: string;
+  anniversary_date?: string;
+  profession?: string;
+  annual_income?: number;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
 }) {
@@ -136,14 +144,23 @@ export async function createPatientWithVisit(input: {
     // The atomic RPC doesn't know about these newer columns yet (it's a
     // deployed Postgres function — changing it blind is riskier than one
     // small follow-up write). Only fires when there's actually something
-    // non-default to save, so the common India case does zero extra work.
-    if (input.mobile_country_code && input.mobile_country_code !== "+91" || input.whatsapp_number) {
+    // non-default to save, so the common case with none of this filled
+    // in does zero extra work.
+    const hasExtra =
+      (input.mobile_country_code && input.mobile_country_code !== "+91") ||
+      input.whatsapp_number || input.dob || input.anniversary_date ||
+      input.profession || input.annual_income != null;
+    if (hasExtra) {
       const { data: updated } = await supabase
         .from("patients")
         .update({
           mobile_country_code: input.mobile_country_code || "+91",
           whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
           whatsapp_number: input.whatsapp_number || null,
+          dob: input.dob || null,
+          anniversary_date: input.anniversary_date || null,
+          profession: input.profession || null,
+          annual_income: input.annual_income ?? null,
         })
         .eq("id", patient.id)
         .select("*")
@@ -176,6 +193,10 @@ async function createPatientWithVisitLegacy(input: {
   pincode?: string;
   primary_disease?: string;
   wa_consent: boolean;
+  dob?: string;
+  anniversary_date?: string;
+  profession?: string;
+  annual_income?: number;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
 }) {
@@ -190,6 +211,10 @@ async function createPatientWithVisitLegacy(input: {
       mobile_country_code: input.mobile_country_code || "+91",
       whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
       whatsapp_number: input.whatsapp_number || null,
+      dob: input.dob || null,
+      anniversary_date: input.anniversary_date || null,
+      profession: input.profession || null,
+      annual_income: input.annual_income ?? null,
       age: input.age ?? null,
       gender: input.gender ?? null,
       blood_group: input.blood_group ?? null,

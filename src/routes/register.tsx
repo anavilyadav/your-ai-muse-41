@@ -84,6 +84,10 @@ function RegisterPage() {
     city: "Jaipur",
     pincode: "",
     chief: "",
+    dob: "",
+    anniversary: "",
+    profession: "",
+    annualIncome: "",
     branch: "" as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
   });
@@ -97,6 +101,7 @@ function RegisterPage() {
 
   const [dupWarn, setDupWarn] = useState(false);
   const [busy, setBusy] = useState(false);
+  const maxDobDate = new Date().toISOString().slice(0, 10);
 
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
@@ -149,6 +154,10 @@ function RegisterPage() {
         pincode: f.pincode || undefined,
         primary_disease: f.chief.trim() || undefined,
         wa_consent: f.consent,
+        dob: f.dob || undefined,
+        anniversary_date: f.anniversary || undefined,
+        profession: f.profession.trim() || undefined,
+        annual_income: f.annualIncome ? Number(f.annualIncome) : undefined,
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
       });
@@ -218,7 +227,9 @@ function RegisterPage() {
                   name: "", mobile: "", countryCode: "+91", countryCodeCustom: "",
                   waSameAsMobile: true, waNumber: "", waCountryCode: "+91", waCountryCodeCustom: "",
                   age: "", gender: "", blood: "",
-                  address: "", city: "Jaipur", pincode: "", chief: "", branch: "", consent: true,
+                  address: "", city: "Jaipur", pincode: "", chief: "",
+                  dob: "", anniversary: "", profession: "", annualIncome: "",
+                  branch: "", consent: true,
                 });
                 setDupWarn(false);
               }}
@@ -355,6 +366,24 @@ function RegisterPage() {
         <Section label="Chief Complaint">
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
         </Section>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Section label="Date of Birth">
+            <Field type="date" max={maxDobDate} value={f.dob} onChange={(e) => set("dob", e.target.value)} />
+          </Section>
+          <Section label="Anniversary">
+            <Field type="date" max={maxDobDate} value={f.anniversary} onChange={(e) => set("anniversary", e.target.value)} />
+          </Section>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Section label="Profession">
+            <Field placeholder="e.g. Teacher, Business" value={f.profession} onChange={(e) => set("profession", e.target.value)} />
+          </Section>
+          <Section label="Annual Income (₹)">
+            <Field inputMode="numeric" placeholder="e.g. 600000" value={f.annualIncome} onChange={(e) => set("annualIncome", e.target.value.replace(/\D/g, ""))} />
+          </Section>
+        </div>
 
         <Section label="Branch *">
           <div className="flex flex-wrap gap-2">
