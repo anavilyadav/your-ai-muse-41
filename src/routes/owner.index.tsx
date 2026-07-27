@@ -110,6 +110,11 @@ function OwnerDashboard() {
               <div className="font-bold text-primary text-sm mt-1">Follow-up Rules</div>
               <div className="text-[11px] text-muted-foreground">Reminder sequences</div>
             </Link>
+            <Link to="/owner/winback-tiers" className="rounded-2xl bg-surface border border-border p-3.5">
+              <Target className="h-5 w-5 text-destructive" />
+              <div className="font-bold text-primary text-sm mt-1">Win-back Tiers</div>
+              <div className="text-[11px] text-muted-foreground">Lapsed patients</div>
+            </Link>
           </div>
         </>
       )}

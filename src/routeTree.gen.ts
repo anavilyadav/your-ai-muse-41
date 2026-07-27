@@ -29,6 +29,7 @@ import { Route as OwnerImportRouteImport } from './routes/owner.import'
 import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
 import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
+import { Route as OwnerWinbackTiersRouteImport } from './routes/owner.winback-tiers'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
 import { Route as PharmacyIndexRouteImport } from './routes/pharmacy.index'
@@ -143,6 +144,11 @@ const OwnerStaffRoute = OwnerStaffRouteImport.update({
   path: '/owner/staff',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerWinbackTiersRoute = OwnerWinbackTiersRouteImport.update({
+  id: '/owner/winback-tiers',
+  path: '/owner/winback-tiers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PatientIdRoute = PatientIdRouteImport.update({
   id: '/patient/$id',
   path: '/patient/$id',
@@ -228,6 +234,7 @@ export interface FileRoutesByFullPath {
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
   '/pharmacy/inventory': typeof PharmacyInventoryRoute
@@ -263,6 +270,7 @@ export interface FileRoutesByTo {
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
   '/pharmacy/inventory': typeof PharmacyInventoryRoute
@@ -299,6 +307,7 @@ export interface FileRoutesById {
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
   '/pharmacy/inventory': typeof PharmacyInventoryRoute
@@ -336,6 +345,7 @@ export interface FileRouteTypes {
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
     | '/pharmacy/inventory'
@@ -371,6 +381,7 @@ export interface FileRouteTypes {
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
     | '/pharmacy/inventory'
@@ -406,6 +417,7 @@ export interface FileRouteTypes {
     | '/owner/incentives'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
     | '/pharmacy/inventory'
@@ -442,6 +454,7 @@ export interface RootRouteChildren {
   OwnerIncentivesRoute: typeof OwnerIncentivesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
   OwnerStaffRoute: typeof OwnerStaffRoute
+  OwnerWinbackTiersRoute: typeof OwnerWinbackTiersRoute
   PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
   PharmacyInventoryRoute: typeof PharmacyInventoryRoute
@@ -601,6 +614,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerStaffRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/winback-tiers': {
+      id: '/owner/winback-tiers'
+      path: '/owner/winback-tiers'
+      fullPath: '/owner/winback-tiers'
+      preLoaderRoute: typeof OwnerWinbackTiersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/patient/$id': {
       id: '/patient/$id'
       path: '/patient/$id'
@@ -714,6 +734,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerIncentivesRoute: OwnerIncentivesRoute,
   OwnerReportsRoute: OwnerReportsRoute,
   OwnerStaffRoute: OwnerStaffRoute,
+  OwnerWinbackTiersRoute: OwnerWinbackTiersRoute,
   PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,
   PharmacyInventoryRoute: PharmacyInventoryRoute,

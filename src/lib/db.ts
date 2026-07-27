@@ -633,6 +633,37 @@ export async function submitPrescription(input: {
   if (pe) throw pe;
 }
 
+// ---------- Win-back tiers (owner-configurable) ----------
+// Lapsed patients get a staged nudge (60/90/120/150+ days by default) —
+// not one message then silence. Owner edits tiers from the app; the
+// whatsapp-winback Edge Function (Cron, daily) reads this table and does
+// the sending. Needs an approved AiSensy campaign named "WINBACK".
+export interface WinbackTier {
+  id: string;
+  label: string;
+  days_lapsed: number;
+  active: boolean;
+}
+
+export async function fetchWinbackTiers(): Promise<WinbackTier[]> {
+  const { data, error } = await supabase.from("winback_tiers").select("*").order("days_lapsed", { ascending: true });
+  if (error) return [];
+  return (data ?? []) as WinbackTier[];
+}
+
+export async function saveWinbackTier(input: Partial<WinbackTier> & { label: string; days_lapsed: number }) {
+  const { id, ...rest } = input;
+  const { error } = id
+    ? await supabase.from("winback_tiers").update(rest).eq("id", id)
+    : await supabase.from("winback_tiers").insert(rest);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function deleteWinbackTier(id: string) {
+  const { error } = await supabase.from("winback_tiers").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Follow-up sequence engine (owner-configurable) ----------
 // Owner edits `followup_touchpoints` from the app (Owner → Follow-up
 // Rules) — add/remove/change touchpoints any time, no code changes ever
