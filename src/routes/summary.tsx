@@ -81,6 +81,7 @@ function SummaryPage() {
         <PayBar label="Cash" amount={s.cash} total={s.revenue || 1} color="bg-success" />
         <PayBar label="UPI / QR" amount={s.upi} total={s.revenue || 1} color="bg-primary" />
         <PayBar label="Card" amount={s.card} total={s.revenue || 1} color="bg-accent" />
+        {s.other > 0 && <PayBar label="Other" amount={s.other} total={s.revenue || 1} color="bg-muted-foreground" />}
       </div>
 
       <SectionTitle>By Branch</SectionTitle>

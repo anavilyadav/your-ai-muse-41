@@ -351,6 +351,9 @@ function VisitHistoryImportTab() {
       const res = await commitVisitHistoryImport(preview.valid, batchId);
       await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
       toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
+      if (res.totalsFailedFor.length > 0) {
+        toast.error(`${res.totalsFailedFor.length} patients ki totals update NAHI hui (visits/payments phir bhi import ho gaye) — Owner Reports se manually verify kar lena in patients ke liye`);
+      }
       csv.reset(); setPreview(null);
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));

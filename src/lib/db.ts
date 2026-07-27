@@ -611,6 +611,7 @@ export async function fetchOwnerStats() {
     monthCash: sum(monthPay.data, (r) => r.payment_mode === "CASH"),
     monthUpi: sum(monthPay.data, (r) => r.payment_mode === "UPI"),
     monthCard: sum(monthPay.data, (r) => r.payment_mode === "CARD"),
+    monthOther: sum(monthPay.data, (r) => !["CASH", "UPI", "CARD"].includes(r.payment_mode)),
     newToday: newToday.count ?? 0,
     followupsToday: followupsToday.count ?? 0,
   };
@@ -1212,6 +1213,17 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   return { valid, unmatched, unmatchedSamples, total: rows.length };
 }
 
+// Any payment mode outside the 3 the app itself ever writes (CASH/UPI/CARD)
+// gets bucketed as OTHER instead of being written as arbitrary free text —
+// otherwise it silently doesn't match any category in the cash/upi/card
+// breakdown on Owner Reports/Day Summary (total revenue still included it
+// either way, but the breakdown wouldn't add up to the total).
+const KNOWN_PAYMENT_MODES = ["CASH", "UPI", "CARD"];
+export function normalizePaymentMode(m?: string | null): string {
+  const up = (m ?? "").trim().toUpperCase();
+  return KNOWN_PAYMENT_MODES.includes(up) ? up : up ? "OTHER" : "CASH";
+}
+
 export async function commitVisitHistoryImport(
   rows: (ImportVisitRow & { patient_id: string; branch: string })[],
   batchId: string,
@@ -1248,7 +1260,7 @@ export async function commitVisitHistoryImport(
           amount_charged: charged,
           amount_received: received,
           balance_due: Math.max(0, charged - received),
-          payment_mode: (src.payment_mode?.trim().toUpperCase() || "CASH"),
+          payment_mode: normalizePaymentMode(src.payment_mode),
           branch: src.branch,
           notes: "Bulk imported (visit history)",
           imported_batch: batchId,
@@ -1266,6 +1278,7 @@ export async function commitVisitHistoryImport(
   // a few at a time so we don't hammer the DB with hundreds of parallel calls.
   const ids = Array.from(touched);
   const CONCURRENCY = 8;
+  const totalsFailedFor: string[] = [];
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     await Promise.all(
       ids.slice(i, i + CONCURRENCY).map(async (patientId) => {
@@ -1276,7 +1289,7 @@ export async function commitVisitHistoryImport(
         ]);
         const revenue = (pays ?? []).reduce((s: number, p: any) => s + Number(p.amount_received || 0), 0);
         const balance = (pays ?? []).reduce((s: number, p: any) => s + Number(p.balance_due || 0), 0);
-        await supabase
+        const { error: updErr } = await supabase
           .from("patients")
           .update({
             lifetime_visits: visitCount ?? 0,
@@ -1285,11 +1298,16 @@ export async function commitVisitHistoryImport(
             last_visit_date: lastVisit?.visit_date ?? null,
           })
           .eq("id", patientId);
+        // Don't fail the whole batch over one patient's totals update —
+        // the visits/payments themselves already imported successfully.
+        // But don't silently claim success either; surface which patients
+        // need a manual re-check.
+        if (updErr) totalsFailedFor.push(patientId);
       }),
     );
   }
 
-  return { visitsImported, paymentsImported, patientsUpdated: touched.size };
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor };
 }
 
 
@@ -1466,6 +1484,11 @@ export async function fetchDaySummary(branch?: string) {
   const cash = pays.filter((r: any) => r.payment_mode === "CASH").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const upi = pays.filter((r: any) => r.payment_mode === "UPI").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const card = pays.filter((r: any) => r.payment_mode === "CARD").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  // Anything outside CASH/UPI/CARD (e.g. NEFT/QR from a bulk-imported
+  // historical record) still counts toward total revenue above, but
+  // wouldn't show up in any of the 3 named buckets — this bucket exists
+  // so cash+upi+card+other always adds back up to the total.
+  const other = pays.filter((r: any) => !["CASH", "UPI", "CARD"].includes(r.payment_mode)).reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   // "Completed today" = visits actually paid off today (balance hit 0
   // today), whether that visit was registered today or carried over from
   // an earlier day. Counting only visits.visit_status === "DONE" AND
@@ -1484,6 +1507,7 @@ export async function fetchDaySummary(branch?: string) {
     cash,
     upi,
     card,
+    other,
     bajaj: visits.filter((v: any) => v.branch === "BAJAJ_NAGAR").length,
     jagat: visits.filter((v: any) => v.branch === "JAGATPURA").length,
   };
