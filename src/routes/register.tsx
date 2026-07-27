@@ -152,6 +152,7 @@ function RegisterPage() {
         blood_group: f.blood || undefined,
         city: f.city || undefined,
         pincode: f.pincode || undefined,
+        address: f.address.trim() || undefined,
         primary_disease: f.chief.trim() || undefined,
         wa_consent: f.consent,
         dob: f.dob || undefined,

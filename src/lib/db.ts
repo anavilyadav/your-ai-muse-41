@@ -14,6 +14,7 @@ export interface DBPatient {
   blood_group: string | null;
   city: string | null;
   pincode: string | null;
+  address: string | null;
   primary_disease: string | null;
   wa_consent: boolean;
   dob: string | null;
@@ -110,6 +111,7 @@ export async function createPatientWithVisit(input: {
   gender?: string;
   blood_group?: string;
   city?: string;
+  address?: string;
   pincode?: string;
   primary_disease?: string;
   wa_consent: boolean;
@@ -149,7 +151,7 @@ export async function createPatientWithVisit(input: {
     const hasExtra =
       (input.mobile_country_code && input.mobile_country_code !== "+91") ||
       input.whatsapp_number || input.dob || input.anniversary_date ||
-      input.profession || input.annual_income != null;
+      input.profession || input.annual_income != null || input.address;
     if (hasExtra) {
       const { data: updated } = await supabase
         .from("patients")
@@ -157,6 +159,7 @@ export async function createPatientWithVisit(input: {
           mobile_country_code: input.mobile_country_code || "+91",
           whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
           whatsapp_number: input.whatsapp_number || null,
+          address: input.address || null,
           dob: input.dob || null,
           anniversary_date: input.anniversary_date || null,
           profession: input.profession || null,
@@ -190,6 +193,7 @@ async function createPatientWithVisitLegacy(input: {
   gender?: string;
   blood_group?: string;
   city?: string;
+  address?: string;
   pincode?: string;
   primary_disease?: string;
   wa_consent: boolean;
@@ -220,6 +224,7 @@ async function createPatientWithVisitLegacy(input: {
       blood_group: input.blood_group ?? null,
       city: input.city ?? null,
       pincode: input.pincode ?? null,
+      address: input.address ?? null,
       primary_disease: input.primary_disease ?? null,
       wa_consent: input.wa_consent,
       branch: input.branch,
@@ -252,7 +257,7 @@ async function createPatientWithVisitLegacy(input: {
   return { patient: p as DBPatient, visit: v as DBVisit };
 }
 
-export async function isDuplicateMobile(mobile: string, countryCode: string = "+91"): Promise<boolean> {
+export async function isDuplicateMobile(mobile: string, countryCode: string = "+91", excludePatientId?: string): Promise<boolean> {
   // India stays strict at exactly 10 digits (unchanged behavior). Other
   // countries vary in length, so we just require a plausible minimum
   // instead of guessing an exact digit count per country.
@@ -261,12 +266,42 @@ export async function isDuplicateMobile(mobile: string, countryCode: string = "+
   // Same local number under a different country code is NOT a duplicate
   // (e.g. India +91 98765... vs UK +44 98765... are different people) —
   // scoping by both columns avoids false "already registered" warnings.
-  const { count } = await supabase
+  let q = supabase
     .from("patients")
     .select("id", { count: "exact", head: true })
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode);
+  if (excludePatientId) q = q.neq("id", excludePatientId);
+  const { count } = await q;
   return (count ?? 0) > 0;
+}
+
+// Everything a patient might need corrected after registration — mobile,
+// WhatsApp number, address, and the "collect once" fields in case they
+// were skipped at intake. Only the fields actually passed get touched.
+export async function updatePatientContactInfo(
+  patientId: string,
+  fields: Partial<{
+    mobile: string;
+    mobile_country_code: string;
+    whatsapp_country_code: string | null;
+    whatsapp_number: string | null;
+    address: string;
+    city: string;
+    pincode: string;
+    dob: string | null;
+    anniversary_date: string | null;
+    profession: string | null;
+    annual_income: number | null;
+  }>,
+): Promise<{ success: boolean; error: string | null; patient: DBPatient | null }> {
+  const { data, error } = await supabase
+    .from("patients")
+    .update(fields)
+    .eq("id", patientId)
+    .select("*")
+    .maybeSingle();
+  return { success: !error, error: error?.message ?? null, patient: (data as DBPatient) ?? null };
 }
 
 // ---------- Queue reads ----------

@@ -2,7 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { useAuth } from "@/lib/auth";
 import {
@@ -16,6 +17,9 @@ import {
   uploadPatientDocument,
   deletePatientDocument,
   resolveDocUrl,
+  updatePatientContactInfo,
+  isDuplicateMobile,
+  patientWhatsAppTarget,
   DOC_TYPES,
   type DocType,
   type PatientDocument,
@@ -23,6 +27,20 @@ import {
 } from "@/lib/db";
 
 const RELATIONSHIPS = ["Spouse", "Son", "Daughter", "Parent", "Sibling", "Other"];
+const countryCodes = [
+  { code: "+91", label: "+91 India" },
+  { code: "+971", label: "+971 UAE" },
+  { code: "+1", label: "+1 USA/Canada" },
+  { code: "+44", label: "+44 UK" },
+  { code: "+61", label: "+61 Australia" },
+  { code: "+65", label: "+65 Singapore" },
+  { code: "+966", label: "+966 Saudi Arabia" },
+  { code: "+974", label: "+974 Qatar" },
+  { code: "+968", label: "+968 Oman" },
+  { code: "+973", label: "+973 Bahrain" },
+  { code: "+27", label: "+27 South Africa" },
+  { code: "other", label: "Other — type code" },
+] as const;
 
 function LinkFamilyModal({
   patientId,
@@ -108,6 +126,189 @@ function LinkFamilyModal({
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Linking…" : "Link Family Member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditContactModal({
+  patient,
+  onClose,
+  onSaved,
+}: {
+  patient: DBPatient;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [mobile, setMobile] = useState(patient.mobile);
+  const [countryCode, setCountryCode] = useState<string>(patient.mobile_country_code || "+91");
+  const [countryCodeCustom, setCountryCodeCustom] = useState("");
+  const [waSameAsMobile, setWaSameAsMobile] = useState(!patient.whatsapp_number);
+  const [waNumber, setWaNumber] = useState(patient.whatsapp_number || "");
+  const [waCountryCode, setWaCountryCode] = useState<string>(patient.whatsapp_country_code || patient.mobile_country_code || "+91");
+  const [waCountryCodeCustom, setWaCountryCodeCustom] = useState("");
+  const [address, setAddress] = useState(patient.address || "");
+  const [city, setCity] = useState(patient.city || "");
+  const [pincode, setPincode] = useState(patient.pincode || "");
+  const [dob, setDob] = useState(patient.dob || "");
+  const [anniversary, setAnniversary] = useState(patient.anniversary_date || "");
+  const [profession, setProfession] = useState(patient.profession || "");
+  const [annualIncome, setAnnualIncome] = useState(patient.annual_income != null ? String(patient.annual_income) : "");
+  const [dupWarn, setDupWarn] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const effectiveCC = countryCode === "other" ? countryCodeCustom.trim() || "+" : countryCode;
+  const effectiveWaCC = waCountryCode === "other" ? waCountryCodeCustom.trim() || "+" : waCountryCode;
+  const isIndia = effectiveCC === "+91";
+  const maxDobDate = new Date().toISOString().slice(0, 10);
+
+  const onMobileChange = async (v: string) => {
+    const maxLen = isIndia ? 10 : 15;
+    const digits = v.replace(/\D/g, "").slice(0, maxLen);
+    setMobile(digits);
+    const minLen = isIndia ? 10 : 4;
+    if (digits.length >= minLen && (digits !== patient.mobile || effectiveCC !== patient.mobile_country_code)) {
+      setDupWarn(await isDuplicateMobile(digits, effectiveCC, patient.id));
+    } else {
+      setDupWarn(false);
+    }
+  };
+
+  const submit = async () => {
+    const minLen = isIndia ? 10 : 4;
+    if (mobile.length < minLen) { toast.error("Mobile number check karo"); return; }
+    if (dupWarn) { toast.error("Ye number kisi aur patient ke paas already hai"); return; }
+    setSaving(true);
+    const res = await updatePatientContactInfo(patient.id, {
+      mobile,
+      mobile_country_code: effectiveCC,
+      whatsapp_country_code: waSameAsMobile ? null : effectiveWaCC,
+      whatsapp_number: waSameAsMobile ? null : waNumber || null,
+      address: address.trim() || undefined,
+      city: city.trim() || undefined,
+      pincode: pincode.trim() || undefined,
+      dob: dob || null,
+      anniversary_date: anniversary || null,
+      profession: profession.trim() || null,
+      annual_income: annualIncome ? Number(annualIncome) : null,
+    });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success("Details update ho gayi");
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Edit Contact Details</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Mobile</label>
+            <div className="flex gap-2 mt-1">
+              <select
+                value={countryCode}
+                onChange={(e) => { setCountryCode(e.target.value); setMobile(""); setDupWarn(false); }}
+                className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+              >
+                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+              </select>
+              <input
+                inputMode="numeric"
+                value={mobile}
+                onChange={(e) => onMobileChange(e.target.value)}
+                className={cn(
+                  "flex-1 rounded-lg bg-surface border px-3 py-2.5 text-sm",
+                  dupWarn ? "border-destructive" : "border-input",
+                )}
+              />
+            </div>
+            {countryCode === "other" && (
+              <input
+                placeholder="e.g. +65"
+                value={countryCodeCustom}
+                onChange={(e) => setCountryCodeCustom(e.target.value.replace(/[^\d+]/g, ""))}
+                className="mt-2 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+              />
+            )}
+            {dupWarn && <p className="text-[11px] text-destructive mt-1">⚠ Ye number kisi aur patient ke paas hai</p>}
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={waSameAsMobile} onChange={(e) => setWaSameAsMobile(e.target.checked)} className="h-4 w-4 rounded border-input" />
+              WhatsApp mobile jaisa hi hai
+            </label>
+            {!waSameAsMobile && (
+              <div className="flex gap-2 mt-2">
+                <select
+                  value={waCountryCode}
+                  onChange={(e) => setWaCountryCode(e.target.value)}
+                  className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+                >
+                  {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+                </select>
+                <input
+                  inputMode="numeric"
+                  placeholder="WhatsApp number"
+                  value={waNumber}
+                  onChange={(e) => {
+                    const maxLen = effectiveWaCC === "+91" ? 10 : 15;
+                    setWaNumber(e.target.value.replace(/\D/g, "").slice(0, maxLen));
+                  }}
+                  className="flex-1 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Address</label>
+            <textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">City</label>
+              <input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Pincode</label>
+              <input inputMode="numeric" value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">DOB</label>
+              <input type="date" max={maxDobDate} value={dob} onChange={(e) => setDob(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Anniversary</label>
+              <input type="date" max={maxDobDate} value={anniversary} onChange={(e) => setAnniversary(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Profession</label>
+              <input value={profession} onChange={(e) => setProfession(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Annual Income (₹)</label>
+              <input inputMode="numeric" value={annualIncome} onChange={(e) => setAnnualIncome(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+          </div>
+
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="mt-2 w-full rounded-xl bg-primary text-primary-foreground py-3 text-sm font-bold disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
       </div>
@@ -228,6 +429,7 @@ function PatientProfilePage() {
   const [loading, setLoading] = useState(true);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -296,24 +498,34 @@ function PatientProfilePage() {
       {showUploadModal && (
         <UploadDocumentModal patientId={id} onClose={() => setShowUploadModal(false)} onUploaded={reload} />
       )}
+      {showEditModal && (
+        <EditContactModal patient={patient} onClose={() => setShowEditModal(false)} onSaved={reload} />
+      )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="h-14 w-14 rounded-full bg-accent text-accent-foreground grid place-items-center text-xl font-bold">
             {patient.name.charAt(0)}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="font-bold truncate">{patient.name}</div>
             <div className="text-[11px] opacity-80">
               {patient.age ?? "?"} yrs • {patient.gender ?? "—"} • {branchLabel}
             </div>
             <div className="text-[11px] opacity-80 mt-0.5">{patient.primary_disease ?? ""}</div>
           </div>
+          <button
+            onClick={() => setShowEditModal(true)}
+            className="h-8 w-8 shrink-0 grid place-items-center rounded-full bg-primary-foreground/15"
+            aria-label="Edit contact details"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <a href={`tel:${patient.mobile}`} className="rounded-lg bg-success text-success-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
+          <a href={`tel:+${(patient.mobile_country_code || "+91").replace(/\D/g, "")}${patient.mobile}`} className="rounded-lg bg-success text-success-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <PhoneCall className="h-3.5 w-3.5" /> Call
           </a>
-          <a href={`https://wa.me/91${patient.mobile}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
+          <a href={`https://wa.me/${patientWhatsAppTarget(patient)}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
           </a>
         </div>
@@ -326,9 +538,16 @@ function PatientProfilePage() {
       </div>
 
       <div className="mt-4 rounded-xl bg-surface border border-border p-3 text-xs space-y-1.5">
-        <Row icon={PhoneCall} label="Mobile" value={patient.mobile} />
+        <Row icon={PhoneCall} label="Mobile" value={`${patient.mobile_country_code || "+91"} ${patient.mobile}`} />
+        {patient.whatsapp_number && (
+          <Row icon={MessageCircle} label="WhatsApp" value={`${patient.whatsapp_country_code || patient.mobile_country_code || "+91"} ${patient.whatsapp_number}`} />
+        )}
         <Row icon={MapPin} label="Branch" value={branchLabel} />
         <Row icon={Cake} label="City" value={patient.city ?? "—"} />
+        {patient.address && <Row icon={MapPin} label="Address" value={patient.address} />}
+        {patient.dob && <Row icon={Gift} label="DOB" value={new Date(patient.dob).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} />}
+        {patient.anniversary_date && <Row icon={Heart} label="Anniversary" value={new Date(patient.anniversary_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} />}
+        {patient.profession && <Row icon={Briefcase} label="Profession" value={patient.profession} />}
       </div>
 
       <div className="mt-5">
