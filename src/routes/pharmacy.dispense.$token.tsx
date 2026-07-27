@@ -39,7 +39,10 @@ function DispensePage() {
   }
 
   const toggle = (i: number) => setChecked((c) => (c.includes(i) ? c.filter((x) => x !== i) : [...c, i]));
-  const allDone = rx.length > 0 && checked.length === rx.length;
+  // A visit can legitimately have zero prescribed items (advice-only
+  // consult, no medicines needed) — that must still be able to move
+  // forward to Payment, not get stuck forever behind "check all 0 items".
+  const allDone = rx.length === 0 || checked.length === rx.length;
 
   const reportIssue = async () => {
     const note = window.prompt("Kaunsi medicine/kya issue hai? (Owner ko dikhega)");
@@ -129,7 +132,7 @@ function DispensePage() {
           allDone ? "bg-success text-success-foreground" : "bg-muted text-muted-foreground",
         )}
       >
-        <Check className="h-4 w-4" /> {allDone ? "Mark Dispensed & Send to Payment" : `Check all ${rx.length} items first`}
+        <Check className="h-4 w-4" /> {allDone ? (rx.length === 0 ? "No medicines — send to Payment" : "Mark Dispensed & Send to Payment") : `Check all ${rx.length} items first`}
       </button>
       <button
         onClick={reportIssue}

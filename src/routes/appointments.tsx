@@ -96,6 +96,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [patientId, setPatientId] = useState<string | undefined>(undefined);
+  const [waConsent, setWaConsent] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
@@ -126,7 +127,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
     setSaving(false);
     if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
     toast.success("Appointment ban gaya");
-    if (mobile.replace(/\D/g, "").length === 10) {
+    if (waConsent && mobile.replace(/\D/g, "").length === 10) {
       sendWhatsApp({
         campaignName: "APPOINTMENT_REMINDER",
         destination: mobile.replace(/\D/g, ""),
@@ -149,7 +150,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <div className="relative">
             <input
               value={name}
-              onChange={(e) => { setName(e.target.value); setPatientId(undefined); setShowSuggestions(true); }}
+              onChange={(e) => { setName(e.target.value); setPatientId(undefined); setWaConsent(false); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
               placeholder="Patient naam — existing patient search hoga"
@@ -165,6 +166,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
                         setName(p.name);
                         setMobile(p.mobile ?? "");
                         setPatientId(p.id);
+                        setWaConsent(!!p.wa_consent);
                         setShowSuggestions(false);
                       }}
                       className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
@@ -176,7 +178,9 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
               </ul>
             )}
             {patientId && (
-              <div className="mt-1 text-[11px] text-success font-semibold">✓ Existing patient selected</div>
+              <div className={cn("mt-1 text-[11px] font-semibold", waConsent ? "text-success" : "text-muted-foreground")}>
+                ✓ Existing patient selected {waConsent ? "· WhatsApp reminder will be sent" : "· No WhatsApp consent on file — reminder won't be sent"}
+              </div>
             )}
           </div>
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
@@ -372,7 +376,15 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
 function AppointmentsPage() {
   const role = useEffectiveRole();
   const isOwner = role === "OWNER";
-  const { data, isLoading } = useQuery({ queryKey: ["appointments"], queryFn: () => fetchAppointments() });
+  const [selectedDate, setSelectedDate] = useState(today());
+  // Was previously fetchAppointments() with no date at all — pulled every
+  // appointment ever booked (past + future, unbounded) despite the page
+  // saying "Today's schedule". Now genuinely scoped to a date, defaulting
+  // to today, with a picker so reception can still check other days.
+  const { data, isLoading } = useQuery({
+    queryKey: ["appointments", selectedDate],
+    queryFn: () => fetchAppointments(selectedDate),
+  });
   const queryClient = useQueryClient();
   const appts = (data ?? []) as any[];
   const [branch, setBranch] = useState<(typeof branches)[number]>("All");
@@ -404,7 +416,7 @@ function AppointmentsPage() {
   return (
     <MobileShell
       title="Appointments"
-      subtitle="Today's schedule"
+      subtitle={selectedDate === today() ? "Today's schedule" : `Schedule for ${selectedDate}`}
       showBack
       right={
         <div className="flex items-center gap-1.5">
@@ -427,7 +439,21 @@ function AppointmentsPage() {
         <StatCard label="Cancelled" value={stats.cancelled} tone="destructive" />
       </div>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+      <div className="mt-4 flex items-center gap-2">
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="flex-1 rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+        />
+        {selectedDate !== today() && (
+          <button onClick={() => setSelectedDate(today())} className="shrink-0 rounded-full bg-muted text-[11px] font-bold px-3 py-2">
+            Today
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
         {branches.map((b) => (
           <button
             key={b}

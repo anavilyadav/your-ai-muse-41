@@ -345,11 +345,20 @@ export async function submitPrescription(input: {
 
 // ---------- Follow-ups ----------
 export async function fetchFollowups() {
+  // Was previously .lte("due_date", today()) — overdue + due-today only.
+  // That made the UI's "Due Soon" stat and "N din baaki" (days remaining)
+  // display permanently unreachable, since nothing with a future due_date
+  // was ever fetched. Now includes the next 7 days too, so upcoming
+  // follow-ups are visible ahead of time instead of only on/after the day
+  // they're due.
+  const upper = new Date();
+  upper.setDate(upper.getDate() + 7);
+  const upperStr = upper.toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("followups")
     .select("*, patient:patients(*)")
     .eq("status", "PENDING")
-    .lte("due_date", today())
+    .lte("due_date", upperStr)
     .order("due_date", { ascending: true });
   if (error) return [];
   return data ?? [];
