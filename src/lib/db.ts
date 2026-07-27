@@ -501,14 +501,36 @@ export async function markDispensed(visitId: string) {
 // case paper or lab report photo reads like a flat scan instead of a dim,
 // shadowy phone photo — this is deliberately NOT applied to tongue photos,
 // where true color is clinically meaningful (coating/color assessment).
+function looksLikeHeic(file: File): boolean {
+  const type = file.type.toLowerCase();
+  const name = file.name.toLowerCase();
+  return type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
+}
+
+async function toBitmap(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file);
+  } catch (err) {
+    // createImageBitmap fails on HEIC/HEIF (default iPhone camera format)
+    // in most non-Safari browsers. Convert to JPEG first — only pulls in
+    // the ~1.3MB decoder when an actual HEIC file shows up (dynamic
+    // import keeps it out of the main app bundle entirely otherwise).
+    if (!looksLikeHeic(file)) throw err;
+    const heic2any = (await import("heic2any")).default;
+    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+    const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+    return createImageBitmap(jpegBlob as Blob);
+  }
+}
+
 async function compressImageForUpload(
   file: File,
   opts: { maxDim?: number; quality?: number; documentMode?: boolean } = {},
 ): Promise<File> {
   const { maxDim = 1600, quality = 0.72, documentMode = false } = opts;
-  if (typeof window === "undefined" || !file.type.startsWith("image/")) return file;
+  if (typeof window === "undefined" || (!file.type.startsWith("image/") && !looksLikeHeic(file))) return file;
   try {
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await toBitmap(file);
     const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
     const w = Math.round(bitmap.width * scale);
     const h = Math.round(bitmap.height * scale);
@@ -528,7 +550,7 @@ async function compressImageForUpload(
     const newName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
     return new File([blob], newName, { type: "image/jpeg" });
   } catch {
-    return file; // compression failed — upload the original rather than fail the whole flow
+    return file; // compression (and HEIC conversion) failed — upload the original rather than fail the whole flow
   }
 }
 
