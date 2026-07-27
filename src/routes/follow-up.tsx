@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone, MessageCircle, CheckCircle2 } from "lucide-react";
+import { Phone, MessageCircle, CheckCircle2, History } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchFollowups, markFollowupDone } from "@/lib/db";
+import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
+import { fetchFollowups, markFollowupDone, logWhatsAppInteraction } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/follow-up")({
@@ -20,6 +22,7 @@ function FollowUpPage() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["followups"], queryFn: fetchFollowups });
   const rows = (data ?? []) as any[];
+  const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
   const daysDiff = (d: string) => Math.floor((Date.parse(today) - Date.parse(d)) / 86_400_000);
@@ -65,6 +68,14 @@ function FollowUpPage() {
                       tone === "success" && "text-success")}>
                       {d > 0 ? `${d} din overdue` : d === 0 ? "Aaj due" : `${-d} din baaki`}
                     </div>
+                    {r.patient_id && (
+                      <button
+                        onClick={() => setHistoryPatient({ id: r.patient_id, name: r.patient?.name ?? "—" })}
+                        className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
+                      >
+                        <History className="h-3 w-3" /> History
+                      </button>
+                    )}
                   </div>
                   <div className="flex gap-1.5">
                     {r.patient?.mobile && (
@@ -76,6 +87,7 @@ function FollowUpPage() {
                           target="_blank"
                           rel="noreferrer"
                           href={`https://wa.me/91${r.patient.mobile}?text=${encodeURIComponent(`Namaste ${r.patient.name} ji! Aapki follow-up due hai. Kripya clinic mein aaiye. — YHC Jaipur`)}`}
+                          onClick={() => logWhatsAppInteraction({ patientId: r.patient_id }, "WhatsApp opened from Follow-up CRM")}
                           className="h-8 w-8 grid place-items-center rounded-full bg-success text-success-foreground"
                         >
                           <MessageCircle className="h-4 w-4" />
@@ -91,6 +103,13 @@ function FollowUpPage() {
             );
           })}
         </ul>
+      )}
+      {historyPatient && (
+        <InteractionHistoryModal
+          patientId={historyPatient.id}
+          name={historyPatient.name}
+          onClose={() => setHistoryPatient(null)}
+        />
       )}
     </MobileShell>
   );

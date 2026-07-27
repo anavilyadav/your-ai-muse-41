@@ -664,6 +664,64 @@ export async function markFollowupDone(id: string) {
 }
 
 // ---------- Leads ----------
+// ---------- Call + WhatsApp interaction timeline ----------
+// Shared by Lead CRM and Follow-up CRM. Whoever picks up the phone next —
+// even after staff turnover — can see exactly when messages went out and
+// what was discussed on the last call, instead of starting from zero.
+export interface Interaction {
+  id: string;
+  lead_id: string | null;
+  patient_id: string | null;
+  type: "call" | "whatsapp";
+  summary: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export async function fetchInteractions(target: { leadId?: string; patientId?: string }): Promise<Interaction[]> {
+  let q = supabase.from("interactions").select("*").order("created_at", { ascending: false }).limit(50);
+  if (target.leadId) q = q.eq("lead_id", target.leadId);
+  if (target.patientId) q = q.eq("patient_id", target.patientId);
+  const { data, error } = await q;
+  if (error) return [];
+  return (data ?? []) as Interaction[];
+}
+
+export async function logCallInteraction(input: {
+  leadId?: string;
+  patientId?: string;
+  summary: string;
+  createdBy?: string;
+}): Promise<{ success: boolean; error: string | null }> {
+  if (!input.summary.trim()) return { success: false, error: "Summary required" };
+  const { error } = await supabase.from("interactions").insert({
+    lead_id: input.leadId ?? null,
+    patient_id: input.patientId ?? null,
+    type: "call",
+    summary: input.summary.trim(),
+    created_by: input.createdBy ?? null,
+  });
+  return { success: !error, error: error?.message ?? null };
+}
+
+// Fire-and-forget — a logging hiccup must never block the WhatsApp send
+// itself, which has already gone out by the time this is called.
+export async function logWhatsAppInteraction(
+  target: { leadId?: string; patientId?: string },
+  summary: string,
+): Promise<void> {
+  try {
+    await supabase.from("interactions").insert({
+      lead_id: target.leadId ?? null,
+      patient_id: target.patientId ?? null,
+      type: "whatsapp",
+      summary,
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
 export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
 
 // Once leads volume is large (thousands+), the plain list (capped at 500,

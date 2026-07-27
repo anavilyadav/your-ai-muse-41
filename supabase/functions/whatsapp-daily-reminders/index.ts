@@ -72,6 +72,11 @@ Deno.serve(async () => {
         });
         if (res.ok) {
           await supabaseAdmin.from("followups").update({ reminder_sent_at: new Date().toISOString() }).eq("id", f.id);
+          await supabaseAdmin.from("interactions").insert({
+            patient_id: f.patient_id,
+            type: "whatsapp",
+            summary: "FOLLOWUP_REMINDER sent",
+          });
           sent++;
         } else {
           failed++;

@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, PhoneCall, UserPlus, Search, X } from "lucide-react";
+import { MessageCircle, PhoneCall, UserPlus, Search, X, History } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
-import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, maskMobile, type LeadStatus } from "@/lib/db";
+import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, maskMobile, logWhatsAppInteraction, type LeadStatus } from "@/lib/db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
@@ -48,6 +49,7 @@ function LeadsPage() {
   const leads = (data ?? []) as any[];
   const [filter, setFilter] = useState<Filter>("All");
   const [mounted, setMounted] = useState(false);
+  const [historyLead, setHistoryLead] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => setMounted(true), []);
   const navigate = useNavigate();
 
@@ -180,6 +182,12 @@ function LeadsPage() {
                     {status}
                   </span>
                 </div>
+                <button
+                  onClick={() => setHistoryLead({ id: l.id, name: l.name })}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
+                >
+                  <History className="h-3 w-3" /> History
+                </button>
                 <div className="mt-1 text-[10px] text-muted-foreground">
                   {mounted ? (days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
                 </div>
@@ -197,6 +205,7 @@ function LeadsPage() {
                       href={`https://wa.me/91${l.mobile}`}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={() => logWhatsAppInteraction({ leadId: l.id }, "WhatsApp opened from Lead CRM")}
                       className="flex items-center justify-center gap-1 rounded-lg bg-accent text-accent-foreground py-2 text-xs font-semibold"
                     >
                       <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
@@ -217,6 +226,13 @@ function LeadsPage() {
             );
           })}
         </ul>
+      )}
+      {historyLead && (
+        <InteractionHistoryModal
+          leadId={historyLead.id}
+          name={historyLead.name}
+          onClose={() => setHistoryLead(null)}
+        />
       )}
     </MobileShell>
   );
