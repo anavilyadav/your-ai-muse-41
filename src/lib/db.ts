@@ -114,7 +114,15 @@ export async function createPatientWithVisit(input: {
     })
     .select("*")
     .maybeSingle();
-  if (ve || !v) throw ve ?? new Error("Failed to create visit");
+  if (ve || !v) {
+    // Patient row was created but has no visit — it would silently occupy
+    // this mobile number and block re-registration (isDuplicateMobile
+    // would see it as "already registered") while never showing up
+    // anywhere, since every queue/list requires a visit. Best-effort
+    // cleanup so the reception can just retry immediately.
+    await supabase.from("patients").delete().eq("id", p.id);
+    throw ve ?? new Error("Failed to create visit");
+  }
 
   return { patient: p as DBPatient, visit: v as DBVisit };
 }
@@ -138,11 +146,24 @@ export async function isDuplicateMobile(mobile: string): Promise<boolean> {
 // regardless of which day they were registered, so nothing gets lost.
 // Only DONE visits are date-scoped, so "today's completed count" still
 // means today, not all-time.
+//
+// A 30-day floor is applied to the "still open" side too — a visit that's
+// been stuck for over a month is already broken data (something else went
+// wrong), not a realistic "carried-over case". Without this floor the
+// query and the queue itself would grow without bound over the life of
+// the clinic. 30 days comfortably covers the real scenario this fix was
+// built for (a case taken today, doctor visit days later).
+function thirtyDaysAgo(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function fetchTodayQueue() {
   const { data, error } = await supabase
     .from("visits")
     .select("*, patient:patients(*)")
-    .or(`visit_date.eq.${today()},visit_status.neq.DONE`)
+    .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: DBPatient })[];
@@ -175,13 +196,14 @@ export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior
 
 const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
 
-// Same fix as fetchTodayQueue — an unfinished case-taking (e.g. a Junior
-// Case-DR's draft) must not vanish from the board just because a day passed.
+// Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
+// case-taking (e.g. a Junior Case-DR's draft) must not vanish from the
+// board just because a day passed, but shouldn't accumulate forever either.
 export async function fetchTodayQueueCaseDR() {
   const { data, error } = await supabase
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
-    .or(`visit_date.eq.${today()},visit_status.neq.DONE`)
+    .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
@@ -359,7 +381,8 @@ export async function fetchFollowups() {
     .select("*, patient:patients(*)")
     .eq("status", "PENDING")
     .lte("due_date", upperStr)
-    .order("due_date", { ascending: true });
+    .order("due_date", { ascending: true })
+    .limit(200);
   if (error) return [];
   return data ?? [];
 }
@@ -375,7 +398,8 @@ export async function fetchLeads() {
   const { data, error } = await supabase
     .from("leads")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(500);
   if (error) return [];
   return data ?? [];
 }
@@ -389,7 +413,8 @@ export async function fetchInventory() {
   const { data, error } = await supabase
     .from("inventory")
     .select("*")
-    .order("medicine_name", { ascending: true });
+    .order("medicine_name", { ascending: true })
+    .limit(500);
   if (error) return [];
   return data ?? [];
 }
@@ -433,7 +458,8 @@ export async function fetchMasterMedicines() {
   const { data } = await supabase
     .from("inventory")
     .select("medicine_name, potency, type")
-    .order("medicine_name", { ascending: true });
+    .order("medicine_name", { ascending: true })
+    .limit(2000);
   const map = new Map<string, { med: string; potencies: string[]; type: string }>();
   (data ?? []).forEach((r: any) => {
     const cur: { med: string; potencies: string[]; type: string } =
@@ -830,7 +856,8 @@ export async function fetchDeliveries() {
   const { data, error } = await supabase
     .from("deliveries")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(500);
   if (error) return [];
   return data ?? [];
 }
@@ -883,7 +910,8 @@ export async function fetchOutstandingPatients() {
     .from("patients")
     .select("id, name, mobile, patient_code, current_balance, last_visit_date, branch")
     .gt("current_balance", 0)
-    .order("current_balance", { ascending: false });
+    .order("current_balance", { ascending: false })
+    .limit(500);
   if (error) return [];
   return data ?? [];
 }
@@ -892,7 +920,8 @@ export async function fetchStaff() {
   const { data, error } = await supabase
     .from("users")
     .select("*")
-    .order("role", { ascending: true });
+    .order("role", { ascending: true })
+    .limit(200);
   if (error) return [];
   return data ?? [];
 }
@@ -1265,7 +1294,11 @@ export async function commitVisitHistoryImport(
 
 
 export async function searchPatients(term: string) {
-  const t = term.trim();
+  // Comma and parentheses are structural characters in PostgREST's .or()
+  // filter syntax — a name typed with either (e.g. "Sharma, Suresh")
+  // previously broke the filter silently, returning zero results with no
+  // error, which just looked like "no matches found".
+  const t = term.trim().replace(/[,()]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return [];
   const like = `%${t}%`;
   const { data, error } = await supabase

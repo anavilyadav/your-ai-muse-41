@@ -146,7 +146,7 @@ function PayPage() {
         disabled={busy}
         className="mt-5 w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold disabled:opacity-60"
       >
-        {busy ? "Saving…" : balance === 0 ? "Collect & Send WhatsApp Receipt" : "Save Partial Payment"}
+        {busy ? "Saving…" : balance === 0 ? "Collect Payment" : "Save Partial Payment"}
       </button>
     </MobileShell>
   );
