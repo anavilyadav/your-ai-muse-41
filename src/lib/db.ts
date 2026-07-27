@@ -712,7 +712,63 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
   if (error) throw error; // caller (submit/saveDraft) shows this — was silently "succeeding" before
 }
 
+// ---------- Doctor dashboard ----------
+// Clinic-wide numbers (visits don't carry a doctor_id column, so per-doctor
+// scoping isn't possible here — reporting the whole clinic is accurate,
+// not fabricated). Top-complaint bucketing is a plain frequency count over
+// this month's chief_complaint strings; nothing is normalized/synonyms-merged.
+export async function fetchDoctorDashboard() {
+  const t = today();
+  const monthStart = t.slice(0, 8) + "01";
+
+  const [
+    todaySeen,
+    todayNew,
+    todayFollowupsDone,
+    monthPatientsVisits,
+    monthPay,
+    monthComplaints,
+    awaitingRx,
+  ] = await Promise.all([
+    supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("visit_status", "DONE"),
+    supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
+    supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "DONE").gte("updated_at", istDayStart(t)),
+    supabase.from("visits").select("patient_id").gte("visit_date", monthStart),
+    supabase.from("payments").select("amount_received").gte("created_at", istDayStart(monthStart)),
+    supabase.from("visits").select("chief_complaint").gte("visit_date", monthStart).not("chief_complaint", "is", null),
+    supabase.from("visits").select("id", { count: "exact", head: true })
+      .in("visit_status", ["WAITING_DOCTOR", "CASE_TAKING", "REGISTERED"])
+      .gte("visit_date", thirtyDaysAgo()),
+  ]);
+
+  const monthPatients = new Set((monthPatientsVisits.data ?? []).map((v: any) => v.patient_id)).size;
+  const monthRevenue = (monthPay.data ?? []).reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
+
+  const bucket = new Map<string, number>();
+  for (const r of (monthComplaints.data ?? []) as any[]) {
+    const raw = String(r.chief_complaint ?? "").trim();
+    if (!raw) continue;
+    const key = raw.toLowerCase();
+    bucket.set(key, (bucket.get(key) ?? 0) + 1);
+  }
+  const topComplaints = Array.from(bucket.entries())
+    .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v] as [string, number])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  return {
+    todaySeen: todaySeen.count ?? 0,
+    todayNew: todayNew.count ?? 0,
+    todayFollowupsDone: todayFollowupsDone.count ?? 0,
+    monthPatients,
+    monthRevenue,
+    topComplaints,
+    awaitingRx: awaitingRx.count ?? 0,
+  };
+}
+
 // ---------- Owner ----------
+
 export async function fetchOwnerStats() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
