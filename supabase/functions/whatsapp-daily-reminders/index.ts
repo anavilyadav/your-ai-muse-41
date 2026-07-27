@@ -9,6 +9,27 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Kept in sync with buildWhatsAppDestination/patientWhatsAppTarget in
+// src/lib/db.ts — edge functions are deployed separately so this can't be
+// a shared import, but the logic must match.
+function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
+  const cc = (countryCode || "+91").replace(/\D/g, "");
+  const digits = (localNumber || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return cc === "91" ? digits : cc + digits;
+}
+function patientWhatsAppTarget(p: {
+  mobile: string;
+  mobile_country_code?: string | null;
+  whatsapp_number?: string | null;
+  whatsapp_country_code?: string | null;
+}): string {
+  if (p.whatsapp_number) {
+    return buildWhatsAppDestination(p.whatsapp_country_code || p.mobile_country_code, p.whatsapp_number);
+  }
+  return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
+}
+
 Deno.serve(async () => {
   try {
     const supabaseAdmin = createClient(
@@ -23,7 +44,7 @@ Deno.serve(async () => {
     const today = new Date().toISOString().slice(0, 10);
     const { data: due, error } = await supabaseAdmin
       .from("followups")
-      .select("id, patient_id, due_date, followup_type, patients(name, mobile, wa_consent)")
+      .select("id, patient_id, due_date, followup_type, patients(name, mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent)")
       .eq("status", "PENDING")
       .lte("due_date", today)
       .is("reminder_sent_at", null);
@@ -43,7 +64,7 @@ Deno.serve(async () => {
           body: JSON.stringify({
             apiKey,
             campaignName: "FOLLOWUP_REMINDER",
-            destination: patient.mobile,
+            destination: patientWhatsAppTarget(patient),
             userName: patient.name,
             source: "YHC-OS",
             templateParams: [patient.name],

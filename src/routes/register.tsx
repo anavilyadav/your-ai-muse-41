@@ -4,7 +4,7 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { createPatientWithVisit, isDuplicateMobile } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -24,6 +24,20 @@ const blood = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-", "Not Known"] as
 const branchOpts = [
   { key: "BAJAJ_NAGAR", label: "Bajaj Nagar" },
   { key: "JAGATPURA", label: "Jagatpura" },
+] as const;
+const countryCodes = [
+  { code: "+91", label: "+91 India" },
+  { code: "+971", label: "+971 UAE" },
+  { code: "+1", label: "+1 USA/Canada" },
+  { code: "+44", label: "+44 UK" },
+  { code: "+61", label: "+61 Australia" },
+  { code: "+65", label: "+65 Singapore" },
+  { code: "+966", label: "+966 Saudi Arabia" },
+  { code: "+974", label: "+974 Qatar" },
+  { code: "+968", label: "+968 Oman" },
+  { code: "+973", label: "+973 Bahrain" },
+  { code: "+27", label: "+27 South Africa" },
+  { code: "other", label: "Other — type code" },
 ] as const;
 
 function Section({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -57,6 +71,12 @@ function RegisterPage() {
   const [f, setF] = useState({
     name: "",
     mobile: "",
+    countryCode: "+91" as (typeof countryCodes)[number]["code"],
+    countryCodeCustom: "",
+    waSameAsMobile: true,
+    waNumber: "",
+    waCountryCode: "+91" as (typeof countryCodes)[number]["code"],
+    waCountryCodeCustom: "",
     age: "",
     gender: "" as "" | (typeof genders)[number],
     blood: "" as "" | (typeof blood)[number],
@@ -69,14 +89,22 @@ function RegisterPage() {
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
 
+  // "other" resolves to whatever the user typed in the custom box; every
+  // other option already has the code baked into its own value.
+  const effectiveCountryCode = f.countryCode === "other" ? f.countryCodeCustom.trim() || "+" : f.countryCode;
+  const effectiveWaCountryCode = f.waCountryCode === "other" ? f.waCountryCodeCustom.trim() || "+" : f.waCountryCode;
+  const isIndia = effectiveCountryCode === "+91";
+
   const [dupWarn, setDupWarn] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const onMobileChange = async (v: string) => {
-    const digits = v.replace(/\D/g, "").slice(0, 10);
+    const maxLen = isIndia ? 10 : 15;
+    const digits = v.replace(/\D/g, "").slice(0, maxLen);
     set("mobile", digits);
-    if (digits.length === 10) {
-      setDupWarn(await isDuplicateMobile(digits));
+    const minLen = isIndia ? 10 : 4;
+    if (digits.length >= minLen) {
+      setDupWarn(await isDuplicateMobile(digits, effectiveCountryCode));
     } else {
       setDupWarn(false);
     }
@@ -85,8 +113,15 @@ function RegisterPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: string[] = [];
+    const mobileMinLen = isIndia ? 10 : 4;
     if (!f.name.trim()) errs.push("Name");
-    if (f.mobile.length !== 10) errs.push("10-digit Mobile");
+    if (f.mobile.length < mobileMinLen) errs.push(isIndia ? "10-digit Mobile" : "Mobile Number");
+    if (f.countryCode === "other" && !f.countryCodeCustom.trim()) errs.push("Country Code");
+    if (!f.waSameAsMobile) {
+      const waMinLen = effectiveWaCountryCode === "+91" ? 10 : 4;
+      if (f.waNumber.length < waMinLen) errs.push("WhatsApp Number");
+      if (f.waCountryCode === "other" && !f.waCountryCodeCustom.trim()) errs.push("WhatsApp Country Code");
+    }
     if (!f.age || Number(f.age) <= 0) errs.push("Age");
     if (!f.gender) errs.push("Gender");
     if (!f.branch) errs.push("Branch");
@@ -95,7 +130,7 @@ function RegisterPage() {
       toast.error(`Missing: ${errs.join(", ")}`);
       return;
     }
-    if (await isDuplicateMobile(f.mobile)) {
+    if (await isDuplicateMobile(f.mobile, effectiveCountryCode)) {
       toast.error("Yeh mobile already registered hai.");
       return;
     }
@@ -104,6 +139,9 @@ function RegisterPage() {
       const { patient, visit } = await createPatientWithVisit({
         name: f.name.trim(),
         mobile: f.mobile,
+        mobile_country_code: effectiveCountryCode,
+        whatsapp_country_code: f.waSameAsMobile ? undefined : effectiveWaCountryCode,
+        whatsapp_number: f.waSameAsMobile ? undefined : f.waNumber,
         age: Number(f.age),
         gender: f.gender || undefined,
         blood_group: f.blood || undefined,
@@ -125,7 +163,7 @@ function RegisterPage() {
         const todayFormatted = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
         sendWhatsApp({
           campaignName: "REGISTRATION_CONFIRM",
-          destination: f.mobile,
+          destination: patientWhatsAppTarget(patient),
           userName: f.name.trim(),
           templateParams: [f.name.trim(), todayFormatted],
         });
@@ -177,9 +215,12 @@ function RegisterPage() {
               onClick={() => {
                 setSaved(null);
                 setF({
-                  name: "", mobile: "", age: "", gender: "", blood: "",
+                  name: "", mobile: "", countryCode: "+91", countryCodeCustom: "",
+                  waSameAsMobile: true, waNumber: "", waCountryCode: "+91", waCountryCodeCustom: "",
+                  age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "", branch: "", consent: true,
                 });
+                setDupWarn(false);
               }}
               className="rounded-lg border border-border bg-surface py-2.5 text-sm font-semibold text-primary"
             >
@@ -204,14 +245,72 @@ function RegisterPage() {
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
 
-        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Duplicate — pehle se registered hai." : "10 digits"}>
-          <Field
-            inputMode="numeric"
-            placeholder="98XXXXXXXX"
-            value={f.mobile}
-            onChange={(e) => onMobileChange(e.target.value)}
-            className={dupWarn ? "border-destructive" : ""}
-          />
+        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Duplicate — pehle se registered hai." : isIndia ? "10 digits" : "Country code chunkar number likho"}>
+          <div className="flex gap-2">
+            <select
+              value={f.countryCode}
+              onChange={(e) => { set("countryCode", e.target.value as typeof f.countryCode); set("mobile", ""); setDupWarn(false); }}
+              className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+            </select>
+            <Field
+              inputMode="numeric"
+              placeholder={isIndia ? "98XXXXXXXX" : "Local number"}
+              value={f.mobile}
+              onChange={(e) => onMobileChange(e.target.value)}
+              className={cn("flex-1", dupWarn ? "border-destructive" : "")}
+            />
+          </div>
+          {f.countryCode === "other" && (
+            <Field
+              placeholder="e.g. +65"
+              value={f.countryCodeCustom}
+              onChange={(e) => set("countryCodeCustom", e.target.value.replace(/[^\d+]/g, ""))}
+              className="mt-2"
+            />
+          )}
+        </Section>
+
+        <Section label="WhatsApp Number">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={f.waSameAsMobile}
+              onChange={(e) => set("waSameAsMobile", e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            Mobile jaisa hi hai
+          </label>
+          {!f.waSameAsMobile && (
+            <div className="mt-2 flex gap-2">
+              <select
+                value={f.waCountryCode}
+                onChange={(e) => set("waCountryCode", e.target.value as typeof f.waCountryCode)}
+                className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+              </select>
+              <Field
+                inputMode="numeric"
+                placeholder="WhatsApp number"
+                value={f.waNumber}
+                onChange={(e) => {
+                  const maxLen = effectiveWaCountryCode === "+91" ? 10 : 15;
+                  set("waNumber", e.target.value.replace(/\D/g, "").slice(0, maxLen));
+                }}
+                className="flex-1"
+              />
+            </div>
+          )}
+          {!f.waSameAsMobile && f.waCountryCode === "other" && (
+            <Field
+              placeholder="e.g. +65"
+              value={f.waCountryCodeCustom}
+              onChange={(e) => set("waCountryCodeCustom", e.target.value.replace(/[^\d+]/g, ""))}
+              className="mt-2"
+            />
+          )}
         </Section>
 
         <div className="grid grid-cols-2 gap-3">

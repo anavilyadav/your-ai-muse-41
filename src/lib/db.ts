@@ -6,6 +6,9 @@ export interface DBPatient {
   patient_code: string | null;
   name: string;
   mobile: string;
+  mobile_country_code: string;
+  whatsapp_country_code: string | null;
+  whatsapp_number: string | null;
   age: number | null;
   gender: string | null;
   blood_group: string | null;
@@ -66,9 +69,39 @@ export async function nextTokenForToday(branch: string): Promise<string> {
   return `T-${String(n).padStart(2, "0")}`;
 }
 
+// ---------- International phone number handling ----------
+// India (+91) stays exactly as before — AiSensy already auto-prepends 91
+// for a bare 10-digit number, and that's live/working, so we don't touch
+// it. Any other country code gets the digits prefixed explicitly, since
+// AiSensy has no way to guess a non-Indian country from local digits alone.
+export function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
+  const cc = (countryCode || "+91").replace(/\D/g, "");
+  const digits = (localNumber || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return cc === "91" ? digits : cc + digits;
+}
+
+// Picks WhatsApp number if the patient gave a separate one, else falls
+// back to their mobile — this is the single place every send should go
+// through so registration, reminders, follow-ups etc. all agree.
+export function patientWhatsAppTarget(p: {
+  mobile: string;
+  mobile_country_code?: string | null;
+  whatsapp_number?: string | null;
+  whatsapp_country_code?: string | null;
+}): string {
+  if (p.whatsapp_number) {
+    return buildWhatsAppDestination(p.whatsapp_country_code || p.mobile_country_code, p.whatsapp_number);
+  }
+  return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
+}
+
 export async function createPatientWithVisit(input: {
   name: string;
   mobile: string;
+  mobile_country_code?: string;
+  whatsapp_country_code?: string;
+  whatsapp_number?: string;
   age?: number;
   gender?: string;
   blood_group?: string;
@@ -99,7 +132,25 @@ export async function createPatientWithVisit(input: {
     p_visit_date: today(),
   });
   if (!error && data) {
-    return { patient: data.patient as DBPatient, visit: data.visit as DBVisit };
+    let patient = data.patient as DBPatient;
+    // The atomic RPC doesn't know about these newer columns yet (it's a
+    // deployed Postgres function — changing it blind is riskier than one
+    // small follow-up write). Only fires when there's actually something
+    // non-default to save, so the common India case does zero extra work.
+    if (input.mobile_country_code && input.mobile_country_code !== "+91" || input.whatsapp_number) {
+      const { data: updated } = await supabase
+        .from("patients")
+        .update({
+          mobile_country_code: input.mobile_country_code || "+91",
+          whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
+          whatsapp_number: input.whatsapp_number || null,
+        })
+        .eq("id", patient.id)
+        .select("*")
+        .maybeSingle();
+      if (updated) patient = updated as DBPatient;
+    }
+    return { patient, visit: data.visit as DBVisit };
   }
   // Fall back to the old two-step approach if the RPC isn't deployed yet
   // (SQL migration not run) — registration must never hard-fail just
@@ -115,6 +166,9 @@ export async function createPatientWithVisit(input: {
 async function createPatientWithVisitLegacy(input: {
   name: string;
   mobile: string;
+  mobile_country_code?: string;
+  whatsapp_country_code?: string;
+  whatsapp_number?: string;
   age?: number;
   gender?: string;
   blood_group?: string;
@@ -133,6 +187,9 @@ async function createPatientWithVisitLegacy(input: {
       patient_code: code,
       name: input.name,
       mobile: input.mobile,
+      mobile_country_code: input.mobile_country_code || "+91",
+      whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
+      whatsapp_number: input.whatsapp_number || null,
       age: input.age ?? null,
       gender: input.gender ?? null,
       blood_group: input.blood_group ?? null,
@@ -170,12 +227,20 @@ async function createPatientWithVisitLegacy(input: {
   return { patient: p as DBPatient, visit: v as DBVisit };
 }
 
-export async function isDuplicateMobile(mobile: string): Promise<boolean> {
-  if (mobile.length !== 10) return false;
+export async function isDuplicateMobile(mobile: string, countryCode: string = "+91"): Promise<boolean> {
+  // India stays strict at exactly 10 digits (unchanged behavior). Other
+  // countries vary in length, so we just require a plausible minimum
+  // instead of guessing an exact digit count per country.
+  const minLen = countryCode === "+91" ? 10 : 4;
+  if (mobile.length < minLen) return false;
+  // Same local number under a different country code is NOT a duplicate
+  // (e.g. India +91 98765... vs UK +44 98765... are different people) —
+  // scoping by both columns avoids false "already registered" warnings.
   const { count } = await supabase
     .from("patients")
     .select("id", { count: "exact", head: true })
-    .eq("mobile", mobile);
+    .eq("mobile", mobile)
+    .eq("mobile_country_code", countryCode);
   return (count ?? 0) > 0;
 }
 
