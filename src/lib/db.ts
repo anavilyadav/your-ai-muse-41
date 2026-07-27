@@ -77,6 +77,83 @@ export async function nextTokenForToday(branch: string): Promise<string> {
 }
 
 // ---------- International phone number handling ----------
+// ---------- Lead → Patient auto-conversion ----------
+// "Converted" used to be a manual status label only — nothing actually
+// linked the lead to the patient record it became, so nurture messages
+// had no way to know to stop. This closes that gap: whenever a patient
+// registers, any lead sitting on the same mobile number gets flipped and
+// linked automatically. Best-effort — a lead-matching hiccup must never
+// block a real registration that already succeeded.
+export async function autoConvertMatchingLead(patientId: string, mobile: string): Promise<void> {
+  try {
+    await supabase
+      .from("leads")
+      .update({ status: "Converted", converted_patient_id: patientId })
+      .eq("mobile", mobile)
+      .neq("status", "Converted");
+  } catch {
+    // non-fatal
+  }
+}
+
+// ---------- Returning patient check-in ----------
+// Until now the ONLY way to create a visit was createPatientWithVisit,
+// which also creates a brand-new patient — so a returning patient hit a
+// dead-end "already registered" block with no way forward. This is the
+// missing other half: find the existing patient, create just a new visit
+// for them (no duplicate patient record), and since they've now actually
+// walked in, resolve any pending follow-ups for them automatically so
+// reminders don't keep going out to someone who's already here.
+export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{ id: string; name: string; patient_code: string | null } | null> {
+  const { data } = await supabase
+    .from("patients")
+    .select("id, name, patient_code")
+    .eq("mobile", mobile)
+    .eq("mobile_country_code", countryCode)
+    .maybeSingle();
+  return data ?? null;
+}
+
+export async function checkInExistingPatient(input: {
+  patient_id: string;
+  branch: "BAJAJ_NAGAR" | "JAGATPURA";
+  chief_complaint?: string;
+}): Promise<{ visit: DBVisit }> {
+  const token = await nextTokenForToday(input.branch);
+  const { data: v, error: ve } = await supabase
+    .from("visits")
+    .insert({
+      patient_id: input.patient_id,
+      visit_date: today(),
+      visit_type: "OPD",
+      visit_status: "REGISTERED",
+      token_number: token,
+      branch: input.branch,
+      chief_complaint: input.chief_complaint ?? null,
+    })
+    .select("*")
+    .maybeSingle();
+  if (ve || !v) throw ve ?? new Error("Failed to create visit");
+
+  // Best-effort — a visit was already created successfully above, so a
+  // hiccup in either of these must never surface as a check-in failure.
+  try {
+    const { data: p } = await supabase.from("patients").select("lifetime_visits").eq("id", input.patient_id).maybeSingle();
+    await supabase.from("patients").update({ lifetime_visits: (p?.lifetime_visits ?? 0) + 1 }).eq("id", input.patient_id);
+  } catch {
+    // non-fatal
+  }
+  try {
+    // Item #8: patient is physically here now, so any reminder still
+    // pending for them is moot — stop it from firing later today.
+    await supabase.from("followups").update({ status: "DONE" }).eq("patient_id", input.patient_id).eq("status", "PENDING");
+  } catch {
+    // non-fatal
+  }
+
+  return { visit: v as DBVisit };
+}
+
 // India (+91) stays exactly as before — AiSensy already auto-prepends 91
 // for a bare 10-digit number, and that's live/working, so we don't touch
 // it. Any other country code gets the digits prefixed explicitly, since

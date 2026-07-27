@@ -4,7 +4,7 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -103,15 +103,46 @@ function RegisterPage() {
   const [busy, setBusy] = useState(false);
   const maxDobDate = new Date().toISOString().slice(0, 10);
 
+  const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
+  const [checkInBusy, setCheckInBusy] = useState(false);
+
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
     const digits = v.replace(/\D/g, "").slice(0, maxLen);
     set("mobile", digits);
     const minLen = isIndia ? 10 : 4;
     if (digits.length >= minLen) {
-      setDupWarn(await isDuplicateMobile(digits, effectiveCountryCode));
+      const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
+      setDupWarn(isDup);
+      setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
     } else {
       setDupWarn(false);
+      setExistingPatient(null);
+    }
+  };
+
+  const checkInInstead = async () => {
+    if (!existingPatient) return;
+    if (!f.branch) { toast.error("Branch chuno pehle"); return; }
+    setCheckInBusy(true);
+    try {
+      const { visit } = await checkInExistingPatient({
+        patient_id: existingPatient.id,
+        branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
+        chief_complaint: f.chief.trim() || undefined,
+      });
+      setSaved({
+        token: visit.token_number ?? "T-01",
+        code: existingPatient.patient_code ?? "YHC-—",
+        branch: f.branch,
+        name: existingPatient.name,
+      });
+      qc.invalidateQueries({ queryKey: ["today-queue"] });
+      toast.success(`${existingPatient.name} check-in ho gaye`);
+    } catch (e: any) {
+      toast.error(e?.message || "Check-in fail hui");
+    } finally {
+      setCheckInBusy(false);
     }
   };
 
@@ -169,6 +200,9 @@ function RegisterPage() {
         name: patient.name,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      if (effectiveCountryCode === "+91") {
+        autoConvertMatchingLead(patient.id, patient.mobile);
+      }
       if (f.consent) {
         const todayFormatted = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
         sendWhatsApp({
@@ -233,6 +267,7 @@ function RegisterPage() {
                   branch: "", consent: true,
                 });
                 setDupWarn(false);
+                setExistingPatient(null);
               }}
               className="rounded-lg border border-border bg-surface py-2.5 text-sm font-semibold text-primary"
             >
@@ -283,6 +318,23 @@ function RegisterPage() {
             />
           )}
         </Section>
+
+        {existingPatient && (
+          <div className="rounded-xl bg-accent/15 border border-accent p-3">
+            <p className="text-xs font-semibold text-primary">
+              {existingPatient.name} already registered hai ({existingPatient.patient_code ?? "—"})
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Naya patient nahi — inko aaj ke liye check-in karo.</p>
+            <button
+              type="button"
+              onClick={checkInInstead}
+              disabled={checkInBusy}
+              className="mt-2 w-full rounded-lg bg-primary text-primary-foreground py-2.5 text-xs font-bold disabled:opacity-60"
+            >
+              {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Check-In karo`}
+            </button>
+          </div>
+        )}
 
         <Section label="WhatsApp Number">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
