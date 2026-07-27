@@ -19,6 +19,7 @@ import {
   addVipSlot,
   removeVipSlot,
   DEFAULT_SLOT_CONFIG,
+  branchLabel,
   type ApptBranch,
   type SlotConfig,
 } from "@/lib/db";
@@ -34,7 +35,7 @@ export const Route = createFileRoute("/appointments")({
   ),
 });
 
-const branches: ("All" | "Bajaj Nagar" | "Jagatpura")[] = ["All", "Bajaj Nagar", "Jagatpura"];
+const branches: ("All" | ApptBranch)[] = ["All", "BAJAJ_NAGAR", "JAGATPURA"];
 
 const statusStyle: Record<string, string> = {
   Confirmed: "bg-success/15 text-success border-success/40",
@@ -98,7 +99,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
-  const [branch, setBranch] = useState<ApptBranch>("Bajaj Nagar");
+  const [branch, setBranch] = useState<ApptBranch>("BAJAJ_NAGAR");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -181,8 +182,8 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <div className="flex gap-1.5">
-            {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
-              <button key={b} onClick={() => { setBranch(b); setTime(""); }} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+            {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
+              <button key={b} onClick={() => { setBranch(b); setTime(""); }} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
             ))}
           </div>
           <div>
@@ -222,7 +223,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
   }, [cfgQuery.data, loadedOnce]);
 
   const [vDate, setVDate] = useState(today());
-  const [vBranch, setVBranch] = useState<ApptBranch>("Bajaj Nagar");
+  const [vBranch, setVBranch] = useState<ApptBranch>("BAJAJ_NAGAR");
   const [vTime, setVTime] = useState("");
   const [vNote, setVNote] = useState("");
   const [addingVip, setAddingVip] = useState(false);
@@ -312,9 +313,9 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setCfg({ ...cfg, capacityPerSlot: Math.max(1, Number(e.target.value) || 1) })}
             />
           </div>
-          {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
+          {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
             <div key={b}>
-              <div className="text-[12px] font-bold text-primary mb-1">{b} hours</div>
+              <div className="text-[12px] font-bold text-primary mb-1">{branchLabel(b)} hours</div>
               <div className="flex gap-2">
                 <input type="time" value={cfg.hours[b].start} onChange={(e) => setCfg({ ...cfg, hours: { ...cfg.hours, [b]: { ...cfg.hours[b], start: e.target.value } } })} className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
                 <span className="self-center text-muted-foreground text-xs">to</span>
@@ -333,8 +334,8 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
           </div>
           <input type="date" value={vDate} onChange={(e) => setVDate(e.target.value)} className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
           <div className="flex gap-1.5">
-            {(["Bajaj Nagar", "Jagatpura"] as ApptBranch[]).map((b) => (
-              <button key={b} onClick={() => { setVBranch(b); setVTime(""); }} className={cn("flex-1 rounded-full py-1.5 text-[11px] font-bold border", vBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>{b}</button>
+            {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
+              <button key={b} onClick={() => { setVBranch(b); setVTime(""); }} className={cn("flex-1 rounded-full py-1.5 text-[11px] font-bold border", vBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>{branchLabel(b)}</button>
             ))}
           </div>
           <select className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" value={vTime} onChange={(e) => setVTime(e.target.value)}>
@@ -352,7 +353,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
               {vipQuery.data!.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map((v) => (
                 <div key={v.id} className="flex items-center justify-between gap-2 rounded-lg bg-accent/10 border border-accent/30 px-2.5 py-1.5">
                   <div className="text-[11px] text-primary min-w-0">
-                    <span className="font-bold">{v.date} • {v.time}</span> — {v.branch}
+                    <span className="font-bold">{v.date} • {v.time}</span> — {branchLabel(v.branch)}
                     {v.note && <span className="text-muted-foreground"> ({v.note})</span>}
                   </div>
                   <button onClick={() => removeVip(v.id)} className="shrink-0 h-6 w-6 grid place-items-center rounded-full bg-destructive/10 text-destructive">
@@ -438,7 +439,7 @@ function AppointmentsPage() {
                 : "bg-surface text-foreground border-border",
             )}
           >
-            {b}
+            {b === "All" ? "All" : branchLabel(b)}
           </button>
         ))}
       </div>
@@ -473,7 +474,7 @@ function AppointmentsPage() {
                 </div>
                 <div className="mt-1 font-semibold text-sm truncate">{a.patient_name}</div>
                 <div className="text-[11px] text-muted-foreground truncate">
-                  {a.doctor ?? "Dr. Yadav"} • {a.branch}
+                  {a.doctor ?? "Dr. Yadav"} • {branchLabel(a.branch)}
                 </div>
                 {a.reason && <div className="text-[11px] text-foreground/70 mt-1 truncate">{a.reason}</div>}
               </div>

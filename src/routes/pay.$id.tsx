@@ -32,8 +32,8 @@ function PayPage() {
     queryFn: () => fetchVisit(id),
   });
 
-  const [charged, setCharged] = useState<number>(300);
-  const [received, setReceived] = useState<number>(300);
+  const [charged, setCharged] = useState<number>(0);
+  const [received, setReceived] = useState<number>(0);
   const [mode, setMode] = useState<"CASH" | "UPI" | "CARD">("CASH");
   const [busy, setBusy] = useState(false);
 
@@ -56,7 +56,7 @@ function PayPage() {
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
-      toast.success(balance === 0 ? "Payment done. WhatsApp receipt sent." : "Partial payment saved.");
+      toast.success(balance === 0 ? "Payment done." : "Partial payment saved.");
       navigate({ to: "/" });
     } catch (e: any) {
       toast.error(e?.message || "Payment fail hua");

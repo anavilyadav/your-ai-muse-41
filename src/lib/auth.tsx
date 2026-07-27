@@ -167,8 +167,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasReceptionPermission = (screenKey: string): boolean => {
     if (!user) return false;
-    if (user.role !== "RECP1" && user.role !== "RECP2") return true; // only gates RECP1/RECP2
-    const k = `recp_perm:${user.role}:${screenKey}`;
+    // Mirror useEffectiveRole()'s logic here (not a call to that hook,
+    // since this function lives inside AuthProvider itself) — Owner
+    // previewing as RECP1/RECP2 must see the same permission gates a
+    // real RECP1/RECP2 account would, not "always allowed" just because
+    // the underlying account is OWNER.
+    const effectiveRole = user.role === "OWNER" && viewAsRole ? viewAsRole : user.role;
+    if (effectiveRole !== "RECP1" && effectiveRole !== "RECP2") return true; // only gates RECP1/RECP2
+    const k = `recp_perm:${effectiveRole}:${screenKey}`;
     // Default ON (true) if never explicitly toggled off — nothing breaks for existing staff.
     return receptionPerms[k] !== false;
   };

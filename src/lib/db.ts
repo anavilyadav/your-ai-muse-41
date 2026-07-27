@@ -239,29 +239,31 @@ export async function collectPayment(input: {
 
   // update visit + create followup if fully paid
   let statusErr = null;
+  let followupErr = null;
   if (balance === 0) {
     ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "DONE" }).eq("id", input.visit_id));
     const due = new Date();
     due.setDate(due.getDate() + 30);
-    await supabase.from("followups").insert({
+    ({ error: followupErr } = await supabase.from("followups").insert({
       patient_id: input.patient_id,
       visit_id: input.visit_id,
       due_date: due.toISOString().slice(0, 10),
       followup_type: "30D",
       status: "PENDING",
-    });
+    }));
   } else {
     ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", input.visit_id));
   }
 
   // Payment itself is already recorded at this point (money was taken) —
-  // but if either update below failed, the visit will look stuck in the
-  // queue and the patient's totals will be stale, so this needs to be
-  // visibly flagged rather than silently reported as a clean success.
-  if (patErr || statusErr) {
+  // but if any update below failed, the visit will look stuck in the
+  // queue, the patient's totals will be stale, or the 30-day follow-up
+  // will quietly never exist — so this needs to be visibly flagged
+  // rather than silently reported as a clean success.
+  if (patErr || statusErr || followupErr) {
     throw new Error(
-      "Payment save ho gaya, lekin visit/patient record update nahi ho paya — refresh karke check karo: " +
-        (patErr?.message || statusErr?.message),
+      "Payment save ho gaya, lekin visit/patient/follow-up record update nahi ho paya — refresh karke check karo: " +
+        (patErr?.message || statusErr?.message || followupErr?.message),
     );
   }
 }
@@ -700,7 +702,7 @@ export async function updateAppointmentStatus(id: string, status: string) {
 // used for backup-doctor config, reception permissions, Case-DR levels) —
 // no new table/column needed, so this needs no SQL step to turn on.
 
-export type ApptBranch = "Bajaj Nagar" | "Jagatpura";
+export type ApptBranch = "BAJAJ_NAGAR" | "JAGATPURA";
 
 export interface SlotConfig {
   slotMinutes: number;
@@ -712,8 +714,8 @@ export const DEFAULT_SLOT_CONFIG: SlotConfig = {
   slotMinutes: 15,
   capacityPerSlot: 2,
   hours: {
-    "Bajaj Nagar": { start: "09:00", end: "20:00" },
-    "Jagatpura": { start: "09:00", end: "20:00" },
+    "BAJAJ_NAGAR": { start: "09:00", end: "20:00" },
+    "JAGATPURA": { start: "09:00", end: "20:00" },
   },
 };
 
@@ -1393,7 +1395,10 @@ export async function deletePatientDocument(id: string) {
 export async function fetchDaySummary(branch?: string) {
   const t = today();
   let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);
-  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,branch,payment_mode").gte("created_at", t);
+  let payQ = supabase
+    .from("payments")
+    .select("visit_id,amount_received,amount_charged,balance_due,branch,payment_mode")
+    .gte("created_at", t);
   if (branch) {
     visQ = visQ.eq("branch", branch);
     payQ = payQ.eq("branch", branch);
@@ -1419,11 +1424,17 @@ export async function fetchDaySummary(branch?: string) {
   const cash = pays.filter((r: any) => r.payment_mode === "CASH").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const upi = pays.filter((r: any) => r.payment_mode === "UPI").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const card = pays.filter((r: any) => r.payment_mode === "CARD").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  // "Completed today" = visits actually paid off today (balance hit 0
+  // today), whether that visit was registered today or carried over from
+  // an earlier day. Counting only visits.visit_status === "DONE" AND
+  // visit_date === today would miss the exact carried-over case this
+  // audit flagged (case taken days ago, finally settled today).
+  const doneToday = new Set(pays.filter((r: any) => r.balance_due === 0).map((r: any) => r.visit_id)).size;
   return {
     totalPatients: visits.length,
     newPatients: newCount,
     followupPatients: followupCount,
-    done: visits.filter((v: any) => v.visit_status === "DONE").length,
+    done: doneToday,
     waiting: visits.filter((v: any) => ["REGISTERED", "CASE_TAKING", "WAITING", "WAITING_DOCTOR"].includes(v.visit_status)).length,
     pendingPayments: visits.filter((v: any) => v.visit_status === "PAYMENT").length,
     revenue,
