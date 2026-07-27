@@ -202,15 +202,18 @@ export function thirtyDaysAgo(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function fetchTodayQueue() {
-  const { data, error } = await supabase
+export async function fetchTodayQueue(branch?: string) {
+  let q = supabase
     .from("visits")
     .select("*, patient:patients(*)")
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: DBPatient })[];
 }
+
 
 export async function fetchVisit(visitId: string) {
   const { data, error } = await supabase
@@ -242,15 +245,18 @@ const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
 // Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
 // case-taking (e.g. a Junior Case-DR's draft) must not vanish from the
 // board just because a day passed, but shouldn't accumulate forever either.
-export async function fetchTodayQueueCaseDR() {
-  const { data, error } = await supabase
+export async function fetchTodayQueueCaseDR(branch?: string) {
+  let q = supabase
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
 }
+
 
 export async function updateCaseComplexity(visitId: string, complexity: "Simple" | "Complex") {
   const { error } = await supabase.from("visits").update({ case_complexity: complexity }).eq("id", visitId);
@@ -277,6 +283,22 @@ export async function collectPayment(input: {
   branch: string;
   notes?: string;
 }) {
+  // Guard: never double-process a DONE visit. Re-submitting a completed
+  // visit would demote its status back to PAYMENT, insert a second 30-day
+  // follow-up row, and double-count amount_received into the patient's
+  // lifetime_revenue. If a genuine correction is needed, it must happen
+  // through an explicit refund/adjustment flow, not this default path.
+  const { data: existing, error: exErr } = await supabase
+    .from("visits")
+    .select("visit_status")
+    .eq("id", input.visit_id)
+    .maybeSingle();
+  if (exErr) throw exErr;
+  if (!existing) throw new Error("Visit not found");
+  if (existing.visit_status === "DONE") {
+    throw new Error("Yeh visit already DONE hai — dobara payment collect nahi kar sakte. Correction chahiye toh Owner se refund/adjustment karwao.");
+  }
+
   const balance = Math.max(0, input.amount_charged - input.amount_received);
   const { error: pe } = await supabase.from("payments").insert({
     visit_id: input.visit_id,
@@ -289,6 +311,7 @@ export async function collectPayment(input: {
     notes: input.notes ?? null,
   });
   if (pe) throw pe;
+
 
   // update patient totals
   const { data: pat } = await supabase
