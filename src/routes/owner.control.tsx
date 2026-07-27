@@ -191,6 +191,38 @@ function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
   );
 }
 
+function JustDialToggle({ settings }: { settings: any[] }) {
+  const qc = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const row = settings.find((r: any) => r.key === "justdial_webhook_enabled");
+  const on = row ? row.value === "true" : true; // default ON once deployed
+
+  const toggle = async () => {
+    setPending(true);
+    try {
+      await upsertSetting("justdial_webhook_enabled", String(!on));
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setPending(false);
+  };
+
+  return (
+    <div className="rounded-2xl bg-surface border border-border p-3.5 flex items-center justify-between">
+      <div>
+        <div className="text-sm font-semibold text-primary">JustDial Auto-Lead + Welcome Message</div>
+        <div className="text-[11px] text-muted-foreground">Naya JustDial lead aate hi automatic WhatsApp jaye</div>
+      </div>
+      <button onClick={toggle} disabled={pending} className={cn(pending && "opacity-50")}>
+        <span className={cn("relative h-5 w-9 rounded-full transition inline-block", on ? "bg-success" : "bg-border")}>
+          <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all", on ? "left-[18px]" : "left-0.5")} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
 // The 14 clinic-ops / feature-module / privacy / payment toggles that used
 // to live here were removed: they wrote to `settings` but no code path
 // anywhere in the app ever read those keys, so flipping them did nothing.
@@ -288,6 +320,7 @@ function ControlPage() {
         <div className="space-y-4">
           {showBackupModal && <BackupDoctorModal onClose={() => setShowBackupModal(false)} />}
           <ReceptionPermissionsGrid settings={data ?? []} />
+          <JustDialToggle settings={data ?? []} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
               Backup Doctor

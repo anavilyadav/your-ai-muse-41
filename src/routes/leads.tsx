@@ -1,12 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, PhoneCall, UserPlus, Search, X, History } from "lucide-react";
+import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
-import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, maskMobile, logWhatsAppInteraction, type LeadStatus } from "@/lib/db";
+import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, type LeadStatus } from "@/lib/db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
@@ -91,6 +91,14 @@ function LeadsPage() {
     } catch (e: any) {
       toast.error("Status update nahi hua: " + (e?.message ?? "unknown error"));
     }
+  };
+
+  const doDnd = async (id: string, current: boolean) => {
+    const res = await setLeadDnd(id, !current);
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    toast.success(!current ? "DND lagaya — ab isko message/call nahi jayega" : "DND hataya");
+    qc.invalidateQueries({ queryKey: ["leads"] });
+    qc.invalidateQueries({ queryKey: ["leads-search"] });
   };
 
   const displayList = isSearching ? (searchQ.data ?? []) : filtered;
@@ -188,11 +196,20 @@ function LeadsPage() {
                 >
                   <History className="h-3 w-3" /> History
                 </button>
+                <button
+                  onClick={() => doDnd(l.id, !!l.dnd)}
+                  className={cn(
+                    "mt-1.5 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold underline",
+                    l.dnd ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
+                  <BellOff className="h-3 w-3" /> {l.dnd ? "DND ON" : "Mark DND"}
+                </button>
                 <div className="mt-1 text-[10px] text-muted-foreground">
                   {mounted ? (days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
                 </div>
 
-                {status !== "Converted" && status !== "Lost" && (
+                {status !== "Converted" && status !== "Lost" && !l.dnd && (
                   <div className="mt-2.5 grid grid-cols-3 gap-2">
                     <a
                       href={`tel:${l.mobile}`}

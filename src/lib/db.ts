@@ -890,6 +890,11 @@ export async function updateLeadStatus(id: string, status: LeadStatus) {
   if (error) throw error;
 }
 
+export async function setLeadDnd(id: string, dnd: boolean) {
+  const { error } = await supabase.from("leads").update({ dnd }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Inventory ----------
 export async function fetchInventory() {
   const { data, error } = await supabase
