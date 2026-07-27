@@ -18,6 +18,7 @@ import {
   previewVisitHistoryImport,
   commitVisitHistoryImport,
   fetchImportBatches,
+  fetchPatientsByIds,
   type ImportLeadRow,
   type ImportPatientRow,
   type ImportVisitRow,
@@ -331,6 +332,8 @@ function VisitHistoryImportTab() {
   const csv = useCSVImport(fields);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewVisitHistoryImport>> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failedPatients, setFailedPatients] = useState<{ id: string; name: string; patient_code: string | null }[]>([]);
+  const [showFailed, setShowFailed] = useState(false);
 
   const runPreview = async () => {
     setBusy(true);
@@ -352,7 +355,11 @@ function VisitHistoryImportTab() {
       await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
       toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
       if (res.totalsFailedFor.length > 0) {
-        toast.error(`${res.totalsFailedFor.length} patients ki totals update NAHI hui (visits/payments phir bhi import ho gaye) — Owner Reports se manually verify kar lena in patients ke liye`);
+        toast.error(`${res.totalsFailedFor.length} patients ki totals update NAHI hui (visits/payments phir bhi import ho gaye) — neeche list dekho`);
+        setFailedPatients(await fetchPatientsByIds(res.totalsFailedFor));
+        setShowFailed(true);
+      } else {
+        setFailedPatients([]);
       }
       csv.reset(); setPreview(null);
     } catch (e: any) {
@@ -382,6 +389,23 @@ function VisitHistoryImportTab() {
             <CheckCircle2 className="h-4 w-4" /> {busy ? "Importing…" : `Import ${preview.valid.length} visits`}
           </button>
         </>
+      )}
+      {failedPatients.length > 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <button onClick={() => setShowFailed((v) => !v)} className="w-full flex items-center justify-between text-[12px] font-bold text-destructive">
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> {failedPatients.length} patients need manual verification</span>
+            <span>{showFailed ? "Hide" : "Show"}</span>
+          </button>
+          {showFailed && (
+            <ul className="mt-2 space-y-1">
+              {failedPatients.map((p) => (
+                <li key={p.id} className="text-[12px] text-primary">
+                  {p.name} {p.patient_code && <span className="text-muted-foreground">({p.patient_code})</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

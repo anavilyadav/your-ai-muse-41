@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { runHealthChecks, fetchStockIssues } from "@/lib/db";
+import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
@@ -22,6 +22,7 @@ function HealthPage() {
   const [results, setResults] = useState<Result[] | null>(null);
   const [running, setRunning] = useState(false);
   const issues = useQuery({ queryKey: ["stock-issues"], queryFn: () => fetchStockIssues() });
+  const stale = useQuery({ queryKey: ["stale-open-visits"], queryFn: fetchStaleOpenVisits });
 
   const run = async () => {
     setRunning(true);
@@ -82,6 +83,27 @@ function HealthPage() {
                 <div className="text-[10px] text-muted-foreground mt-1">
                   {i.created_at ? new Date(i.created_at).toLocaleString("en-IN") : ""}
                 </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {stale.data && stale.data.length > 0 && (
+        <div className="mt-4">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+            Open visits older than 30 days ({stale.data.length})
+          </div>
+          <div className="rounded-xl bg-accent/15 border border-accent/40 p-2.5 mb-2 text-[11px] text-primary">
+            Ye visits abhi bhi "open" hain (DONE nahi hue) lekin 30+ din purane hain — isiliye ab Doctor/Case-DR/Pharmacy queue mein nahi dikhte. Genuinely stuck cases ho sakte hain — check kar lo.
+          </div>
+          <ul className="space-y-2">
+            {stale.data.map((v: any) => (
+              <li key={v.id} className="rounded-xl bg-surface border border-border p-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-primary">{v.patient?.name ?? "—"} <span className="text-muted-foreground font-normal">({v.patient?.patient_code ?? "—"})</span></div>
+                  <div className="text-[11px] text-muted-foreground">{v.visit_date} • Token {v.token_number ?? "—"} • {v.visit_status}</div>
+                </div>
+                <Badge tone="destructive">{v.visit_status}</Badge>
               </li>
             ))}
           </ul>

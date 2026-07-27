@@ -996,6 +996,23 @@ export async function addStaffProfile(input: NewStaffInput) {
   return { success: true, error: null, data };
 }
 
+// Visits older than the 30-day queue floor that are still not DONE are
+// exactly the ones that stopped showing up in every staff queue (see
+// fetchTodayQueue/fetchTodayQueueCaseDR). Hiding genuinely stuck/forgotten
+// cases from EVERYONE isn't the goal — this gives the Owner a way to see
+// them, since staff queues intentionally no longer will.
+export async function fetchStaleOpenVisits() {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("id,visit_date,visit_status,token_number,branch,patient:patients(name,mobile,patient_code)")
+    .neq("visit_status", "DONE")
+    .lt("visit_date", thirtyDaysAgo())
+    .order("visit_date", { ascending: true })
+    .limit(200);
+  if (error) return [];
+  return data ?? [];
+}
+
 export async function runHealthChecks() {
   const results: { label: string; ok: boolean; detail: string }[] = [];
 
@@ -1380,6 +1397,13 @@ export async function fetchPatientById(id: string) {
     .maybeSingle();
   if (error) return null;
   return data as DBPatient | null;
+}
+
+export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; name: string; patient_code: string | null }[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("patients").select("id,name,patient_code").in("id", ids);
+  if (error) return [];
+  return data ?? [];
 }
 
 // ---------- Family linking ----------
