@@ -672,6 +672,27 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+// ---------- Signed URL resolver (buckets are private) ----------
+// case_photo_url / tongue_photo_url / reports_photo_url / patient_documents.photo_url
+// all still store the old "https://.../object/public/<bucket>/<path>" shape.
+// Buckets are private now, so that stored value only works as an identifier —
+// the path suffix after `/${bucket}/` — from which we mint a short-lived
+// signed URL each time the document actually needs to be shown. Nothing is
+// ever written back to the DB from this function; it's read-only resolution.
+export async function resolveDocUrl(
+  bucket: "patient-documents" | "case-photos",
+  stored: string | null | undefined,
+  expiresIn = 3600,
+): Promise<string | null> {
+  if (!stored) return null;
+  const marker = `/${bucket}/`;
+  const idx = stored.indexOf(marker);
+  const path = idx >= 0 ? stored.slice(idx + marker.length) : stored;
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
+  if (error || !data) return null;
+  return data.signedUrl;
+}
+
 export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" | "reports", file: File) {
   try {
     const compressed = await compressImageForUpload(file, { documentMode: kind !== "tongue" });

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto } from "@/lib/db";
+import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +101,7 @@ function CaseFormPage() {
   });
 
   const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);
+  const [casePhotoSignedUrl, setCasePhotoSignedUrl] = useState<string | null>(null);
   const [tonguePhotoUrl, setTonguePhotoUrl] = useState<string | null>(null);
   const [reportsPhotoUrl, setReportsPhotoUrl] = useState<string | null>(null);
   const [uploadingKind, setUploadingKind] = useState<string | null>(null);
@@ -125,7 +126,10 @@ function CaseFormPage() {
       toast.error("Photo upload nahi hui: " + res.error);
       return;
     }
-    if (kind === "case") setCasePhotoUrl(res.url);
+    if (kind === "case") {
+      setCasePhotoUrl(res.url);
+      resolveDocUrl("case-photos", res.url).then(setCasePhotoSignedUrl);
+    }
     if (kind === "tongue") setTonguePhotoUrl(res.url);
     if (kind === "reports") setReportsPhotoUrl(res.url);
     toast.success("Photo save ho gayi");
@@ -255,8 +259,8 @@ function CaseFormPage() {
         <div className="text-[11px] text-muted-foreground mt-0.5">
           {casePhotoUrl ? "Tap to retake" : "Required — submission blocked without this"}
         </div>
-        {casePhotoUrl && (
-          <img src={casePhotoUrl} alt="Case paper" className="mt-3 mx-auto max-h-32 rounded-lg border border-border" />
+        {casePhotoUrl && casePhotoSignedUrl && (
+          <img src={casePhotoSignedUrl} alt="Case paper" className="mt-3 mx-auto max-h-32 rounded-lg border border-border" />
         )}
       </label>
 

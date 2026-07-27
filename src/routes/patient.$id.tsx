@@ -15,6 +15,7 @@ import {
   fetchPatientDocuments,
   uploadPatientDocument,
   deletePatientDocument,
+  resolveDocUrl,
   DOC_TYPES,
   type DocType,
   type PatientDocument,
@@ -223,6 +224,7 @@ function PatientProfilePage() {
   const [visits, setVisits] = useState<any[]>([]);
   const [family, setFamily] = useState<any[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
+  const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -245,6 +247,24 @@ function PatientProfilePage() {
   useEffect(() => {
     reload();
   }, [id]);
+
+  // Bucket is private — every stored photo_url is just an identifier now,
+  // not a working link. Mint a short-lived signed URL per document each
+  // time the list loads so thumbnails and "open full size" actually work.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        documents.map(async (d) => [d.id, await resolveDocUrl("patient-documents", d.photo_url)] as const),
+      );
+      if (!cancelled) {
+        setDocUrls(Object.fromEntries(entries.filter((e): e is [string, string] => !!e[1])));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documents]);
 
   if (loading) {
     return (
@@ -366,9 +386,15 @@ function PatientProfilePage() {
           <ul className="space-y-2">
             {documents.map((d) => (
               <li key={d.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center gap-2.5">
-                <a href={d.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
-                  <img src={d.photo_url} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
-                </a>
+                {docUrls[d.id] ? (
+                  <a href={docUrls[d.id]} target="_blank" rel="noreferrer" className="shrink-0">
+                    <img src={docUrls[d.id]} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
+                  </a>
+                ) : (
+                  <div className="h-14 w-14 rounded-lg border border-border bg-accent/10 shrink-0 grid place-items-center text-[9px] text-muted-foreground">
+                    …
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="text-[12px] font-bold text-primary">{d.doc_type}</div>
                   <div className="text-[10px] text-muted-foreground">
