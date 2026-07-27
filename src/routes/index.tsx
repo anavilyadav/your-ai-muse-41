@@ -6,7 +6,9 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,6 +43,10 @@ const statusStyles: Record<string, string> = {
 
 function QueuePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const effectiveRole = useEffectiveRole();
+  // Owner sees every branch; branch-scoped staff (RECP1/RECP2) only see their own branch's queue.
+  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
   const [filter, setFilter] = useState<Filter>("All");
   const [today, setToday] = useState("");
   useEffect(() => {
@@ -48,10 +54,11 @@ function QueuePage() {
   }, []);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["today-queue"],
-    queryFn: fetchTodayQueue,
+    queryKey: ["today-queue", branchScope ?? "all"],
+    queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
   });
+
 
   const rows = data ?? [];
   const stats = useMemo(() => {
@@ -140,9 +147,20 @@ function QueuePage() {
             return (
               <li key={r.id}>
                 <button
-                  onClick={() => navigate({ to: "/pay/$id", params: { id: r.id } })}
+                  onClick={() => {
+                    // PAYMENT (Pay Due) or DONE (view receipt / no-op) → payment screen.
+                    // Everything else (REGISTERED/WAITING/CASE_TAKING/WAITING_DOCTOR/PRESCRIBED/PHARMACY)
+                    // → patient profile so reception can see clinical context, not a forced pay screen.
+                    const status = r.visit_status;
+                    if (status === "PAYMENT" || status === "DONE") {
+                      navigate({ to: "/pay/$id", params: { id: r.id } });
+                    } else {
+                      navigate({ to: "/patient/$id", params: { id: r.patient_id } });
+                    }
+                  }}
                   className="w-full text-left rounded-xl bg-surface border border-border p-3 flex items-center gap-3 shadow-sm hover:border-primary/40 active:scale-[0.99] transition"
                 >
+
                   <div className="shrink-0 h-12 w-12 rounded-xl bg-primary text-primary-foreground grid place-items-center">
                     <div className="text-[9px] uppercase opacity-70 leading-none">Token</div>
                     <div className="text-sm font-bold leading-tight">{r.token_number ?? "—"}</div>

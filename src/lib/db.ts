@@ -202,15 +202,18 @@ export function thirtyDaysAgo(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function fetchTodayQueue() {
-  const { data, error } = await supabase
+export async function fetchTodayQueue(branch?: string) {
+  let q = supabase
     .from("visits")
     .select("*, patient:patients(*)")
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: DBPatient })[];
 }
+
 
 export async function fetchVisit(visitId: string) {
   const { data, error } = await supabase
@@ -242,15 +245,18 @@ const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
 // Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
 // case-taking (e.g. a Junior Case-DR's draft) must not vanish from the
 // board just because a day passed, but shouldn't accumulate forever either.
-export async function fetchTodayQueueCaseDR() {
-  const { data, error } = await supabase
+export async function fetchTodayQueueCaseDR(branch?: string) {
+  let q = supabase
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
 }
+
 
 export async function updateCaseComplexity(visitId: string, complexity: "Simple" | "Complex") {
   const { error } = await supabase.from("visits").update({ case_complexity: complexity }).eq("id", visitId);
@@ -277,6 +283,22 @@ export async function collectPayment(input: {
   branch: string;
   notes?: string;
 }) {
+  // Guard: never double-process a DONE visit. Re-submitting a completed
+  // visit would demote its status back to PAYMENT, insert a second 30-day
+  // follow-up row, and double-count amount_received into the patient's
+  // lifetime_revenue. If a genuine correction is needed, it must happen
+  // through an explicit refund/adjustment flow, not this default path.
+  const { data: existing, error: exErr } = await supabase
+    .from("visits")
+    .select("visit_status")
+    .eq("id", input.visit_id)
+    .maybeSingle();
+  if (exErr) throw exErr;
+  if (!existing) throw new Error("Visit not found");
+  if (existing.visit_status === "DONE") {
+    throw new Error("Yeh visit already DONE hai — dobara payment collect nahi kar sakte. Correction chahiye toh Owner se refund/adjustment karwao.");
+  }
+
   const balance = Math.max(0, input.amount_charged - input.amount_received);
   const { error: pe } = await supabase.from("payments").insert({
     visit_id: input.visit_id,
@@ -289,6 +311,7 @@ export async function collectPayment(input: {
     notes: input.notes ?? null,
   });
   if (pe) throw pe;
+
 
   // update patient totals
   const { data: pat } = await supabase
@@ -689,7 +712,63 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
   if (error) throw error; // caller (submit/saveDraft) shows this — was silently "succeeding" before
 }
 
+// ---------- Doctor dashboard ----------
+// Clinic-wide numbers (visits don't carry a doctor_id column, so per-doctor
+// scoping isn't possible here — reporting the whole clinic is accurate,
+// not fabricated). Top-complaint bucketing is a plain frequency count over
+// this month's chief_complaint strings; nothing is normalized/synonyms-merged.
+export async function fetchDoctorDashboard() {
+  const t = today();
+  const monthStart = t.slice(0, 8) + "01";
+
+  const [
+    todaySeen,
+    todayNew,
+    todayFollowupsDone,
+    monthPatientsVisits,
+    monthPay,
+    monthComplaints,
+    awaitingRx,
+  ] = await Promise.all([
+    supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("visit_status", "DONE"),
+    supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
+    supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "DONE").gte("updated_at", istDayStart(t)),
+    supabase.from("visits").select("patient_id").gte("visit_date", monthStart),
+    supabase.from("payments").select("amount_received").gte("created_at", istDayStart(monthStart)),
+    supabase.from("visits").select("chief_complaint").gte("visit_date", monthStart).not("chief_complaint", "is", null),
+    supabase.from("visits").select("id", { count: "exact", head: true })
+      .in("visit_status", ["WAITING_DOCTOR", "CASE_TAKING", "REGISTERED"])
+      .gte("visit_date", thirtyDaysAgo()),
+  ]);
+
+  const monthPatients = new Set((monthPatientsVisits.data ?? []).map((v: any) => v.patient_id)).size;
+  const monthRevenue = (monthPay.data ?? []).reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
+
+  const bucket = new Map<string, number>();
+  for (const r of (monthComplaints.data ?? []) as any[]) {
+    const raw = String(r.chief_complaint ?? "").trim();
+    if (!raw) continue;
+    const key = raw.toLowerCase();
+    bucket.set(key, (bucket.get(key) ?? 0) + 1);
+  }
+  const topComplaints = Array.from(bucket.entries())
+    .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v] as [string, number])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  return {
+    todaySeen: todaySeen.count ?? 0,
+    todayNew: todayNew.count ?? 0,
+    todayFollowupsDone: todayFollowupsDone.count ?? 0,
+    monthPatients,
+    monthRevenue,
+    topComplaints,
+    awaitingRx: awaitingRx.count ?? 0,
+  };
+}
+
 // ---------- Owner ----------
+
 export async function fetchOwnerStats() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";

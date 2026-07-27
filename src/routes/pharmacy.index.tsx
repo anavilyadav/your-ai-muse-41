@@ -6,6 +6,7 @@ import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import type { NavItem } from "@/components/yhc/RoleShell";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
 import { today } from "@/lib/supabase";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 
 export const PHARMACY_NAV: NavItem[] = [
   { to: "/pharmacy", label: "Queue", icon: List, exact: true },
@@ -25,12 +26,16 @@ export const Route = createFileRoute("/pharmacy/")({
 
 function PharmacyQueue() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const effectiveRole = useEffectiveRole();
+  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
   const { data, isLoading } = useQuery({
-    queryKey: ["today-queue"],
-    queryFn: fetchTodayQueue,
+    queryKey: ["today-queue", branchScope ?? "all"],
+    queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
   });
   const rows = (data ?? []).filter((r) => r.visit_status === "PHARMACY");
+
 
   return (
     <MobileShell title="Pharmacy Queue" subtitle="Today">

@@ -4,6 +4,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
 import { today } from "@/lib/supabase";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 
 export const Route = createFileRoute("/doctor/rx/")({
   head: () => ({ meta: [{ title: "Rx Queue — Doctor" }, { name: "robots", content: "noindex" }] }),
@@ -20,11 +21,15 @@ function daysPending(visitDate: string): number {
 
 function RxQueue() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const effectiveRole = useEffectiveRole();
+  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
   const { data, isLoading } = useQuery({
-    queryKey: ["today-queue"],
-    queryFn: fetchTodayQueue,
+    queryKey: ["today-queue", branchScope ?? "all"],
+    queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
   });
+
 
   const rows = (data ?? []).filter((r) =>
     ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR", "PRESCRIBED"].includes(r.visit_status),

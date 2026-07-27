@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity } from "@/lib/db";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { today } from "@/lib/supabase";
 import { Lock, Sparkles } from "lucide-react";
 
@@ -33,12 +33,15 @@ function CaseBoardPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const effectiveRole = useEffectiveRole();
+  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
   const { data, isLoading } = useQuery({
-    queryKey: ["today-queue"],
-    queryFn: fetchTodayQueueCaseDR,
+    queryKey: ["today-queue", branchScope ?? "all"],
+    queryFn: () => fetchTodayQueueCaseDR(branchScope),
     refetchInterval: 15_000,
   });
   const { data: levels } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
+
   const myLevel = (user && levels?.[user.id]) || "Senior"; // default Senior (full access) until Owner sets otherwise
   const isJunior = myLevel === "Junior";
 
