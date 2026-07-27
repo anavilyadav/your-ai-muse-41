@@ -65,6 +65,8 @@ function PayPage() {
     }
   };
 
+  const existingDue = Number(visit.patient?.current_balance ?? 0);
+
   return (
     <MobileShell title="Collect Payment" showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4">
@@ -80,6 +82,14 @@ function PayPage() {
         </div>
         <div className="mt-2 text-xs opacity-80">{visit.chief_complaint || "—"}</div>
       </div>
+
+      {existingDue > 0 && (
+        <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive font-semibold flex items-center justify-between">
+          <span>Previous balance due</span>
+          <span className="text-sm font-bold">₹{existingDue.toLocaleString("en-IN")}</span>
+        </div>
+      )}
+
 
       <div className="mt-4">
         <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Quick fill</div>
