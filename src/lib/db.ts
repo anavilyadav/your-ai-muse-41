@@ -21,6 +21,8 @@ export interface DBPatient {
   anniversary_date: string | null;
   profession: string | null;
   annual_income: number | null;
+  card_number: string | null;
+  card_register: string | null;
   branch: string;
   lifetime_visits: number;
   lifetime_revenue: number;
@@ -365,7 +367,7 @@ export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior
   await upsertSetting("case_dr_levels", JSON.stringify(levels));
 }
 
-const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease";
+const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease, card_number, card_register";
 
 // Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
 // case-taking (e.g. a Junior Case-DR's draft) must not vanish from the
@@ -842,6 +844,40 @@ export interface CaseNotesInput {
   case_photo_url?: string | null;
   tongue_photo_url?: string | null;
   reports_photo_url?: string | null;
+}
+
+// ---------- Physical case-register card number ----------
+// Each doctor keeps their own physical case register and hands out
+// numbers from it — so the same number can legitimately exist under two
+// different doctors' registers, but a duplicate WITHIN the same register
+// almost always means a data-entry mistake (this was the exact "same
+// number given 2-3 times, then a/b/c suffixes, then the whole sequence
+// has to be redone" problem). Scoping the check to (number + register)
+// catches the real duplicates without false-flagging different doctors.
+export async function isDuplicateCardNumber(
+  cardNumber: string,
+  cardRegister: string,
+  excludePatientId?: string,
+): Promise<boolean> {
+  const num = cardNumber.trim();
+  const reg = cardRegister.trim();
+  if (!num || !reg) return false;
+  let q = supabase
+    .from("patients")
+    .select("id", { count: "exact", head: true })
+    .eq("card_number", num)
+    .eq("card_register", reg);
+  if (excludePatientId) q = q.neq("id", excludePatientId);
+  const { count } = await q;
+  return (count ?? 0) > 0;
+}
+
+export async function savePatientCardNumber(patientId: string, cardNumber: string, cardRegister: string) {
+  const { error } = await supabase
+    .from("patients")
+    .update({ card_number: cardNumber.trim() || null, card_register: cardRegister.trim() || null })
+    .eq("id", patientId);
+  return { success: !error, error: error?.message ?? null };
 }
 
 export async function saveCaseNotes(visitId: string, input: string | CaseNotesInput) {

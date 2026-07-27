@@ -548,6 +548,7 @@ function PatientProfilePage() {
         {patient.dob && <Row icon={Gift} label="DOB" value={new Date(patient.dob).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} />}
         {patient.anniversary_date && <Row icon={Heart} label="Anniversary" value={new Date(patient.anniversary_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} />}
         {patient.profession && <Row icon={Briefcase} label="Profession" value={patient.profession} />}
+        {patient.card_number && <Row icon={FileText} label="Card No." value={`${patient.card_number}${patient.card_register ? " (" + patient.card_register + ")" : ""}`} />}
       </div>
 
       <div className="mt-5">

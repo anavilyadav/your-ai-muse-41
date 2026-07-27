@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
+import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl, isDuplicateCardNumber, savePatientCardNumber } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -95,10 +96,40 @@ function CaseFormPage() {
   const { token: visitId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const { data: visit, isLoading } = useQuery({
     queryKey: ["visit", visitId],
     queryFn: () => fetchVisitForCaseDR(visitId),
   });
+
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardRegister, setCardRegister] = useState("");
+  const [cardPrefilled, setCardPrefilled] = useState(false);
+  const [dupCardWarn, setDupCardWarn] = useState(false);
+  useEffect(() => {
+    if (!visit || cardPrefilled) return;
+    const p = visit.patient as any;
+    setCardNumber(p?.card_number || "");
+    setCardRegister(p?.card_register || user?.name || "");
+    setCardPrefilled(true);
+  }, [visit, cardPrefilled, user]);
+
+  const onCardNumberChange = async (v: string) => {
+    setCardNumber(v);
+    if (v.trim() && cardRegister.trim()) {
+      setDupCardWarn(await isDuplicateCardNumber(v, cardRegister, visit?.patient?.id));
+    } else {
+      setDupCardWarn(false);
+    }
+  };
+  const onCardRegisterChange = async (v: string) => {
+    setCardRegister(v);
+    if (cardNumber.trim() && v.trim()) {
+      setDupCardWarn(await isDuplicateCardNumber(cardNumber, v, visit?.patient?.id));
+    } else {
+      setDupCardWarn(false);
+    }
+  };
 
   const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);
   const [casePhotoSignedUrl, setCasePhotoSignedUrl] = useState<string | null>(null);
@@ -137,6 +168,7 @@ function CaseFormPage() {
 
   const submit = async () => {
     if (!casePhotoUrl) return toast.error("Case paper photo is required");
+    if (dupCardWarn && !window.confirm("Ye card number isi register mein already kisi aur patient ke paas hai. Phir bhi save karein?")) return;
     if (!window.confirm("Submit case to the prescribing doctor? Cannot be edited after submit.")) return;
     const notes = [
       thermals && `Thermals: ${thermals}`,
@@ -153,6 +185,9 @@ function CaseFormPage() {
     ].filter(Boolean).join("\n");
     setBusy(true);
     try {
+      if (visit?.patient?.id && (cardNumber.trim() || cardRegister.trim())) {
+        await savePatientCardNumber(visit.patient.id, cardNumber, cardRegister);
+      }
       await saveCaseNotes(visitId, {
         notes,
         case_photo_url: casePhotoUrl,
@@ -224,6 +259,32 @@ function CaseFormPage() {
           {p?.age ? `${p.age}y` : "—"} • {p?.gender ?? "—"}
         </div>
         <div className="text-[12px] text-primary-foreground/70">{visit.chief_complaint ?? "—"}</div>
+      </div>
+
+      <div className="mt-4 rounded-xl bg-surface border border-border p-3">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Card Number
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            placeholder="Register ka number"
+            value={cardNumber}
+            onChange={(e) => onCardNumberChange(e.target.value)}
+            className={cn(
+              "rounded-lg bg-background border px-3 py-2.5 text-sm",
+              dupCardWarn ? "border-destructive" : "border-input",
+            )}
+          />
+          <input
+            placeholder="Register (doctor name)"
+            value={cardRegister}
+            onChange={(e) => onCardRegisterChange(e.target.value)}
+            className="rounded-lg bg-background border border-input px-3 py-2.5 text-sm"
+          />
+        </div>
+        {dupCardWarn && (
+          <p className="text-[11px] text-destructive mt-1.5">⚠ Ye number isi register mein kisi aur patient ke paas hai</p>
+        )}
       </div>
 
       <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
