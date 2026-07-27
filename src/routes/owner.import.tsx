@@ -185,6 +185,21 @@ function PreviewSummary({ valid, duplicates, invalid, extraLabel, extraCount, sa
 
 const BRANCH_OPTIONS = ["BAJAJ_NAGAR", "JAGATPURA"] as const;
 
+function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return (
+    <div className="rounded-xl bg-surface border border-border p-3">
+      <div className="flex justify-between text-[11px] text-muted-foreground mb-1.5">
+        <span>{label}</span>
+        <span>{done.toLocaleString("en-IN")} / {total.toLocaleString("en-IN")}</span>
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function LeadsImportTab() {
   const fields: FieldDef[] = [
     { key: "name", label: "Name", required: true },
@@ -195,6 +210,7 @@ function LeadsImportTab() {
   const csv = useCSVImport(fields);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewLeadsImport>> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -210,15 +226,16 @@ function LeadsImportTab() {
     if (!preview || !preview.valid.length) return;
     if (!window.confirm(`${preview.valid.length} leads import karein?`)) return;
     setBusy(true);
+    setProgress({ done: 0, total: preview.valid.length });
     const batchId = newImportBatchId();
     try {
-      const imported = await commitLeadsImport(preview.valid, batchId);
+      const imported = await commitLeadsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
       await recordImportBatch({ batchId, type: "Leads", count: imported });
       toast.success(`${imported} leads imported`);
       csv.reset(); setPreview(null);
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(null); }
   };
 
   return (
@@ -236,9 +253,13 @@ function LeadsImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} duplicates={preview.duplicates} invalid={preview.invalid} samples={preview.invalidSamples} />
-          <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
-            <CheckCircle2 className="h-4 w-4" /> {busy ? "Importing…" : `Import ${preview.valid.length} leads`}
-          </button>
+          {progress ? (
+            <ProgressBar done={progress.done} total={progress.total} label="Importing leads…" />
+          ) : (
+            <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 className="h-4 w-4" /> Import {preview.valid.length} leads
+            </button>
+          )}
         </>
       )}
     </div>
@@ -259,6 +280,7 @@ function PatientsImportTab() {
   const [defaultBranch, setDefaultBranch] = useState<(typeof BRANCH_OPTIONS)[number]>("BAJAJ_NAGAR");
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewPatientsImport>> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -274,15 +296,16 @@ function PatientsImportTab() {
     if (!preview || !preview.valid.length) return;
     if (!window.confirm(`${preview.valid.length} patients import karein? Har ek ko WhatsApp consent OFF milega (fresh consent lena hoga).`)) return;
     setBusy(true);
+    setProgress({ done: 0, total: preview.valid.length });
     const batchId = newImportBatchId();
     try {
-      const imported = await commitPatientsImport(preview.valid, batchId);
+      const imported = await commitPatientsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
       await recordImportBatch({ batchId, type: "Patients", count: imported });
       toast.success(`${imported} patients imported`);
       csv.reset(); setPreview(null);
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(null); }
   };
 
   return (
@@ -311,9 +334,13 @@ function PatientsImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} duplicates={preview.duplicates} invalid={preview.invalid} samples={preview.invalidSamples} />
-          <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
-            <CheckCircle2 className="h-4 w-4" /> {busy ? "Importing…" : `Import ${preview.valid.length} patients`}
-          </button>
+          {progress ? (
+            <ProgressBar done={progress.done} total={progress.total} label="Importing patients…" />
+          ) : (
+            <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 className="h-4 w-4" /> Import {preview.valid.length} patients
+            </button>
+          )}
         </>
       )}
     </div>
@@ -334,6 +361,7 @@ function VisitHistoryImportTab() {
   const [busy, setBusy] = useState(false);
   const [failedPatients, setFailedPatients] = useState<{ id: string; name: string; patient_code: string | null }[]>([]);
   const [showFailed, setShowFailed] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; phase: "visits" | "totals" } | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -349,9 +377,10 @@ function VisitHistoryImportTab() {
     if (!preview || !preview.valid.length) return;
     if (!window.confirm(`${preview.valid.length} visit records import karein? Patient ki lifetime revenue/visits automatically update hongi.`)) return;
     setBusy(true);
+    setProgress({ done: 0, total: preview.valid.length, phase: "visits" });
     const batchId = newImportBatchId();
     try {
-      const res = await commitVisitHistoryImport(preview.valid, batchId);
+      const res = await commitVisitHistoryImport(preview.valid, batchId, (done, total, phase) => setProgress({ done, total, phase }));
       await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
       toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
       if (res.totalsFailedFor.length > 0) {
@@ -364,7 +393,7 @@ function VisitHistoryImportTab() {
       csv.reset(); setPreview(null);
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(null); }
   };
 
   return (
@@ -385,9 +414,17 @@ function VisitHistoryImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} extraLabel="Unmatched" extraCount={preview.unmatched} samples={preview.unmatchedSamples} />
-          <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
-            <CheckCircle2 className="h-4 w-4" /> {busy ? "Importing…" : `Import ${preview.valid.length} visits`}
-          </button>
+          {progress ? (
+            <ProgressBar
+              done={progress.done}
+              total={progress.total}
+              label={progress.phase === "visits" ? "Importing visits/payments…" : "Updating patient totals…"}
+            />
+          ) : (
+            <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 className="h-4 w-4" /> Import {preview.valid.length} visits
+            </button>
+          )}
         </>
       )}
       {failedPatients.length > 0 && (

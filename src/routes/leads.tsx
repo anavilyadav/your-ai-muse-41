@@ -1,11 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, PhoneCall, UserPlus } from "lucide-react";
+import { MessageCircle, PhoneCall, UserPlus, Search, X } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { cn } from "@/lib/utils";
-import { fetchLeads, updateLeadStatus, maskMobile, type LeadStatus } from "@/lib/db";
+import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, maskMobile, type LeadStatus } from "@/lib/db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
@@ -51,6 +51,14 @@ function LeadsPage() {
   useEffect(() => setMounted(true), []);
   const navigate = useNavigate();
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const searchQ = useQuery({
+    queryKey: ["leads-search", searchTerm],
+    queryFn: () => searchLeads(searchTerm),
+    enabled: searchTerm.trim().length >= 2,
+  });
+  const isSearching = searchTerm.trim().length >= 2;
+
   const filtered = useMemo(() => {
     return leads.filter((l) => {
       const status = (l.status ?? "Cold") as LeadStatus;
@@ -64,20 +72,27 @@ function LeadsPage() {
     });
   }, [leads, filter]);
 
-  const stats = useMemo(() => ({
-    total: leads.length,
-    hot: leads.filter((l) => l.status === "HOT").length,
-    converted: leads.filter((l) => l.status === "Converted").length,
-  }), [leads]);
+  // Real counts from the server — not derived from the (capped, most-
+  // recent-500) `leads` list above, so these stay accurate no matter how
+  // large the leads table is (30k+ imported leads would otherwise show
+  // wildly wrong totals here, since the array itself is intentionally
+  // bounded for performance).
+  const statsQ = useQuery({ queryKey: ["lead-stats"], queryFn: fetchLeadStats });
+  const stats = statsQ.data ?? { total: 0, hot: 0, converted: 0, newToday: 0 };
 
   const doUpdate = async (id: string, s: LeadStatus) => {
     try {
       await updateLeadStatus(id, s);
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["leads-search"] });
+      qc.invalidateQueries({ queryKey: ["lead-stats"] });
     } catch (e: any) {
       toast.error("Status update nahi hua: " + (e?.message ?? "unknown error"));
     }
   };
+
+  const displayList = isSearching ? (searchQ.data ?? []) : filtered;
+  const displayLoading = isSearching ? searchQ.isLoading : isLoading;
 
   return (
     <MobileShell title="Lead CRM" subtitle="Enquiries • Convert to patients" showBack>
@@ -87,30 +102,52 @@ function LeadsPage() {
         <StatCard label="Converted" value={stats.converted} tone="success" />
       </div>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
-        {filters.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition",
-              filter === f
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-surface border-border text-foreground",
-            )}
-          >
-            {f}
+      <div className="relative mt-3">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Naam, mobile, ya source se search karo (poore 30k+ leads mein)"
+          className="w-full rounded-xl border border-border bg-surface pl-9 pr-9 py-2.5 text-sm"
+        />
+        {searchTerm && (
+          <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded-full bg-muted">
+            <X className="h-3 w-3" />
           </button>
-        ))}
+        )}
       </div>
 
-      {isLoading ? (
+      {!isSearching && (
+        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
+          {filters.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition",
+                filter === f
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-surface border-border text-foreground",
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      )}
+      {!isSearching && leads.length >= 500 && (
+        <div className="mt-2 text-[11px] text-muted-foreground text-center">
+          Sirf latest 500 leads yahan dikh rahe hain — purana lead dhoondne ke liye upar search karo.
+        </div>
+      )}
+
+      {displayLoading ? (
         <LoadingBlock />
-      ) : filtered.length === 0 ? (
-        <EmptyBlock label="Koi lead nahi mila." />
+      ) : displayList.length === 0 ? (
+        <EmptyBlock label={isSearching ? "Koi lead is naam/mobile se nahi mila." : "Koi lead nahi mila."} />
       ) : (
         <ul className="mt-3 space-y-2">
-          {filtered.map((l) => {
+          {displayList.map((l) => {
             const status = (l.status ?? "Cold") as LeadStatus;
             const created = l.created_at ?? l.enquired_at;
             const days = mounted ? daysSince(created) : 0;

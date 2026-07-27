@@ -395,6 +395,44 @@ export async function markFollowupDone(id: string) {
 
 // ---------- Leads ----------
 export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
+
+// Once leads volume is large (thousands+), the plain list (capped at 500,
+// most-recent-first) can't be how anyone finds an older lead — this is
+// the server-side search that makes that possible regardless of table size.
+export async function searchLeads(term: string) {
+  const t = term.trim().replace(/[,()%_\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return [];
+  const like = `%${t}%`;
+  const { data, error } = await supabase
+    .from("leads")
+    .select("*")
+    .or(`name.ilike.${like},mobile.ilike.${like},source.ilike.${like}`)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) return [];
+  return data ?? [];
+}
+
+// Real counts via COUNT queries — independent of fetchLeads()'s 500-row
+// display cap, so these numbers stay accurate no matter how large the
+// leads table gets (30k+ imported leads would otherwise make the
+// client-side-computed stats wildly wrong, since they'd only reflect
+// whichever 500 rows happened to load).
+export async function fetchLeadStats() {
+  const [total, hot, converted, newToday] = await Promise.all([
+    supabase.from("leads").select("id", { count: "exact", head: true }),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "HOT"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(today())),
+  ]);
+  return {
+    total: total.count ?? 0,
+    hot: hot.count ?? 0,
+    converted: converted.count ?? 0,
+    newToday: newToday.count ?? 0,
+  };
+}
+
 export async function fetchLeads() {
   const { data, error } = await supabase
     .from("leads")
@@ -1144,15 +1182,33 @@ export async function rollbackImportBatch(batchId: string) {
 // ----- Leads -----
 export interface ImportLeadRow { name: string; mobile: string; source?: string; note?: string }
 
+// Checks which of the given mobile numbers already exist in a table, in
+// chunks (avoids PostgREST's request-size limits with very long lists).
+// This scales correctly to any existing table size — a plain
+// .select("mobile") with no filter would get silently capped at ~1000
+// rows by Supabase's default, which meant duplicate-checking against a
+// patients/leads table bigger than that would miss everything beyond
+// row 1000. Critical once real volume (tens of thousands of leads/
+// patients) is being imported.
+async function findExistingMobiles(table: "patients" | "leads", mobiles: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  const CHUNK = 300;
+  const uniqueMobiles = Array.from(new Set(mobiles.filter((m) => m.length === 10)));
+  for (let i = 0; i < uniqueMobiles.length; i += CHUNK) {
+    const chunk = uniqueMobiles.slice(i, i + CHUNK);
+    const { data } = await supabase.from(table).select("mobile").in("mobile", chunk);
+    (data ?? []).forEach((r: any) => found.add(normalizeMobile(r.mobile)));
+  }
+  return found;
+}
+
 export async function previewLeadsImport(rows: ImportLeadRow[]) {
-  const [{ data: exLeads }, { data: exPatients }] = await Promise.all([
-    supabase.from("leads").select("mobile"),
-    supabase.from("patients").select("mobile"),
+  const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
+  const [existingLeads, existingPatients] = await Promise.all([
+    findExistingMobiles("leads", candidateMobiles),
+    findExistingMobiles("patients", candidateMobiles),
   ]);
-  const known = new Set([
-    ...(exLeads ?? []).map((r: any) => normalizeMobile(r.mobile)),
-    ...(exPatients ?? []).map((r: any) => normalizeMobile(r.mobile)),
-  ]);
+  const known = new Set([...existingLeads, ...existingPatients]);
   const seen = new Set<string>();
   const valid: ImportLeadRow[] = [];
   let duplicates = 0, invalid = 0;
@@ -1171,21 +1227,33 @@ export async function previewLeadsImport(rows: ImportLeadRow[]) {
   return { valid, duplicates, invalid, invalidSamples, total: rows.length };
 }
 
-export async function commitLeadsImport(rows: ImportLeadRow[], batchId: string) {
-  const BATCH = 200;
+export async function commitLeadsImport(
+  rows: ImportLeadRow[],
+  batchId: string,
+  onProgress?: (done: number, total: number) => void,
+) {
+  const BATCH = 500; // bumped for 30k+ scale imports — fewer round trips
   let imported = 0;
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const chunk = rows.slice(i, i + BATCH).map((r) => ({
-      name: r.name.trim(),
-      mobile: r.mobile,
-      source: r.source?.trim() || "Bulk Import",
-      status: "Cold",
-      note: r.note?.trim() || null,
-      imported_batch: batchId,
-    }));
-    const { error } = await supabase.from("leads").insert(chunk);
-    if (error) throw error;
-    imported += chunk.length;
+  try {
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH).map((r) => ({
+        name: r.name.trim(),
+        mobile: r.mobile,
+        source: r.source?.trim() || "Bulk Import",
+        status: "Cold",
+        note: r.note?.trim() || null,
+        imported_batch: batchId,
+      }));
+      const { error } = await supabase.from("leads").insert(chunk);
+      if (error) throw error;
+      imported += chunk.length;
+      onProgress?.(imported, rows.length);
+    }
+  } catch (e: any) {
+    // At scale (thousands of rows), a failure partway through has
+    // already committed everything before it — the error must say so,
+    // instead of implying the whole import did nothing.
+    throw new Error(`${imported} of ${rows.length} leads import ho chuke the jab error aaya: ${e?.message ?? e}`);
   }
   return imported;
 }
@@ -1197,8 +1265,8 @@ export interface ImportPatientRow {
 }
 
 export async function previewPatientsImport(rows: ImportPatientRow[], defaultBranch: string) {
-  const { data: existing } = await supabase.from("patients").select("mobile");
-  const known = new Set((existing ?? []).map((r: any) => normalizeMobile(r.mobile)));
+  const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
+  const known = await findExistingMobiles("patients", candidateMobiles);
   const seen = new Set<string>();
   const valid: (ImportPatientRow & { mobile: string; branch: string })[] = [];
   let duplicates = 0, invalid = 0;
@@ -1221,30 +1289,36 @@ export async function previewPatientsImport(rows: ImportPatientRow[], defaultBra
 export async function commitPatientsImport(
   rows: (ImportPatientRow & { mobile: string; branch: string })[],
   batchId: string,
+  onProgress?: (done: number, total: number) => void,
 ) {
   const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
   let seq = 1000 + (count ?? 0) + 1;
-  const BATCH = 200;
+  const BATCH = 500; // bumped for 30k+ scale imports — fewer round trips
   let imported = 0;
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const chunk = rows.slice(i, i + BATCH).map((r) => ({
-      patient_code: `YHC-${seq++}`,
-      name: r.name.trim(),
-      mobile: r.mobile,
-      age: r.age ? Number(r.age) || null : null,
-      gender: r.gender?.trim() || null,
-      city: r.city?.trim() || null,
-      primary_disease: r.primary_disease?.trim() || null,
-      wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
-      branch: r.branch,
-      lifetime_visits: 0,
-      lifetime_revenue: 0,
-      current_balance: 0,
-      imported_batch: batchId,
-    }));
-    const { error } = await supabase.from("patients").insert(chunk);
-    if (error) throw error;
-    imported += chunk.length;
+  try {
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH).map((r) => ({
+        patient_code: `YHC-${seq++}`,
+        name: r.name.trim(),
+        mobile: r.mobile,
+        age: r.age ? Number(r.age) || null : null,
+        gender: r.gender?.trim() || null,
+        city: r.city?.trim() || null,
+        primary_disease: r.primary_disease?.trim() || null,
+        wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
+        branch: r.branch,
+        lifetime_visits: 0,
+        lifetime_revenue: 0,
+        current_balance: 0,
+        imported_batch: batchId,
+      }));
+      const { error } = await supabase.from("patients").insert(chunk);
+      if (error) throw error;
+      imported += chunk.length;
+      onProgress?.(imported, rows.length);
+    }
+  } catch (e: any) {
+    throw new Error(`${imported} of ${rows.length} patients import ho chuke the jab error aaya: ${e?.message ?? e}`);
   }
   return imported;
 }
@@ -1256,8 +1330,14 @@ export interface ImportVisitRow {
 }
 
 export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
-  const { data: patients } = await supabase.from("patients").select("id,mobile,branch");
-  const byMobile = new Map((patients ?? []).map((p: any) => [normalizeMobile(p.mobile), p]));
+  const candidateMobiles = Array.from(new Set(rows.map((r) => normalizeMobile(r.mobile)).filter((m) => m.length === 10)));
+  const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
+  const CHUNK = 300;
+  for (let i = 0; i < candidateMobiles.length; i += CHUNK) {
+    const chunk = candidateMobiles.slice(i, i + CHUNK);
+    const { data } = await supabase.from("patients").select("id,mobile,branch").in("mobile", chunk);
+    (data ?? []).forEach((p: any) => byMobile.set(normalizeMobile(p.mobile), p));
+  }
   let unmatched = 0;
   const unmatchedSamples: string[] = [];
   const valid: (ImportVisitRow & { patient_id: string; branch: string })[] = [];
@@ -1288,8 +1368,9 @@ export function normalizePaymentMode(m?: string | null): string {
 export async function commitVisitHistoryImport(
   rows: (ImportVisitRow & { patient_id: string; branch: string })[],
   batchId: string,
+  onProgress?: (done: number, total: number, phase: "visits" | "totals") => void,
 ) {
-  const BATCH = 150;
+  const BATCH = 300; // bumped for large-scale imports — fewer round trips
   let visitsImported = 0, paymentsImported = 0;
   const touched = new Set<string>();
 
@@ -1305,8 +1386,9 @@ export async function commitVisitHistoryImport(
       imported_batch: batchId,
     }));
     const { data: inserted, error } = await supabase.from("visits").insert(visitInserts).select("id,patient_id");
-    if (error) throw error;
+    if (error) throw new Error(`${visitsImported} of ${rows.length} visits import ho chuke the jab error aaya: ${error.message}`);
     visitsImported += inserted?.length ?? 0;
+    onProgress?.(visitsImported, rows.length, "visits");
 
     const paymentInserts: any[] = [];
     (inserted ?? []).forEach((v: any, idx: number) => {
@@ -1330,7 +1412,7 @@ export async function commitVisitHistoryImport(
     });
     if (paymentInserts.length) {
       const { error: pe } = await supabase.from("payments").insert(paymentInserts);
-      if (pe) throw pe;
+      if (pe) throw new Error(`${visitsImported} visits already imported, but a payments batch failed: ${pe.message}`);
       paymentsImported += paymentInserts.length;
     }
   }
@@ -1340,6 +1422,7 @@ export async function commitVisitHistoryImport(
   const ids = Array.from(touched);
   const CONCURRENCY = 8;
   const totalsFailedFor: string[] = [];
+  let totalsDone = 0;
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     await Promise.all(
       ids.slice(i, i + CONCURRENCY).map(async (patientId) => {
@@ -1364,6 +1447,8 @@ export async function commitVisitHistoryImport(
         // But don't silently claim success either; surface which patients
         // need a manual re-check.
         if (updErr) totalsFailedFor.push(patientId);
+        totalsDone++;
+        onProgress?.(totalsDone, ids.length, "totals");
       }),
     );
   }
