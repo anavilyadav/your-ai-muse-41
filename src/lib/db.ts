@@ -79,6 +79,52 @@ export async function createPatientWithVisit(input: {
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
 }) {
+  // Both inserts (patient + visit) happen inside one Postgres function
+  // call, which runs as a single transaction — if either insert fails,
+  // Postgres rolls back everything automatically. No phantom-patient
+  // window can occur, even momentarily, unlike doing the two inserts
+  // separately from the client.
+  const { data, error } = await supabase.rpc("register_patient_with_visit", {
+    p_name: input.name,
+    p_mobile: input.mobile,
+    p_age: input.age ?? null,
+    p_gender: input.gender ?? null,
+    p_blood_group: input.blood_group ?? null,
+    p_city: input.city ?? null,
+    p_pincode: input.pincode ?? null,
+    p_primary_disease: input.primary_disease ?? null,
+    p_wa_consent: input.wa_consent,
+    p_branch: input.branch,
+    p_chief_complaint: input.chief_complaint ?? null,
+    p_visit_date: today(),
+  });
+  if (!error && data) {
+    return { patient: data.patient as DBPatient, visit: data.visit as DBVisit };
+  }
+  // Fall back to the old two-step approach if the RPC isn't deployed yet
+  // (SQL migration not run) — registration must never hard-fail just
+  // because a database migration is pending. Postgres error 42883 =
+  // "function does not exist"; PostgREST surfaces this distinctly, so we
+  // only silently fall back for that specific case and still throw for
+  // any other (real) RPC error.
+  const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
+  if (!isMissingFunction) throw error ?? new Error("Registration fail hui");
+  return createPatientWithVisitLegacy(input);
+}
+
+async function createPatientWithVisitLegacy(input: {
+  name: string;
+  mobile: string;
+  age?: number;
+  gender?: string;
+  blood_group?: string;
+  city?: string;
+  pincode?: string;
+  primary_disease?: string;
+  wa_consent: boolean;
+  branch: "BAJAJ_NAGAR" | "JAGATPURA";
+  chief_complaint?: string;
+}) {
   const code = await nextPatientCode();
   const token = await nextTokenForToday(input.branch);
   const { data: p, error: pe } = await supabase
@@ -115,11 +161,8 @@ export async function createPatientWithVisit(input: {
     .select("*")
     .maybeSingle();
   if (ve || !v) {
-    // Patient row was created but has no visit — it would silently occupy
-    // this mobile number and block re-registration (isDuplicateMobile
-    // would see it as "already registered") while never showing up
-    // anywhere, since every queue/list requires a visit. Best-effort
-    // cleanup so the reception can just retry immediately.
+    // Best-effort cleanup — this is the fallback path used only when the
+    // atomic RPC isn't available yet.
     await supabase.from("patients").delete().eq("id", p.id);
     throw ve ?? new Error("Failed to create visit");
   }
