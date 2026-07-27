@@ -196,7 +196,7 @@ export async function isDuplicateMobile(mobile: string): Promise<boolean> {
 // query and the queue itself would grow without bound over the life of
 // the clinic. 30 days comfortably covers the real scenario this fix was
 // built for (a case taken today, doctor visit days later).
-function thirtyDaysAgo(): string {
+export function thirtyDaysAgo(): string {
   const d = new Date();
   d.setDate(d.getDate() - 30);
   return d.toISOString().slice(0, 10);
@@ -335,7 +335,7 @@ export async function collectPayment(input: {
 
 // ---------- Prescriptions ----------
 export async function fetchInventorySearch(term: string) {
-  const clean = term.replace(/[%_\\]/g, " ").trim();
+  const clean = sanitizeIlikeTerm(term);
   const q = supabase.from("inventory").select("*").limit(20);
   const { data, error } = clean
     ? await q.ilike("medicine_name", `%${clean}%`)
@@ -443,7 +443,7 @@ export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
 // most-recent-first) can't be how anyone finds an older lead — this is
 // the server-side search that makes that possible regardless of table size.
 export async function searchLeads(term: string) {
-  const t = term.trim().replace(/[,()%_\\]/g, " ").replace(/\s+/g, " ").trim();
+  const t = sanitizeOrFilterTerm(term);
   if (!t) return [];
   const like = `%${t}%`;
   const { data, error } = await supabase
@@ -583,7 +583,7 @@ export async function markDispensed(visitId: string) {
 // case paper or lab report photo reads like a flat scan instead of a dim,
 // shadowy phone photo — this is deliberately NOT applied to tongue photos,
 // where true color is clinically meaningful (coating/color assessment).
-function looksLikeHeic(file: File): boolean {
+export function looksLikeHeic(file: File): boolean {
   const type = file.type.toLowerCase();
   const name = file.name.toLowerCase();
   return type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
@@ -1190,6 +1190,20 @@ export function normalizeMobile(raw: string | number | null | undefined): string
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+// Comma/parens break PostgREST's .or() filter syntax outright. % and _
+// are ILIKE wildcards — a literal one in the search box (e.g. "50%" or
+// "type_A") would silently widen the match instead of erroring, giving
+// confusingly broad results rather than the expected ones.
+export function sanitizeOrFilterTerm(term: string): string {
+  return term.trim().replace(/[,()%_\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Lighter version for a single .ilike() call (no .or(), so comma/parens
+// aren't structurally dangerous there — only the wildcard chars are).
+export function sanitizeIlikeTerm(term: string): string {
+  return term.replace(/[%_\\]/g, " ").trim();
+}
+
 export function newImportBatchId(): string {
   return `IMPORT_${Date.now()}`;
 }
@@ -1505,7 +1519,7 @@ export async function searchPatients(term: string) {
   // are ILIKE wildcards — a literal one in the search box (e.g. "50%" or
   // "type_A") would silently widen the match instead of erroring, giving
   // confusingly broad results rather than the expected ones.
-  const t = term.trim().replace(/[,()%_\\]/g, " ").replace(/\s+/g, " ").trim();
+  const t = sanitizeOrFilterTerm(term);
   if (!t) return [];
   const like = `%${t}%`;
   const { data, error } = await supabase
