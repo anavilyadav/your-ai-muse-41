@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -104,6 +104,11 @@ function OwnerDashboard() {
               <Users className="h-5 w-5 text-primary" />
               <div className="font-bold text-primary text-sm mt-1">Staff ({staffCount})</div>
               <div className="text-[11px] text-muted-foreground">{activeStaff} active</div>
+            </Link>
+            <Link to="/owner/followup-rules" className="rounded-2xl bg-surface border border-border p-3.5">
+              <CalendarClock className="h-5 w-5 text-accent-foreground" />
+              <div className="font-bold text-primary text-sm mt-1">Follow-up Rules</div>
+              <div className="text-[11px] text-muted-foreground">Reminder sequences</div>
             </Link>
           </div>
         </>

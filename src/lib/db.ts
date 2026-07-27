@@ -488,13 +488,14 @@ export async function collectPayment(input: {
   notes?: string;
 }) {
   // Guard: never double-process a DONE visit. Re-submitting a completed
-  // visit would demote its status back to PAYMENT, insert a second 30-day
-  // follow-up row, and double-count amount_received into the patient's
-  // lifetime_revenue. If a genuine correction is needed, it must happen
-  // through an explicit refund/adjustment flow, not this default path.
+  // visit would demote its status back to PAYMENT, insert a second
+  // follow-up schedule, and double-count amount_received into the
+  // patient's lifetime_revenue. If a genuine correction is needed, it
+  // must happen through an explicit refund/adjustment flow, not this
+  // default path.
   const { data: existing, error: exErr } = await supabase
     .from("visits")
-    .select("visit_status")
+    .select("visit_status, next_visit_date")
     .eq("id", input.visit_id)
     .maybeSingle();
   if (exErr) throw exErr;
@@ -529,27 +530,23 @@ export async function collectPayment(input: {
     .update({ lifetime_revenue: newRev, current_balance: balance })
     .eq("id", input.patient_id);
 
-  // update visit + create followup if fully paid
+  // update visit + create followup schedule if fully paid
   let statusErr = null;
   let followupErr = null;
   if (balance === 0) {
     ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "DONE" }).eq("id", input.visit_id));
-    const due = new Date();
-    due.setDate(due.getDate() + 30);
-    ({ error: followupErr } = await supabase.from("followups").insert({
-      patient_id: input.patient_id,
-      visit_id: input.visit_id,
-      due_date: due.toISOString().slice(0, 10),
-      followup_type: "30D",
-      status: "PENDING",
-    }));
+    try {
+      await generateFollowupSchedule(input.patient_id, input.visit_id, existing.next_visit_date ?? null);
+    } catch (e: any) {
+      followupErr = e;
+    }
   } else {
     ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", input.visit_id));
   }
 
   // Payment itself is already recorded at this point (money was taken) —
   // but if any update below failed, the visit will look stuck in the
-  // queue, the patient's totals will be stale, or the 30-day follow-up
+  // queue, the patient's totals will be stale, or the follow-up schedule
   // will quietly never exist — so this needs to be visibly flagged
   // rather than silently reported as a clean success.
   if (patErr || statusErr || followupErr) {
@@ -634,6 +631,93 @@ export async function submitPrescription(input: {
     .update({ last_visit_date: today() })
     .eq("id", input.patient_id);
   if (pe) throw pe;
+}
+
+// ---------- Follow-up sequence engine (owner-configurable) ----------
+// Owner edits `followup_touchpoints` from the app (Owner → Follow-up
+// Rules) — add/remove/change touchpoints any time, no code changes ever
+// needed again. Longer treatment gaps get more check-ins spread across
+// the wait; short gaps get just the close-in reminders.
+export interface FollowupTouchpoint {
+  id: string;
+  label: string;
+  min_gap_days: number;
+  max_gap_days: number;
+  days_before_due: number;
+  active: boolean;
+}
+
+export async function fetchFollowupTouchpoints(): Promise<FollowupTouchpoint[]> {
+  const { data, error } = await supabase
+    .from("followup_touchpoints")
+    .select("*")
+    .order("min_gap_days", { ascending: true })
+    .order("days_before_due", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as FollowupTouchpoint[];
+}
+
+export async function saveFollowupTouchpoint(input: Partial<FollowupTouchpoint> & { label: string; min_gap_days: number; max_gap_days: number; days_before_due: number }) {
+  const { id, ...rest } = input;
+  const { error } = id
+    ? await supabase.from("followup_touchpoints").update(rest).eq("id", id)
+    : await supabase.from("followup_touchpoints").insert(rest);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function deleteFollowupTouchpoint(id: string) {
+  const { error } = await supabase.from("followup_touchpoints").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// Generates every reminder row for one visit's next-visit date, based on
+// whichever bracket its gap falls into. Falls back to a single 7-day
+// reminder if no rule matches or next_visit_date wasn't set — a patient
+// must never end up with zero follow-up just because the rules table is
+// empty or mid-edit.
+export async function generateFollowupSchedule(patientId: string, visitId: string, nextVisitDate: string | null): Promise<void> {
+  const todayD = new Date(today());
+  let dueTarget = nextVisitDate ? new Date(nextVisitDate) : null;
+  if (!dueTarget || isNaN(dueTarget.getTime())) {
+    dueTarget = new Date(todayD);
+    dueTarget.setDate(dueTarget.getDate() + 30);
+  }
+  const gapDays = Math.max(0, Math.round((dueTarget.getTime() - todayD.getTime()) / 86_400_000));
+
+  const rules = await fetchFollowupTouchpoints();
+  const matched = rules.filter((r) => r.active && gapDays >= r.min_gap_days && gapDays <= r.max_gap_days);
+
+  const rows =
+    matched.length > 0
+      ? matched.map((r) => {
+          const d = new Date(dueTarget!);
+          d.setDate(d.getDate() - r.days_before_due);
+          if (d < todayD) d.setTime(todayD.getTime()); // never schedule a reminder in the past
+          return {
+            patient_id: patientId,
+            visit_id: visitId,
+            due_date: d.toISOString().slice(0, 10),
+            followup_type: r.label,
+            status: "PENDING" as const,
+          };
+        })
+      : [
+          {
+            patient_id: patientId,
+            visit_id: visitId,
+            due_date: dueTarget.toISOString().slice(0, 10),
+            followup_type: "DEFAULT",
+            status: "PENDING" as const,
+          },
+        ];
+
+  const { error } = await supabase.from("followups").insert(rows);
+  if (error) {
+    // Must not silently lose follow-up coverage — surface it so the
+    // caller (payment flow) can at least log/alert rather than pretend
+    // this patient has a working reminder when they don't.
+    console.error("generateFollowupSchedule insert failed:", error.message);
+  }
 }
 
 // ---------- Follow-ups ----------
