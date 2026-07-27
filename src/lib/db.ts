@@ -292,9 +292,10 @@ export async function collectPayment(input: {
 
 // ---------- Prescriptions ----------
 export async function fetchInventorySearch(term: string) {
+  const clean = term.replace(/[%_\\]/g, " ").trim();
   const q = supabase.from("inventory").select("*").limit(20);
-  const { data, error } = term
-    ? await q.ilike("medicine_name", `%${term}%`)
+  const { data, error } = clean
+    ? await q.ilike("medicine_name", `%${clean}%`)
     : await q;
   if (error) return [];
   return data ?? [];
@@ -414,7 +415,7 @@ export async function fetchInventory() {
     .from("inventory")
     .select("*")
     .order("medicine_name", { ascending: true })
-    .limit(500);
+    .limit(2000);
   if (error) return [];
   return data ?? [];
 }
@@ -615,9 +616,9 @@ export async function fetchOwnerStats() {
     await Promise.all([
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
-      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", t),
-      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", monthStart),
-      supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", t),
+      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", istDayStart(t)),
+      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", istDayStart(monthStart)),
+      supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
       supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", t),
     ]);
   const sum = (rows: any[] | null, filt?: (r: any) => boolean) =>
@@ -639,6 +640,27 @@ export async function fetchOwnerStats() {
   };
 }
 
+// IST is UTC+5:30. Comparing a timestamptz column (created_at) against a
+// plain "YYYY-MM-DD" string makes Postgres treat it as UTC midnight —
+// about 5.5 hours off from actual IST midnight. In practice this only
+// bites during roughly 12:00am-5:30am IST (a payment/registration then
+// would land in "yesterday" instead of "today" in day/week/month
+// totals) — outside clinic hours, but real if anyone logs something late
+// or a clock is off. These explicit-offset literals make Postgres compare
+// correctly regardless of the exact time of day.
+function istDayStart(dateStr: string): string {
+  return `${dateStr}T00:00:00+05:30`;
+}
+function istDayEnd(dateStr: string): string {
+  return `${dateStr}T23:59:59.999+05:30`;
+}
+// For client-side re-bucketing of already-fetched rows by IST calendar
+// day (used where we can't push the boundary into the SQL query itself).
+function istDateOf(isoTimestamp: string | null | undefined): string {
+  if (!isoTimestamp) return "";
+  return new Date(new Date(isoTimestamp).getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 export async function fetchWeekRevenue() {
   const days: { d: string; label: string }[] = [];
   const now = new Date();
@@ -652,10 +674,10 @@ export async function fetchWeekRevenue() {
   const { data } = await supabase
     .from("payments")
     .select("amount_received,created_at")
-    .gte("created_at", start);
+    .gte("created_at", istDayStart(start));
   return days.map((day) => {
     const total = (data ?? [])
-      .filter((r: any) => (r.created_at ?? "").slice(0, 10) === day.d)
+      .filter((r: any) => istDateOf(r.created_at) === day.d)
       .reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
     return [day.label, total] as [string, number];
   });
@@ -678,20 +700,20 @@ export async function fetchReports(period: "week" | "month" | "lastMonth" | "yea
   } else {
     start = now.getFullYear() + "-01-01";
   }
-  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", start);
+  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
-  let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", start);
-  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted").gte("created_at", start);
+  let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
+  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted").gte("created_at", istDayStart(start));
   if (branch) {
     payQ = payQ.eq("branch", branch);
     visQ = visQ.eq("branch", branch);
     patQ = patQ.eq("branch", branch);
   }
   if (end) {
-    payQ = payQ.lte("created_at", end + "T23:59:59");
+    payQ = payQ.lte("created_at", istDayEnd(end));
     visQ = visQ.lte("visit_date", end);
-    patQ = patQ.lte("created_at", end + "T23:59:59");
-    leadQ = leadQ.lte("created_at", end + "T23:59:59");
+    patQ = patQ.lte("created_at", istDayEnd(end));
+    leadQ = leadQ.lte("created_at", istDayEnd(end));
   }
   const [pay, vis, pat, lead] = await Promise.all([payQ, visQ, patQ, leadQ]);
   const rows = pay.data ?? [];
@@ -1334,11 +1356,11 @@ export async function commitVisitHistoryImport(
 
 
 export async function searchPatients(term: string) {
-  // Comma and parentheses are structural characters in PostgREST's .or()
-  // filter syntax — a name typed with either (e.g. "Sharma, Suresh")
-  // previously broke the filter silently, returning zero results with no
-  // error, which just looked like "no matches found".
-  const t = term.trim().replace(/[,()]/g, " ").replace(/\s+/g, " ").trim();
+  // Comma/parens break PostgREST's .or() filter syntax outright. % and _
+  // are ILIKE wildcards — a literal one in the search box (e.g. "50%" or
+  // "type_A") would silently widen the match instead of erroring, giving
+  // confusingly broad results rather than the expected ones.
+  const t = term.trim().replace(/[,()%_\\]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return [];
   const like = `%${t}%`;
   const { data, error } = await supabase
@@ -1480,7 +1502,7 @@ export async function fetchDaySummary(branch?: string) {
   let payQ = supabase
     .from("payments")
     .select("visit_id,amount_received,amount_charged,balance_due,branch,payment_mode")
-    .gte("created_at", t);
+    .gte("created_at", istDayStart(t));
   if (branch) {
     visQ = visQ.eq("branch", branch);
     payQ = payQ.eq("branch", branch);
