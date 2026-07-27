@@ -194,9 +194,64 @@ function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
 // The 14 clinic-ops / feature-module / privacy / payment toggles that used
 // to live here were removed: they wrote to `settings` but no code path
 // anywhere in the app ever read those keys, so flipping them did nothing.
-// Rather than shipping placebo switches, the sections are gone entirely.
-// Real gates that DO work stay above: Reception Permissions (read by
-// AuthGate/useAuth) and Backup Doctor Access (read by useEffectiveRole).
+// On checking, most of them actually correspond to real features that DO
+// exist and work — they just live on their own dedicated screen rather
+// than being gated by a Control Centre switch (Lead CRM, Follow-up CRM,
+// WhatsApp, Delivery/Courier, Hidden Identity, Case-DR Junior/Senior
+// access, Partial payment, Advance payment). "Other Modules" below links
+// to those directly. Only 3 of the original 14 are genuinely not built
+// yet (Online Booking, Home Visits, Marketing/GIOS) — those are listed
+// under "Planned", clearly separate from working links, no toggle switch.
+
+function OtherModules() {
+  const links: { label: string; to: string; note: string }[] = [
+    { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
+    { label: "Follow-up CRM", to: "/follow-up", note: "Overdue + upcoming follow-up calls" },
+    { label: "Deliveries (Courier)", to: "/delivery", note: "Advance-paid medicine delivery tracking" },
+  ];
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Other Modules — already built
+      </div>
+      <div className="rounded-2xl bg-surface border border-border overflow-hidden divide-y divide-border">
+        {links.map((l) => (
+          <Link key={l.to} to={l.to} className="flex items-center justify-between px-3.5 py-3">
+            <div>
+              <div className="text-[13px] font-semibold text-primary">{l.label}</div>
+              <div className="text-[11px] text-muted-foreground">{l.note}</div>
+            </div>
+            <span className="text-muted-foreground text-lg">›</span>
+          </Link>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        WhatsApp (auto reminders), Hidden Identity (Case-DR contact-info hiding), Partial/Advance
+        payment, and Case-DR Junior/Senior access are also live — built into their own screens,
+        not separate toggles. Case-DR levels: Owner → Staff.
+      </p>
+    </div>
+  );
+}
+
+function PlannedModules() {
+  const items = ["Online Booking (patient self-service)", "Home Visits", "Marketing Module (GIOS — website/social/GMB)"];
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Planned — not built yet
+      </div>
+      <div className="rounded-2xl bg-muted/50 border border-dashed border-border p-3.5 space-y-2">
+        {items.map((i) => (
+          <div key={i} className="text-[13px] text-muted-foreground flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+            {i}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 
 function ControlPage() {
@@ -254,6 +309,8 @@ function ControlPage() {
               <span className={cn("h-3 w-3 rounded-full shrink-0", backupIsOn ? "bg-success" : "bg-border")} />
             </button>
           </div>
+          <OtherModules />
+          <PlannedModules />
         </div>
       )}
     </RoleShell>
