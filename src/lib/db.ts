@@ -552,9 +552,10 @@ export async function collectPayment(input: {
 }
 
 // ---------- Prescriptions ----------
-export async function fetchInventorySearch(term: string) {
+export async function fetchInventorySearch(term: string, branch?: string) {
   const clean = sanitizeIlikeTerm(term);
-  const q = supabase.from("inventory").select("*").limit(20);
+  let q = supabase.from("inventory").select("*").limit(20);
+  if (branch) q = q.eq("branch", branch);
   const { data, error } = clean
     ? await q.ilike("medicine_name", `%${clean}%`)
     : await q;

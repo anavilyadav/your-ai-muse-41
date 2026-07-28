@@ -225,6 +225,7 @@ function RxWrite() {
               <RxRowEditor
                 key={i}
                 row={r}
+                branch={visit.branch}
                 onChange={(p) => updateRow(i, p)}
                 onDelete={rows.length > 1 ? () => setRows((rs) => rs.filter((_, idx) => idx !== i)) : undefined}
               />
@@ -294,18 +295,20 @@ function RxWrite() {
 
 function RxRowEditor({
   row,
+  branch,
   onChange,
   onDelete,
 }: {
   row: EditableRow;
+  branch: string;
   onChange: (p: Partial<EditableRow>) => void;
   onDelete?: () => void;
 }) {
   const [term, setTerm] = useState(row.medicine_name);
   const [open, setOpen] = useState(false);
   const { data: inv } = useQuery({
-    queryKey: ["inv-search", term],
-    queryFn: () => fetchInventorySearch(term),
+    queryKey: ["inv-search", term, branch],
+    queryFn: () => fetchInventorySearch(term, branch),
     enabled: open && term.length > 0,
   });
 
