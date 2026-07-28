@@ -21,7 +21,7 @@ function DispensePage() {
   const { token: visitId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: visit, isLoading: lv } = useQuery({ queryKey: ["visit", visitId], queryFn: () => fetchVisit(visitId) });
+  const { data: visit, isLoading: lv, isError: ev, error: errV, refetch: refetchV } = useQuery({ queryKey: ["visit", visitId], queryFn: () => fetchVisit(visitId) });
   const { data: rxData, isLoading: lr } = useQuery({ queryKey: ["rx", visitId], queryFn: () => fetchVisitPrescriptions(visitId) });
   const rx = rxData ?? [];
   const [checked, setChecked] = useState<number[]>([]);
@@ -29,6 +29,22 @@ function DispensePage() {
 
   if (lv || lr) {
     return <RoleShell title="Dispense" showBack><LoadingBlock /></RoleShell>;
+  }
+  // Was showing "Patient not found" for both a genuine not-found AND a
+  // network/server error — the second one told pharmacy staff to give
+  // up on a real visit that just had a fetch hiccup, instead of retrying.
+  if (ev) {
+    return (
+      <RoleShell title="Dispense" showBack>
+        <p className="text-sm text-muted-foreground">
+          Visit load nahi hua — connection check karo.
+          <span className="block text-[11px] mt-1 opacity-70">{(errV as any)?.message ?? ""}</span>
+        </p>
+        <button onClick={() => refetchV()} className="mt-3 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-semibold">
+          Dobara try karo
+        </button>
+      </RoleShell>
+    );
   }
   if (!visit) {
     return (

@@ -27,7 +27,7 @@ function PayPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: visit, isLoading } = useQuery({
+  const { data: visit, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["visit", id],
     queryFn: () => fetchVisit(id),
   });
@@ -38,6 +38,22 @@ function PayPage() {
   const [busy, setBusy] = useState(false);
 
   if (isLoading) return <MobileShell title="Collect Payment" showBack><LoadingBlock /></MobileShell>;
+  // Was a single "Visit nahi mila" for both a genuine not-found AND a
+  // network/server error — the second one told staff to give up on a
+  // real visit that just had a fetch hiccup, instead of retrying.
+  if (isError) {
+    return (
+      <MobileShell title="Collect Payment" showBack>
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          Visit load nahi hua — connection check karo.
+          <div className="text-[11px] mt-1 opacity-70">{(error as any)?.message ?? ""}</div>
+          <button onClick={() => refetch()} className="mt-3 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-semibold">
+            Dobara try karo
+          </button>
+        </div>
+      </MobileShell>
+    );
+  }
   if (!visit) return <MobileShell title="Collect Payment" showBack><div className="py-10 text-center text-sm text-muted-foreground">Visit nahi mila.</div></MobileShell>;
 
   const balance = Math.max(0, charged - received);

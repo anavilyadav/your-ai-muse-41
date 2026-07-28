@@ -97,7 +97,7 @@ function CaseFormPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const { data: visit, isLoading } = useQuery({
+  const { data: visit, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["visit", visitId],
     queryFn: () => fetchVisitForCaseDR(visitId),
   });
@@ -245,6 +245,22 @@ function CaseFormPage() {
 
   if (isLoading) {
     return <DoctorShell title="Case Taking" showBack><LoadingBlock /></DoctorShell>;
+  }
+  // Was showing "Case not found" for both a genuine not-found AND a
+  // network/server error — the second one told the doctor to give up on
+  // a real case that just had a fetch hiccup, instead of retrying.
+  if (isError) {
+    return (
+      <DoctorShell title="Case Taking" showBack>
+        <p className="text-sm text-muted-foreground">
+          Case load nahi hua — connection check karo.
+          <span className="block text-[11px] mt-1 opacity-70">{(error as any)?.message ?? ""}</span>
+        </p>
+        <button onClick={() => refetch()} className="mt-3 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-semibold">
+          Dobara try karo
+        </button>
+      </DoctorShell>
+    );
   }
   if (!visit) {
     return (
