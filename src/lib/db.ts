@@ -793,12 +793,29 @@ export async function generateFollowupSchedule(patientId: string, visitId: strin
           },
         ];
 
+  // Idempotent by design: clear any PENDING followups already tied to
+  // this exact visit before inserting the freshly computed set. Belt-
+  // and-suspenders against a future caller invoking this twice for the
+  // same visit (the current, only caller — collectPayment via the
+  // atomic RPC's DONE-guard — already can't retry into this after a
+  // partial failure, but this makes the function safe regardless of
+  // who calls it or how).
+  const { error: delErr } = await supabase
+    .from("followups")
+    .delete()
+    .eq("visit_id", visitId)
+    .eq("status", "PENDING");
+  if (delErr) console.error("generateFollowupSchedule: clearing old pending rows failed:", delErr.message);
+
   const { error } = await supabase.from("followups").insert(rows);
   if (error) {
-    // Must not silently lose follow-up coverage — surface it so the
-    // caller (payment flow) can at least log/alert rather than pretend
-    // this patient has a working reminder when they don't.
+    // Must not silently lose follow-up coverage — this used to only
+    // console.error and swallow, which meant collectPayment's catch
+    // around this call could never actually fire for the most likely
+    // failure (the insert itself). Now it throws, so the caller's
+    // "payment saved, but follow-up schedule didn't" message is real.
     console.error("generateFollowupSchedule insert failed:", error.message);
+    throw error;
   }
 }
 
