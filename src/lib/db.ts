@@ -571,6 +571,21 @@ export async function submitPrescription(input: {
   next_visit_date: string | null;
 }) {
   if (input.rows.length === 0) throw new Error("Add at least one medicine");
+
+  // Guard: a stale doctor tab re-submitting Rx after the visit has already
+  // moved to Payment/Done must not drag it back to PHARMACY — that would
+  // re-open a visit the pharmacy or reception already closed out.
+  const { data: existing, error: exErr } = await supabase
+    .from("visits")
+    .select("visit_status")
+    .eq("id", input.visit_id)
+    .maybeSingle();
+  if (exErr) throw exErr;
+  if (!existing) throw new Error("Visit not found");
+  if (existing.visit_status === "PAYMENT" || existing.visit_status === "DONE") {
+    throw new Error("Yeh visit already Pharmacy se aage badh chuki hai — prescription dobara submit nahi kar sakte is stage se.");
+  }
+
   const { error: re } = await supabase.from("prescriptions").insert(
     input.rows.map((r) => ({
       visit_id: input.visit_id,
@@ -968,6 +983,20 @@ export async function fetchVisitPrescriptions(visitId: string) {
 }
 
 export async function markDispensed(visitId: string) {
+  // Guard: dispensing must only fire from PHARMACY. Without this, a stale
+  // Pharmacy tab (e.g. two staff on the same visit, or a re-click after
+  // the visit was already paid/closed) would silently push a DONE visit
+  // backward into PAYMENT.
+  const { data: existing, error: exErr } = await supabase
+    .from("visits")
+    .select("visit_status")
+    .eq("id", visitId)
+    .maybeSingle();
+  if (exErr) throw exErr;
+  if (!existing) throw new Error("Visit not found");
+  if (existing.visit_status !== "PHARMACY") {
+    throw new Error("Yeh visit abhi Pharmacy stage mein nahi hai — dispense nahi kar sakte.");
+  }
   const { error } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
   if (error) throw error;
 }
@@ -1143,7 +1172,25 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
     if (input.reports_photo_url !== undefined) payload.reports_photo_url = input.reports_photo_url;
   }
   const isDraft = typeof input !== "string" && input.draft;
-  if (!isDraft) payload.visit_status = "WAITING_DOCTOR";
+  if (!isDraft) {
+    // Guard: a stale case-taking tab submitting after the visit has
+    // already reached Pharmacy/Payment/Done must not drag it back to
+    // WAITING_DOCTOR — that would re-open a visit the doctor, pharmacy,
+    // or reception already moved past. Notes/photos still save either
+    // way (harmless), only the status regression is blocked.
+    const { data: existing, error: exErr } = await supabase
+      .from("visits")
+      .select("visit_status")
+      .eq("id", visitId)
+      .maybeSingle();
+    if (exErr) throw exErr;
+    if (existing && !["PHARMACY", "PAYMENT", "DONE"].includes(existing.visit_status)) {
+      payload.visit_status = "WAITING_DOCTOR";
+    } else if (!existing) {
+      throw new Error("Visit not found");
+    }
+    // else: visit already past this stage — notes save, status untouched.
+  }
   const { error } = await supabase.from("visits").update(payload).eq("id", visitId);
   if (error) throw error; // caller (submit/saveDraft) shows this — was silently "succeeding" before
 }
