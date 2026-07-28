@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchOwnerStats, fetchStaff, fetchIncentiveSplits, saveIncentiveSplits } from "@/lib/db";
+import { fetchOwnerStats, fetchStaff, fetchIncentiveSplits, saveIncentiveSplits, fetchIncentiveConfig, saveIncentiveConfig, type IncentiveConfig } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/incentives")({
@@ -73,7 +73,14 @@ function SplitModal({
                 min={0}
                 max={100}
                 value={values[s.id] ?? 0}
-                onChange={(e) => setValues((v) => ({ ...v, [s.id]: Number(e.target.value) }))}
+                onChange={(e) => {
+                  // HTML min/max on a number input only affect the spinner
+                  // arrows, not typed/pasted values — this was accepting
+                  // -50 or 9999 as a real percentage. Clamp explicitly.
+                  const raw = Number(e.target.value) || 0;
+                  const clamped = Math.max(0, Math.min(100, raw));
+                  setValues((v) => ({ ...v, [s.id]: clamped }));
+                }}
                 className="w-20 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-right font-bold"
               />
               <span className="text-sm text-muted-foreground">%</span>
@@ -89,17 +96,85 @@ function SplitModal({
   );
 }
 
+function ConfigModal({
+  current,
+  onClose,
+  onSaved,
+}: {
+  current: IncentiveConfig;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [baseline, setBaseline] = useState(current.baseline);
+  const [poolPercent, setPoolPercent] = useState(current.poolPercent);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (baseline < 0 || poolPercent < 0 || poolPercent > 100) {
+      toast.error("Baseline 0+ aur Pool% 0-100 ke beech hona chahiye");
+      return;
+    }
+    setSaving(true);
+    await saveIncentiveConfig({ baseline, poolPercent });
+    setSaving(false);
+    toast.success("Config save ho gayi");
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">Baseline & Pool %</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-4">Ye pehle code mein hardcoded thi — ab yahin se badal sakte ho, dobara deploy ki zaroorat nahi.</p>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Monthly Baseline (₹)</label>
+            <input
+              type="number"
+              min={0}
+              value={baseline}
+              onChange={(e) => setBaseline(Math.max(0, Number(e.target.value) || 0))}
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Pool % of Growth</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={poolPercent}
+              onChange={(e) => setPoolPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+        </div>
+        <button onClick={save} disabled={saving} className="mt-4 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+          {saving ? "Saving…" : "Save Config"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function IncentivesPage() {
   const stats = useQuery({ queryKey: ["owner-stats"], queryFn: fetchOwnerStats });
   const staffQ = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
   const splitsQ = useQuery({ queryKey: ["incentive-splits"], queryFn: fetchIncentiveSplits });
+  const configQ = useQuery({ queryKey: ["incentive-config"], queryFn: fetchIncentiveConfig });
   const queryClient = useQueryClient();
   const [showSplit, setShowSplit] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
 
   const month = stats.data?.monthRevenue ?? 0;
-  const baseline = 100000;
+  const baseline = configQ.data?.baseline ?? 100000;
+  const poolPercent = configQ.data?.poolPercent ?? 4;
   const growth = Math.max(0, month - baseline);
-  const pool = Math.round(growth * 0.04);
+  const pool = Math.round(growth * (poolPercent / 100));
 
   const staff = ((staffQ.data ?? []) as any[]).filter((s) =>
     INCENTIVE_ROLES.includes(s.role ?? ""),
@@ -114,7 +189,7 @@ function IncentivesPage() {
   };
 
   return (
-    <RoleShell title="Staff Incentives" subtitle="4% of revenue above baseline" showBack>
+    <RoleShell title="Staff Incentives" subtitle={`${poolPercent}% of revenue above baseline`} showBack>
       {showSplit && (
         <SplitModal
           staff={staff}
@@ -123,11 +198,18 @@ function IncentivesPage() {
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["incentive-splits"] })}
         />
       )}
+      {showConfig && (
+        <ConfigModal
+          current={{ baseline, poolPercent }}
+          onClose={() => setShowConfig(false)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ["incentive-config"] })}
+        />
+      )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4">
         <div className="text-[13px] text-primary-foreground/65">Incentive Pool This Month</div>
         <div className="text-3xl font-extrabold text-accent mt-1">₹{pool.toLocaleString("en-IN")}</div>
         <div className="text-[12px] text-primary-foreground/60 mt-0.5">
-          4% of ₹{growth.toLocaleString("en-IN")} growth above ₹{baseline.toLocaleString("en-IN")} baseline
+          {poolPercent}% of ₹{growth.toLocaleString("en-IN")} growth above ₹{baseline.toLocaleString("en-IN")} baseline
         </div>
       </div>
       <div className="mt-3 rounded-xl bg-accent/25 text-accent-foreground p-3 text-[12px]">
@@ -178,6 +260,12 @@ function IncentivesPage() {
         className="mt-4 w-full rounded-full bg-surface border border-border text-primary font-bold py-3 text-sm"
       >
         Adjust Split (Owner Discretion)
+      </button>
+      <button
+        onClick={() => setShowConfig(true)}
+        className="mt-2 w-full rounded-full bg-surface border border-border text-primary font-bold py-3 text-sm"
+      >
+        Adjust Baseline / Pool %
       </button>
     </RoleShell>
   );

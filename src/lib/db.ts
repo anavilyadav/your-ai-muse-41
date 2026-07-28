@@ -1769,6 +1769,32 @@ export async function saveIncentiveSplits(splits: Record<string, number>) {
   await upsertSetting("incentive_splits", JSON.stringify(splits));
 }
 
+export interface IncentiveConfig { baseline: number; poolPercent: number }
+const DEFAULT_INCENTIVE_CONFIG: IncentiveConfig = { baseline: 100000, poolPercent: 4 };
+
+// Was hardcoded (baseline=100000, pool=4%) directly in owner.incentives.tsx
+// — Owner couldn't change either without a code redeploy. Defaults here
+// match those exact old hardcoded values, so nothing changes for anyone
+// until the Owner actually edits it.
+export async function fetchIncentiveConfig(): Promise<IncentiveConfig> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "incentive_config").maybeSingle();
+  if (error) console.error("fetchIncentiveConfig failed:", error.message);
+  if (!data?.value) return DEFAULT_INCENTIVE_CONFIG;
+  try {
+    const parsed = JSON.parse(data.value);
+    return {
+      baseline: Number(parsed.baseline) || DEFAULT_INCENTIVE_CONFIG.baseline,
+      poolPercent: Number(parsed.poolPercent) || DEFAULT_INCENTIVE_CONFIG.poolPercent,
+    };
+  } catch {
+    return DEFAULT_INCENTIVE_CONFIG;
+  }
+}
+
+export async function saveIncentiveConfig(cfg: IncentiveConfig) {
+  await upsertSetting("incentive_config", JSON.stringify(cfg));
+}
+
 export async function upsertSetting(key: string, value: string) {
   const { data, error: selErr } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
   if (selErr) console.error(`upsertSetting(${key}) existence check failed:`, selErr.message);
