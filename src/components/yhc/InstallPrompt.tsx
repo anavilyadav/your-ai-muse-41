@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
+import { toast } from "sonner";
 
 export function InstallPrompt() {
   const [deferred, setDeferred] = useState<any>(null);
@@ -10,6 +11,30 @@ export function InstallPrompt() {
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+      // sw.js calls self.skipWaiting() + self.clients.claim() immediately
+      // on every deploy — the new worker takes over an already-open tab
+      // mid-session with zero signal to the user. That's fine for the
+      // service worker's own static-asset cache (it's versioned/cleaned
+      // up correctly), but the already-loaded JS bundle in memory can
+      // drift from what's now being served, and nothing told staff to
+      // refresh. This shows a manual, dismissible reload prompt instead
+      // of auto-reloading — auto-reload mid-registration or mid-case-
+      // taking would lose unsaved work, which matters more here than
+      // getting everyone onto the new version instantly.
+      let refreshed = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshed) return; // controllerchange can fire more than once
+        refreshed = true;
+        toast("Naya version available hai", {
+          description: "Reload karo latest fixes ke liye",
+          duration: Infinity,
+          action: {
+            label: "Reload",
+            onClick: () => window.location.reload(),
+          },
+        });
+      });
     }
 
     const onPrompt = (e: any) => {
