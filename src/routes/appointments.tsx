@@ -128,12 +128,16 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
     if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
     toast.success("Appointment ban gaya");
     if (waConsent && mobile.replace(/\D/g, "").length === 10) {
-      sendWhatsApp({
+      const waRes = await sendWhatsApp({
         campaignName: "APPOINTMENT_REMINDER",
         destination: mobile.replace(/\D/g, ""),
         userName: name.trim(),
         templateParams: [name.trim(), date, time],
       });
+      // Appointment itself already saved — this is a separate notice so
+      // reception knows to manually confirm with the patient if the
+      // WhatsApp message didn't go out, not a reason to undo the booking.
+      if (!waRes.success) toast.warning("Appointment ban gaya, par WhatsApp reminder nahi bheja ja saka");
     }
     onAdded();
     onClose();

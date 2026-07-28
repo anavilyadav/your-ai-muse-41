@@ -205,12 +205,17 @@ function RegisterPage() {
       }
       if (f.consent) {
         const todayFormatted = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-        sendWhatsApp({
+        const waRes = await sendWhatsApp({
           campaignName: "REGISTRATION_CONFIRM",
           destination: patientWhatsAppTarget(patient),
           userName: f.name.trim(),
           templateParams: [f.name.trim(), todayFormatted],
         });
+        // Registration itself already succeeded (patient/visit created) —
+        // this is a separate, lower-urgency notice so reception knows to
+        // manually follow up if the confirmation message didn't go out,
+        // not a reason to treat the registration as failed.
+        if (!waRes.success) toast.warning("Registration ho gaya, par WhatsApp confirmation nahi bheja ja saka");
       }
     } catch (e: any) {
       console.error(e);

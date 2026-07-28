@@ -1,4 +1,6 @@
-const SEND_URL = "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/send-whatsapp";
+import { SUPABASE_URL } from "./supabase";
+
+const SEND_URL = `${SUPABASE_URL}/functions/v1/send-whatsapp`;
 
 export interface SendWhatsAppInput {
   campaignName: "REGISTRATION_CONFIRM" | "APPOINTMENT_REMINDER" | "FOLLOWUP_REMINDER";
