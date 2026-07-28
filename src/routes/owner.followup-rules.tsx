@@ -115,7 +115,7 @@ function FollowupRulesPage() {
   }, {});
 
   return (
-    <RoleShell title="Follow-up Rules" subtitle="Sequences jab bhi chaho badal do">
+    <RoleShell title="Follow-up Rules" subtitle="Sequences jab bhi chaho badal do" showBack>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-muted-foreground">Gap ke hisaab se follow-up reminders — koi bhi rule add/edit/delete karo.</p>
         <button
