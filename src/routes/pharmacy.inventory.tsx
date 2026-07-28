@@ -8,6 +8,7 @@ import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
 import { fetchInventory, fetchInventorySearch, addStockEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export const Route = createFileRoute("/pharmacy/inventory")({
   head: () => ({ meta: [{ title: "Inventory — Pharmacy" }, { name: "robots", content: "noindex" }] }),
@@ -29,10 +30,11 @@ function isLow(row: any): boolean {
 
 function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
+  const debouncedValue = useDebouncedValue(value, 300);
   const { data } = useQuery({
-    queryKey: ["med-autocomplete", value],
-    queryFn: () => fetchInventorySearch(value),
-    enabled: value.trim().length >= 2,
+    queryKey: ["med-autocomplete", debouncedValue],
+    queryFn: () => fetchInventorySearch(debouncedValue),
+    enabled: debouncedValue.trim().length >= 2,
   });
   const suggestions = Array.from(new Set((data ?? []).map((m: any) => m.medicine_name)));
   return (

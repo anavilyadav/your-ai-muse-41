@@ -5,6 +5,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
 import {
@@ -104,10 +105,11 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const debouncedName = useDebouncedValue(name, 300);
   const patientSearch = useQuery({
-    queryKey: ["appt-patient-search", name],
-    queryFn: () => searchPatients(name),
-    enabled: !patientId && name.trim().length >= 2,
+    queryKey: ["appt-patient-search", debouncedName],
+    queryFn: () => searchPatients(debouncedName),
+    enabled: !patientId && debouncedName.trim().length >= 2,
   });
 
   const submit = async () => {

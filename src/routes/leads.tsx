@@ -7,6 +7,7 @@ import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
 import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, type LeadStatus } from "@/lib/db";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
@@ -54,12 +55,13 @@ function LeadsPage() {
   const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
   const searchQ = useQuery({
-    queryKey: ["leads-search", searchTerm],
-    queryFn: () => searchLeads(searchTerm),
-    enabled: searchTerm.trim().length >= 2,
+    queryKey: ["leads-search", debouncedSearchTerm],
+    queryFn: () => searchLeads(debouncedSearchTerm),
+    enabled: debouncedSearchTerm.trim().length >= 2,
   });
-  const isSearching = searchTerm.trim().length >= 2;
+  const isSearching = debouncedSearchTerm.trim().length >= 2;
 
   const filtered = useMemo(() => {
     return leads.filter((l) => {

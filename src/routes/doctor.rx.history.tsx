@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { searchPatients, fetchPatientHistory } from "@/lib/db";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export const Route = createFileRoute("/doctor/rx/history")({
   head: () => ({ meta: [{ title: "Patient History — Doctor App" }, { name: "robots", content: "noindex" }] }),
@@ -17,12 +18,13 @@ export const Route = createFileRoute("/doctor/rx/history")({
 
 function HistoryPage() {
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
   const [selected, setSelected] = useState<any | null>(null);
 
   const search = useQuery({
-    queryKey: ["rx-history-search", q],
-    queryFn: () => searchPatients(q),
-    enabled: q.trim().length >= 2,
+    queryKey: ["rx-history-search", debouncedQ],
+    queryFn: () => searchPatients(debouncedQ),
+    enabled: debouncedQ.trim().length >= 2,
   });
 
   const history = useQuery({

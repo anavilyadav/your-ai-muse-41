@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { useAuth } from "@/lib/auth";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -52,17 +53,18 @@ function LinkFamilyModal({
   onLinked: () => void;
 }) {
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
   const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [relationship, setRelationship] = useState(RELATIONSHIPS[0]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (q.trim().length < 2) { setResults([]); return; }
+    if (debouncedQ.trim().length < 2) { setResults([]); return; }
     let cancelled = false;
-    searchPatients(q).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
+    searchPatients(debouncedQ).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
     return () => { cancelled = true; };
-  }, [q, patientId]);
+  }, [debouncedQ, patientId]);
 
   const submit = async () => {
     if (!selected) { toast.error("Pehle patient select karo"); return; }

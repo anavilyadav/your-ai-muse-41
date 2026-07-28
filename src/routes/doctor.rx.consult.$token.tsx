@@ -15,6 +15,7 @@ import {
 } from "@/lib/db";
 import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
   head: () => ({ meta: [{ title: "Write Rx — Doctor" }, { name: "robots", content: "noindex" }] }),
@@ -305,11 +306,12 @@ function RxRowEditor({
   onDelete?: () => void;
 }) {
   const [term, setTerm] = useState(row.medicine_name);
+  const debouncedTerm = useDebouncedValue(term, 300);
   const [open, setOpen] = useState(false);
   const { data: inv } = useQuery({
-    queryKey: ["inv-search", term, branch],
-    queryFn: () => fetchInventorySearch(term, branch),
-    enabled: open && term.length > 0,
+    queryKey: ["inv-search", debouncedTerm, branch],
+    queryFn: () => fetchInventorySearch(debouncedTerm, branch),
+    enabled: open && debouncedTerm.length > 0,
   });
 
   useEffect(() => setTerm(row.medicine_name), [row.medicine_name]);
