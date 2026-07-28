@@ -33,4 +33,20 @@ export function roleHome(role: Role): string {
   return "/"; // RECP1/RECP2
 }
 
-export const today = () => new Date().toISOString().slice(0, 10);
+// JS Date has no real timezone awareness — this shifts the current
+// instant forward by IST's UTC+5:30 offset, so reading it back with
+// UTC getters (toISOString, getUTCDate, etc.) gives IST calendar values.
+// Same trick already used by istDayStart/istDayEnd/istDateOf in db.ts —
+// exported here as the one shared version instead of resembling logic
+// living in multiple places.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+export function istNow(): Date {
+  return new Date(Date.now() + IST_OFFSET_MS);
+}
+
+// Was new Date().toISOString().slice(0,10) — plain UTC. Between
+// 12:00am-5:30am IST that returned YESTERDAY's date (UTC hasn't rolled
+// over to the new day yet), so a visit/registration logged in that
+// window silently landed under the wrong calendar day everywhere
+// this is used (visit_date, token generation, day/week/month totals).
+export const today = () => istNow().toISOString().slice(0, 10);

@@ -1,4 +1,4 @@
-import { supabase, today } from "./supabase";
+import { supabase, today, istNow } from "./supabase";
 
 // ---------- Types (loose — matches DB shape) ----------
 export interface DBPatient {
@@ -428,8 +428,8 @@ export async function updatePatientContactInfo(
 // the clinic. 30 days comfortably covers the real scenario this fix was
 // built for (a case taken today, doctor visit days later).
 export function thirtyDaysAgo(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
+  const d = istNow();
+  d.setUTCDate(d.getUTCDate() - 30);
   return d.toISOString().slice(0, 10);
 }
 
@@ -1331,14 +1331,21 @@ function istDateOf(isoTimestamp: string | null | undefined): string {
   return new Date(new Date(isoTimestamp).getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+// Reads the weekday out of an IST calendar-date string safely — parsing
+// at UTC noon avoids any boundary edge case near midnight.
+function istWeekday(dateStr: string): number {
+  return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
+}
+
 export async function fetchWeekRevenue() {
   const days: { d: string; label: string }[] = [];
-  const now = new Date();
+  const now = istNow();
   const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   for (let i = 6; i >= 0; i--) {
     const dt = new Date(now);
-    dt.setDate(now.getDate() - i);
-    days.push({ d: dt.toISOString().slice(0, 10), label: labels[dt.getDay()] });
+    dt.setUTCDate(now.getUTCDate() - i);
+    const d = dt.toISOString().slice(0, 10);
+    days.push({ d, label: labels[istWeekday(d)] });
   }
   const start = days[0].d;
   const { data } = await supabase
@@ -1354,21 +1361,21 @@ export async function fetchWeekRevenue() {
 }
 
 export async function fetchReports(period: "week" | "month" | "lastMonth" | "year", branch?: string) {
-  const now = new Date();
+  const now = istNow();
   let start: string;
   let end: string | null = null;
   if (period === "week") {
-    const d = new Date(now); d.setDate(now.getDate() - 6);
+    const d = new Date(now); d.setUTCDate(now.getUTCDate() - 6);
     start = d.toISOString().slice(0, 10);
   } else if (period === "month") {
     start = now.toISOString().slice(0, 8) + "01";
   } else if (period === "lastMonth") {
-    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const e = new Date(now.getFullYear(), now.getMonth(), 0);
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const e = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
     start = d.toISOString().slice(0, 10);
     end = e.toISOString().slice(0, 10);
   } else {
-    start = now.getFullYear() + "-01-01";
+    start = now.getUTCFullYear() + "-01-01";
   }
   let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
