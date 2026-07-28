@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, applyAvailableCredit, revertCreditApplication } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pay/$id")({
@@ -36,6 +36,18 @@ function PayPage() {
   const [received, setReceived] = useState<number>(0);
   const [mode, setMode] = useState<"CASH" | "UPI" | "CARD">("CASH");
   const [busy, setBusy] = useState(false);
+  const [useCredit, setUseCredit] = useState(true);
+
+  // Overpayment ledger (audit P0-6) — patients can have credit sitting from
+  // a past overpayment the Owner converted to a credit note. Show it here so
+  // reception offers it before asking for fresh cash, instead of it staying
+  // invisible forever.
+  const { data: availableCredit } = useQuery({
+    queryKey: ["available-credit", visit?.patient_id],
+    queryFn: () => fetchAvailableCredit(visit!.patient_id),
+    enabled: !!visit?.patient_id,
+  });
+  const credit = availableCredit ?? 0;
 
   if (isLoading) return <MobileShell title="Collect Payment" showBack><LoadingBlock /></MobileShell>;
   // Was a single "Visit nahi mila" for both a genuine not-found AND a
@@ -56,25 +68,42 @@ function PayPage() {
   }
   if (!visit) return <MobileShell title="Collect Payment" showBack><div className="py-10 text-center text-sm text-muted-foreground">Visit nahi mila.</div></MobileShell>;
 
-  const balance = Math.max(0, charged - received);
+  // Still owed after cash — this is the ceiling on how much credit can
+  // usefully be applied (never apply more credit than what's actually due).
+  const owedAfterCash = Math.max(0, charged - received);
+  const creditToApply = useCredit ? Math.min(credit, owedAfterCash) : 0;
+  const balance = Math.max(0, owedAfterCash - creditToApply);
 
   const doCollect = async () => {
     if (charged <= 0) return toast.error("Amount daalo");
     setBusy(true);
+    let appliedCredit = 0;
     try {
+      // Credit is reserved+applied first (row-locked RPC, so two staff
+      // can't spend the same credit twice). If the payment insert below
+      // then fails, we must give the credit back — see catch block.
+      if (creditToApply > 0) {
+        appliedCredit = await applyAvailableCredit(visit.patient_id, visit.id, creditToApply);
+      }
       await collectPayment({
         visit_id: visit.id,
         patient_id: visit.patient_id,
         amount_charged: charged,
-        amount_received: received,
+        amount_received: received + appliedCredit,
         payment_mode: mode,
         branch: visit.branch,
+        notes: appliedCredit > 0 ? `Includes ₹${appliedCredit} credit note applied` : undefined,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
+      qc.invalidateQueries({ queryKey: ["available-credit", visit.patient_id] });
       toast.success(balance === 0 ? "Payment done." : "Partial payment saved.");
       navigate({ to: "/", replace: true });
     } catch (e: any) {
+      if (appliedCredit > 0) {
+        await revertCreditApplication(visit.id);
+        qc.invalidateQueries({ queryKey: ["available-credit", visit.patient_id] });
+      }
       toast.error(e?.message || "Payment fail hua");
     } finally {
       setBusy(false);
@@ -104,6 +133,20 @@ function PayPage() {
           <span>Previous balance due</span>
           <span className="text-sm font-bold">₹{existingDue.toLocaleString("en-IN")}</span>
         </div>
+      )}
+
+      {credit > 0 && (
+        <button
+          type="button"
+          onClick={() => setUseCredit((v) => !v)}
+          className={cn(
+            "mt-3 w-full rounded-xl border p-3 text-xs font-semibold flex items-center justify-between",
+            useCredit ? "bg-success/15 border-success/40 text-success" : "bg-surface border-border text-muted-foreground",
+          )}
+        >
+          <span>{useCredit ? "✓ Credit note apply ho raha hai" : "Available credit — apply karein?"}</span>
+          <span className="text-sm font-bold">₹{credit.toLocaleString("en-IN")}</span>
+        </button>
       )}
 
 

@@ -560,8 +560,102 @@ export async function collectPayment(input: {
   }
 }
 
+// ---------- Payment Adjustments — overpayment ledger (audit P0-6) ----------
+// Overpayment used to be silently absorbed: if received > charged,
+// balance_due just clamped to 0 and the extra money left no trace. Now
+// a DB trigger on every `payments` insert (see 12_payment_adjustments.sql)
+// auto-logs the difference here as PENDING — no code path can skip it,
+// because it doesn't depend on the app remembering to check.
+export interface PaymentAdjustment {
+  id: string;
+  patient_id: string;
+  source_payment_id: string | null;
+  visit_id: string | null;
+  branch: string | null;
+  amount: number;
+  type: string;
+  status: "PENDING" | "REFUNDED" | "CREDIT_AVAILABLE" | "APPLIED";
+  resolution_method: "REFUND" | "CREDIT_NOTE" | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  applied_to_visit_id: string | null;
+  applied_amount: number | null;
+  notes: string | null;
+  created_at: string;
+  patient?: { name: string; mobile: string; patient_code: string | null };
+}
+
+export async function fetchPendingPaymentAdjustments(): Promise<PaymentAdjustment[]> {
+  const { data, error } = await supabase
+    .from("payment_adjustments")
+    .select("*, patient:patients(name, mobile, patient_code)")
+    .eq("status", "PENDING")
+    .order("created_at", { ascending: true });
+  if (error) return [];
+  return (data ?? []) as PaymentAdjustment[];
+}
+
+// Owner decides once: REFUND closes it out (cash handed back outside the
+// system), CREDIT_NOTE turns it into spendable credit for that patient's
+// next visit. Both go through one RPC so "already resolved" can't race.
+export async function resolvePaymentAdjustment(
+  adjustmentId: string,
+  method: "REFUND" | "CREDIT_NOTE",
+  resolvedBy: string,
+  notes?: string,
+) {
+  const { data, error } = await supabase.rpc("resolve_payment_adjustment", {
+    p_adjustment_id: adjustmentId,
+    p_method: method,
+    p_resolved_by: resolvedBy,
+    p_notes: notes ?? null,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null, result: data };
+}
+
+// Shown on the payment screen so reception knows there's credit to offer
+// before asking the patient for fresh cash.
+export async function fetchAvailableCredit(patientId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("payment_adjustments")
+    .select("amount")
+    .eq("patient_id", patientId)
+    .eq("status", "CREDIT_AVAILABLE");
+  if (error) return 0;
+  return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
+}
+
+// The RPC row-locks the patient's credit rows and applies them inside one
+// transaction, so two staff can't spend the same credit twice. This call
+// must happen BEFORE collectPayment; if collectPayment then fails, the
+// caller MUST call revertCreditApplication or the credit is stuck as
+// "applied" against a payment that never happened. See pay.$id.tsx.
+export async function applyAvailableCredit(patientId: string, visitId: string, requestedAmount: number): Promise<number> {
+  if (requestedAmount <= 0) return 0;
+  const { data, error } = await supabase.rpc("apply_available_credit", {
+    p_patient_id: patientId,
+    p_visit_id: visitId,
+    p_requested_amount: requestedAmount,
+  });
+  if (error) throw error;
+  return Number((data as any)?.applied ?? 0);
+}
+
+// Compensating action for the failure case above — best-effort, logged
+// not thrown, matching the pattern already used for follow-up scheduling.
+export async function revertCreditApplication(visitId: string): Promise<void> {
+  try {
+    const { error } = await supabase.rpc("revert_credit_application", { p_visit_id: visitId });
+    if (error) console.error("revertCreditApplication failed:", error.message);
+  } catch (e: any) {
+    console.error("revertCreditApplication threw:", e?.message ?? e);
+  }
+}
+
 // ---------- Prescriptions ----------
 export async function fetchInventorySearch(term: string, branch?: string) {
+
   const clean = sanitizeIlikeTerm(term);
   let q = supabase.from("inventory").select("*").limit(20);
   if (branch) q = q.eq("branch", branch);
