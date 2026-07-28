@@ -36,7 +36,17 @@ function CaseBoardPage() {
   const effectiveRole = useEffectiveRole();
   const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
   const { data, isLoading } = useQuery({
-    queryKey: ["today-queue", branchScope ?? "all"],
+    // A dedicated "casedr" segment, not just branchScope, is deliberate:
+    // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,
+    // no address — Hidden Identity Mode), while every other role's
+    // "today-queue" fetches full patient rows. Sharing a cache key with
+    // those would risk this restricted view briefly rendering with a
+    // full-PII cached entry (e.g. right after an Owner used "View as"),
+    // or vice versa. The nested array still starts with "today-queue",
+    // so existing invalidateQueries({queryKey: ["today-queue"]}) calls
+    // elsewhere (register/pay/dispense/case-form/rx-consult) continue to
+    // refresh this too.
+    queryKey: ["today-queue", "casedr", branchScope ?? "all"],
     queryFn: () => fetchTodayQueueCaseDR(branchScope),
     refetchInterval: 15_000,
   });
