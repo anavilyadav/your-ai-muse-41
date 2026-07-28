@@ -145,6 +145,7 @@ function DeliveryCard({ d }: { d: any }) {
       <div className="mt-2.5 grid grid-cols-2 gap-2">
         <button
           onClick={() => {
+            if (!window.confirm(`${d.patient_name} ko delivered mark karein?`)) return;
             save({ status: "Delivered", note });
             toast.success(`${d.patient_name} — marked delivered`);
           }}
@@ -155,6 +156,7 @@ function DeliveryCard({ d }: { d: any }) {
         </button>
         <button
           onClick={() => {
+            if (!window.confirm(`${d.patient_name} — issue/return flag karein?`)) return;
             save({ status: "Issue", note });
             toast.error(`${d.patient_name} — issue flagged`);
           }}

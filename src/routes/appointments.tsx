@@ -537,7 +537,10 @@ function AppointmentsPage() {
                   <CheckCircle2 className="h-3 w-3" /> Arrived
                 </button>
                 <button
-                  onClick={() => setStatus(a, "Cancelled")}
+                  onClick={() => {
+                    if (!window.confirm(`${a.patient_name ?? "Ye"} appointment cancel karein?`)) return;
+                    setStatus(a, "Cancelled");
+                  }}
                   className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
                   <XCircle className="h-3 w-3" /> Cancel
