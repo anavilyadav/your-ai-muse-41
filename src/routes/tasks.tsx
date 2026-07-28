@@ -1,9 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
-import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Circle, IndianRupee, PhoneCall, Truck, Users } from "lucide-react";
-import { useState } from "react";
+import { BarChart3, CalendarDays, ChevronRight, IndianRupee, PhoneCall, Truck, Users } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/tasks")({
   head: () => ({ meta: [{ title: "Reception Tasks — YHC Jaipur" }] }),
@@ -14,23 +12,7 @@ export const Route = createFileRoute("/tasks")({
   ),
 });
 
-const seedTasks = [
-  { id: 1, label: "Call back Priya Nair for pending payment (T-04)", tone: "due" },
-  { id: 2, label: "Confirm tomorrow's pre-booked appointments (WhatsApp)", tone: "normal" },
-  { id: 3, label: "Restock consultation slips at Bajaj Nagar", tone: "normal" },
-  { id: 4, label: "Follow-up: Aarav Gupta courier delivery status", tone: "normal" },
-  { id: 5, label: "Send birthday wish to 2 patients (see reminders)", tone: "normal" },
-] as const;
-
 function TasksPage() {
-  const [done, setDone] = useState<Set<number>>(new Set());
-  const toggle = (id: number) => {
-    setDone((prev) => {
-      const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  };
   return (
     <MobileShell title="Reception Tasks" subtitle="Today" showBack>
       {/* Shortcuts */}
@@ -42,41 +24,6 @@ function TasksPage() {
         <ShortcutLink to="/summary" icon={BarChart3} title="Day Summary" sub="Revenue • Modes • Sources" />
         <ShortcutLink to="/outstanding" icon={IndianRupee} title="Outstanding Dues" sub="Pending payments — call/WhatsApp worklist" />
       </div>
-
-      <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground px-1">
-        Today's Checklist
-      </div>
-      <ul className="mt-2 space-y-2">
-        {seedTasks.map((t) => {
-          const checked = done.has(t.id);
-          return (
-            <li key={t.id}>
-              <button
-                onClick={() => toggle(t.id)}
-                className={cn(
-                  "w-full rounded-xl border p-3 flex items-start gap-3 text-left transition",
-                  checked ? "bg-muted border-border opacity-70" : "bg-surface border-border",
-                  t.tone === "due" && !checked && "border-destructive/40",
-                )}
-              >
-                {checked ? (
-                  <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
-                ) : (
-                  <Circle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                )}
-                <span
-                  className={cn(
-                    "text-sm text-foreground",
-                    checked && "line-through text-muted-foreground",
-                  )}
-                >
-                  {t.label}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
     </MobileShell>
   );
 }
