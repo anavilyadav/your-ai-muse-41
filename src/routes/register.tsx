@@ -274,7 +274,7 @@ function RegisterPage() {
               Register Another
             </button>
             <button
-              onClick={() => navigate({ to: "/" })}
+              onClick={() => navigate({ to: "/", replace: true })}
               className="rounded-lg bg-primary text-primary-foreground py-2.5 text-sm font-semibold"
             >
               View Queue

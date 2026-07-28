@@ -57,7 +57,7 @@ function PayPage() {
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
       toast.success(balance === 0 ? "Payment done." : "Partial payment saved.");
-      navigate({ to: "/" });
+      navigate({ to: "/", replace: true });
     } catch (e: any) {
       toast.error(e?.message || "Payment fail hua");
     } finally {

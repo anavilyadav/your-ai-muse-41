@@ -231,7 +231,7 @@ function LeadsPage() {
                       onClick={async () => {
                         await doUpdate(l.id, "Converted");
                         toast.success(`${l.name} converted → Register`);
-                        navigate({ to: "/register" });
+                        navigate({ to: "/register", replace: true });
                       }}
                       className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-semibold"
                     >
