@@ -86,13 +86,14 @@ export async function nextTokenForToday(branch: string): Promise<string> {
 // block a real registration that already succeeded.
 export async function autoConvertMatchingLead(patientId: string, mobile: string): Promise<void> {
   try {
-    await supabase
+    const { error } = await supabase
       .from("leads")
       .update({ status: "Converted", converted_patient_id: patientId })
       .eq("mobile", mobile)
       .neq("status", "Converted");
-  } catch {
-    // non-fatal
+    if (error) console.error("autoConvertMatchingLead failed:", error.message);
+  } catch (e: any) {
+    console.error("autoConvertMatchingLead threw:", e?.message ?? e);
   }
 }
 
@@ -105,12 +106,19 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string)
 // walked in, resolve any pending follow-ups for them automatically so
 // reminders don't keep going out to someone who's already here.
 export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{ id: string; name: string; patient_code: string | null } | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("patients")
     .select("id, name, patient_code")
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode)
     .maybeSingle();
+  // A failed lookup is NOT the same as "genuinely no such patient" — the
+  // caller (registration's duplicate-check hint) would otherwise silently
+  // treat a network hiccup as "safe to register as new," risking a
+  // duplicate patient record for someone who actually already exists.
+  // Kept non-throwing (this is a live-typing hint, not a hard gate) but
+  // now at least visible for debugging.
+  if (error) console.error("findPatientByMobile failed:", error.message);
   return data ?? null;
 }
 
@@ -167,15 +175,15 @@ async function checkInExistingPatientLegacy(input: {
   try {
     const { data: p } = await supabase.from("patients").select("lifetime_visits").eq("id", input.patient_id).maybeSingle();
     await supabase.from("patients").update({ lifetime_visits: (p?.lifetime_visits ?? 0) + 1 }).eq("id", input.patient_id);
-  } catch {
-    // non-fatal
+  } catch (e: any) {
+    console.error("checkInExistingPatientLegacy: lifetime_visits bump failed:", e?.message ?? e);
   }
   try {
     // Item #8: patient is physically here now, so any reminder still
     // pending for them is moot — stop it from firing later today.
     await supabase.from("followups").update({ status: "DONE" }).eq("patient_id", input.patient_id).eq("status", "PENDING");
-  } catch {
-    // non-fatal
+  } catch (e: any) {
+    console.error("checkInExistingPatientLegacy: followup closure failed:", e?.message ?? e);
   }
 
   return { visit: v as DBVisit };
@@ -458,7 +466,8 @@ export async function fetchVisit(visitId: string) {
 
 // ---------- Case-DR eligibility (Junior sees Simple only, Senior sees all) ----------
 export async function fetchCaseDrLevels(): Promise<Record<string, "Junior" | "Senior">> {
-  const { data } = await supabase.from("settings").select("value").eq("key", "case_dr_levels").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "case_dr_levels").maybeSingle();
+  if (error) console.error("fetchCaseDrLevels failed:", error.message);
   if (!data?.value) return {};
   try {
     return JSON.parse(data.value);
@@ -868,14 +877,15 @@ export async function logWhatsAppInteraction(
   summary: string,
 ): Promise<void> {
   try {
-    await supabase.from("interactions").insert({
+    const { error } = await supabase.from("interactions").insert({
       lead_id: target.leadId ?? null,
       patient_id: target.patientId ?? null,
       type: "whatsapp",
       summary,
     });
-  } catch {
-    // non-fatal
+    if (error) console.error("logWhatsAppInteraction failed:", error.message);
+  } catch (e: any) {
+    console.error("logWhatsAppInteraction threw:", e?.message ?? e);
   }
 }
 
@@ -1478,7 +1488,8 @@ export const DEFAULT_SLOT_CONFIG: SlotConfig = {
 };
 
 export async function fetchSlotConfig(): Promise<SlotConfig> {
-  const { data } = await supabase.from("settings").select("value").eq("key", "appointment_slot_config").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "appointment_slot_config").maybeSingle();
+  if (error) console.error("fetchSlotConfig failed:", error.message);
   if (!data?.value) return DEFAULT_SLOT_CONFIG;
   try {
     const parsed = JSON.parse(data.value);
@@ -1515,7 +1526,8 @@ export function generateSlots(start: string, end: string, minutes: number): stri
 export interface VipSlot { id: string; branch: ApptBranch; date: string; time: string; note?: string }
 
 export async function fetchVipSlots(): Promise<VipSlot[]> {
-  const { data } = await supabase.from("settings").select("value").eq("key", "vip_reserved_slots").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "vip_reserved_slots").maybeSingle();
+  if (error) console.error("fetchVipSlots failed:", error.message);
   try { return data?.value ? JSON.parse(data.value) : []; } catch { return []; }
 }
 
@@ -1726,7 +1738,8 @@ export async function fetchSettings() {
 
 /** Manual incentive split: { [userId]: percentageWeight }. Stored as one JSON blob in settings. */
 export async function fetchIncentiveSplits(): Promise<Record<string, number>> {
-  const { data } = await supabase.from("settings").select("value").eq("key", "incentive_splits").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "incentive_splits").maybeSingle();
+  if (error) console.error("fetchIncentiveSplits failed:", error.message);
   if (!data?.value) return {};
   try {
     return JSON.parse(data.value);
@@ -1740,7 +1753,8 @@ export async function saveIncentiveSplits(splits: Record<string, number>) {
 }
 
 export async function upsertSetting(key: string, value: string) {
-  const { data } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
+  const { data, error: selErr } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
+  if (selErr) console.error(`upsertSetting(${key}) existence check failed:`, selErr.message);
   const { error } = data?.id
     ? await supabase.from("settings").update({ value }).eq("id", data.id)
     : await supabase.from("settings").insert({ key, value });
@@ -1806,7 +1820,8 @@ export function newImportBatchId(): string {
 }
 
 export async function recordImportBatch(entry: { batchId: string; type: string; count: number }) {
-  const { data } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  if (error) console.error("recordImportBatch: read of existing batch list failed:", error.message);
   let list: any[] = [];
   try { list = data?.value ? JSON.parse(data.value) : []; } catch { list = []; }
   list.unshift({ ...entry, date: new Date().toISOString() });
@@ -1816,7 +1831,8 @@ export async function recordImportBatch(entry: { batchId: string; type: string; 
 export async function fetchImportBatches(): Promise<
   { batchId: string; type: string; count: number; date: string }[]
 > {
-  const { data } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
+  if (error) console.error("fetchImportBatches failed:", error.message);
   try { return data?.value ? JSON.parse(data.value) : []; } catch { return []; }
 }
 
