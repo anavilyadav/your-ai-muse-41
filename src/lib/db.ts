@@ -61,7 +61,18 @@ export interface DBPrescription {
 }
 
 // ---------- Patient registration ----------
+// Used only by the legacy fallback path (register_patient_with_visit RPC
+// missing) and by bulk import. Both used to guess the next number from a
+// single count() read -- if a live registration and a bulk import (or two
+// imports) landed at the same moment, they could compute the same
+// patient_code (audit P0-3 remainder, the "bulk-import path not touched"
+// part). next_patient_codes() reserves numbers from a real Postgres
+// sequence, which is atomic under concurrency by construction -- no row
+// locking needed. Falls back to the old (racy) approach only until that
+// SQL migration is run, same not-hard-fail pattern as the RPC above.
 export async function nextPatientCode(): Promise<string> {
+  const { data, error } = await supabase.rpc("next_patient_codes", { p_count: 1 });
+  if (!error && Array.isArray(data) && data[0]) return data[0] as string;
   const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
   return `YHC-${1000 + (count ?? 0) + 1}`;
 }
@@ -2098,14 +2109,26 @@ export async function commitPatientsImport(
   batchId: string,
   onProgress?: (done: number, total: number) => void,
 ) {
-  const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
-  let seq = 1000 + (count ?? 0) + 1;
+  // Reserve all codes for this batch up front from the atomic sequence
+  // (audit P0-3 remainder) instead of guessing sequential numbers from a
+  // single count() read, which could collide with a live registration
+  // happening on the floor at the same time as an owner-run import.
+  let codes: string[];
+  const { data: reserved, error: seqErr } = await supabase.rpc("next_patient_codes", { p_count: rows.length });
+  if (!seqErr && Array.isArray(reserved) && reserved.length === rows.length) {
+    codes = reserved as string[];
+  } else {
+    const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
+    let seq = 1000 + (count ?? 0) + 1;
+    codes = rows.map(() => `YHC-${seq++}`);
+  }
+
   const BATCH = 500; // bumped for 30k+ scale imports — fewer round trips
   let imported = 0;
   try {
     for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH).map((r) => ({
-        patient_code: `YHC-${seq++}`,
+      const chunk = rows.slice(i, i + BATCH).map((r, j) => ({
+        patient_code: codes[i + j],
         name: r.name.trim(),
         mobile: r.mobile,
         age: r.age ? Number(r.age) || null : null,
