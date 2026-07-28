@@ -4,7 +4,7 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -21,10 +21,7 @@ export const Route = createFileRoute("/register")({
 
 const genders = ["Male", "Female", "Other"] as const;
 const blood = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-", "Not Known"] as const;
-const branchOpts = [
-  { key: "BAJAJ_NAGAR", label: "Bajaj Nagar" },
-  { key: "JAGATPURA", label: "Jagatpura" },
-] as const;
+const branchOpts = BRANCH_KEYS.map((key) => ({ key, label: branchLabel(key) }));
 const countryCodes = [
   { code: "+91", label: "+91 India" },
   { code: "+971", label: "+971 UAE" },
@@ -245,7 +242,7 @@ function RegisterPage() {
               <div className="text-[10px] uppercase text-muted-foreground">Patient ID</div>
               <div className="text-lg font-bold text-primary">{saved.code}</div>
               <div className="text-[10px] text-muted-foreground mt-1">
-                Branch: {saved.branch === "BAJAJ_NAGAR" ? "Bajaj Nagar" : "Jagatpura"}
+                Branch: {branchLabel(saved.branch)}
               </div>
             </div>
           </div>

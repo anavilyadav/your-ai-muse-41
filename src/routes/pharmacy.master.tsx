@@ -6,7 +6,7 @@ import { Search, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchMasterMedicines, addStockEntry } from "@/lib/db";
+import { fetchMasterMedicines, addStockEntry, BRANCH_LABELS } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/master")({
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/pharmacy/master")({
   ),
 });
 
-const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+const BRANCHES = BRANCH_LABELS;
 const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
 const COMMON_TYPES = ["Dilution", "Mother Tincture", "Biochemic", "Trituration"];
 

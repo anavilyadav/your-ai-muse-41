@@ -25,6 +25,7 @@ import {
   type DocType,
   type PatientDocument,
   type DBPatient,
+  branchLabel as getBranchLabel,
 } from "@/lib/db";
 
 const RELATIONSHIPS = ["Spouse", "Son", "Daughter", "Parent", "Sibling", "Other"];
@@ -498,7 +499,7 @@ function PatientProfilePage() {
   }
 
   const totalSpent = Number(patient.lifetime_revenue ?? 0);
-  const branchLabel = patient.branch === "BAJAJ_NAGAR" ? "Bajaj Nagar" : patient.branch === "JAGATPURA" ? "Jagatpura" : patient.branch ?? "";
+  const branchLabel = getBranchLabel(patient.branch);
 
   return (
     <MobileShell title={patient.name} subtitle={patient.patient_code ?? patient.id.slice(0, 8)} showBack>

@@ -19,6 +19,8 @@ import {
   commitVisitHistoryImport,
   fetchImportBatches,
   fetchPatientsByIds,
+  BRANCH_KEYS,
+  branchLabel,
   type ImportLeadRow,
   type ImportPatientRow,
   type ImportVisitRow,
@@ -192,7 +194,7 @@ function PreviewSummary({ valid, duplicates, invalid, extraLabel, extraCount, sa
   );
 }
 
-const BRANCH_OPTIONS = ["BAJAJ_NAGAR", "JAGATPURA"] as const;
+const BRANCH_OPTIONS = BRANCH_KEYS;
 
 function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -324,7 +326,7 @@ function PatientsImportTab() {
         <div className="flex gap-2">
           {BRANCH_OPTIONS.map((b) => (
             <button key={b} onClick={() => setDefaultBranch(b)} className={cn("flex-1 rounded-full border py-2 text-[12px] font-bold", defaultBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>
-              {b === "BAJAJ_NAGAR" ? "Bajaj Nagar" : "Jagatpura"}
+              {branchLabel(b)}
             </button>
           ))}
         </div>

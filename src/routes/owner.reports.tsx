@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchReports } from "@/lib/db";
+import { fetchReports, BRANCH_LABELS } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +25,7 @@ const PERIODS = [
   { key: "year", label: "This Year" },
 ] as const;
 
-const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+const BRANCHES = BRANCH_LABELS;
 
 function downloadCSV(filename: string, rows: [string, string][]) {
   const csv = ["Metric,Value", ...rows.map(([k, v]) => `"${k}","${v}"`)].join("\n");

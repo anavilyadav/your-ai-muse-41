@@ -2392,6 +2392,11 @@ export function branchLabel(b: string | null | undefined): string {
   return b ?? "";
 }
 
+// Display-label counterpart of BRANCH_KEYS — for the several files that
+// just needed ["Bajaj Nagar", "Jagatpura"] for a button/filter row, not
+// the enum keys themselves.
+export const BRANCH_LABELS = BRANCH_KEYS.map(branchLabel);
+
 export function statusLabel(s: string): string {
   const map: Record<string, string> = {
     REGISTERED: "Waiting",

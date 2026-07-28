@@ -21,6 +21,7 @@ import {
   removeVipSlot,
   DEFAULT_SLOT_CONFIG,
   branchLabel,
+  BRANCH_KEYS,
   type ApptBranch,
   type SlotConfig,
 } from "@/lib/db";
@@ -36,7 +37,7 @@ export const Route = createFileRoute("/appointments")({
   ),
 });
 
-const branches: ("All" | ApptBranch)[] = ["All", "BAJAJ_NAGAR", "JAGATPURA"];
+const branches: ("All" | ApptBranch)[] = ["All", ...BRANCH_KEYS];
 
 const statusStyle: Record<string, string> = {
   Confirmed: "bg-success/15 text-success border-success/40",
@@ -192,7 +193,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" maxLength={10} placeholder="Mobile" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <div className="flex gap-1.5">
-            {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
+            {[...BRANCH_KEYS].map((b) => (
               <button key={b} onClick={() => { setBranch(b); setTime(""); }} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
             ))}
           </div>
@@ -323,7 +324,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setCfg({ ...cfg, capacityPerSlot: Math.max(1, Number(e.target.value) || 1) })}
             />
           </div>
-          {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
+          {[...BRANCH_KEYS].map((b) => (
             <div key={b}>
               <div className="text-[12px] font-bold text-primary mb-1">{branchLabel(b)} hours</div>
               <div className="flex gap-2">
@@ -344,7 +345,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
           </div>
           <input type="date" value={vDate} onChange={(e) => setVDate(e.target.value)} className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
           <div className="flex gap-1.5">
-            {(["BAJAJ_NAGAR", "JAGATPURA"] as ApptBranch[]).map((b) => (
+            {[...BRANCH_KEYS].map((b) => (
               <button key={b} onClick={() => { setVBranch(b); setVTime(""); }} className={cn("flex-1 rounded-full py-1.5 text-[11px] font-bold border", vBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>{branchLabel(b)}</button>
             ))}
           </div>

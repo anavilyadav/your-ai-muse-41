@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, fetchInventorySearch, addStockEntry } from "@/lib/db";
+import { fetchInventory, fetchInventorySearch, addStockEntry, BRANCH_LABELS } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/pharmacy/inventory")({
   ),
 });
 
-const BRANCHES = ["Bajaj Nagar", "Jagatpura"];
+const BRANCHES = BRANCH_LABELS;
 const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
 
 function isLow(row: any): boolean {
