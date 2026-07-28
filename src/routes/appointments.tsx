@@ -136,6 +136,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
         destination: mobile.replace(/\D/g, ""),
         userName: name.trim(),
         templateParams: [name.trim(), date, time],
+        patientId,
       });
       // Appointment itself already saved — this is a separate notice so
       // reception knows to manually confirm with the patient if the

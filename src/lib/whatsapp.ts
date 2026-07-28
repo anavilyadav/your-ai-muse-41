@@ -4,9 +4,15 @@ const SEND_URL = `${SUPABASE_URL}/functions/v1/send-whatsapp`;
 
 export interface SendWhatsAppInput {
   campaignName: "REGISTRATION_CONFIRM" | "APPOINTMENT_REMINDER" | "FOLLOWUP_REMINDER";
-  destination: string; // 10-digit mobile
+  destination: string; // 10-digit mobile — used only as a fallback if patientId isn't given
   userName: string;
   templateParams?: string[];
+  // Consent (audit P1-10) is now checked server-side against patients.wa_consent
+  // when patientId is passed — pass it whenever the send is for a known patient.
+  patientId?: string;
+  // Only for sends with no patient record yet (e.g. a fresh lead) — the edge
+  // function refuses the send if neither this nor patientId is present.
+  consentConfirmed?: boolean;
 }
 
 /**

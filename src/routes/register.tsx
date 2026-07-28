@@ -207,6 +207,7 @@ function RegisterPage() {
           destination: patientWhatsAppTarget(patient),
           userName: f.name.trim(),
           templateParams: [f.name.trim(), todayFormatted],
+          patientId: patient.id,
         });
         // Registration itself already succeeded (patient/visit created) —
         // this is a separate, lower-urgency notice so reception knows to
