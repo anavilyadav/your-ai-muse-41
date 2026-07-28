@@ -53,6 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [viewAsRole, setViewAsRoleState] = useState<Role | null>(null);
   const [backupDoctorActive, setBackupDoctorActive] = useState(false);
   const [receptionPerms, setReceptionPerms] = useState<Record<string, boolean>>({});
+  // Distinguishes "loaded successfully, nothing explicitly restricted"
+  // from "failed to load, we don't actually know" — these must NOT
+  // behave the same way. See hasReceptionPermission below.
+  const [permsLoaded, setPermsLoaded] = useState(false);
   const userIdRef = useRef<string | undefined>(undefined);
 
   const loadUser = async (uid: string) => {
@@ -81,14 +85,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshReceptionPerms = async () => {
     try {
-      const { data } = await supabase.from("settings").select("key,value").like("key", "recp_perm:%");
+      const { data, error } = await supabase.from("settings").select("key,value").like("key", "recp_perm:%");
+      if (error) throw error;
       const map: Record<string, boolean> = {};
       (data ?? []).forEach((r: any) => {
         map[r.key] = r.value === "true" || r.value === true;
       });
       setReceptionPerms(map);
+      setPermsLoaded(true);
     } catch {
+      // A fetch failure is NOT the same as "nothing was ever restricted" —
+      // audit P1 #14. Leaving permsLoaded false makes hasReceptionPermission
+      // fail closed below, instead of silently granting every RECP1/RECP2
+      // screen just because a network blip happened.
       setReceptionPerms({});
+      setPermsLoaded(false);
     }
   };
 
@@ -174,6 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the underlying account is OWNER.
     const effectiveRole = user.role === "OWNER" && viewAsRole ? viewAsRole : user.role;
     if (effectiveRole !== "RECP1" && effectiveRole !== "RECP2") return true; // only gates RECP1/RECP2
+    // Fail closed: if the permissions fetch hasn't succeeded yet (still
+    // loading, or failed), we genuinely don't know what's restricted —
+    // that must not be treated as "nothing is restricted."
+    if (!permsLoaded) return false;
     const k = `recp_perm:${effectiveRole}:${screenKey}`;
     // Default ON (true) if never explicitly toggled off — nothing breaks for existing staff.
     return receptionPerms[k] !== false;
