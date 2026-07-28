@@ -119,6 +119,33 @@ export async function checkInExistingPatient(input: {
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
 }): Promise<{ visit: DBVisit }> {
+  // Token generation + visit insert + lifetime_visits bump + follow-up
+  // closure all happen inside one Postgres function now — this was the
+  // one live (non-fallback) path still generating T-XX tokens with a
+  // plain client-side count()+1, so two simultaneous check-ins at the
+  // same branch could land on the same token number.
+  const { data, error } = await supabase.rpc("check_in_existing_patient_atomic", {
+    p_patient_id: input.patient_id,
+    p_branch: input.branch,
+    p_chief_complaint: input.chief_complaint ?? null,
+    p_visit_date: today(),
+  });
+  if (!error && data) {
+    return { visit: data as DBVisit };
+  }
+  // Fall back to the old approach only if the RPC isn't deployed yet
+  // (SQL migration not run) — check-in must never hard-fail just because
+  // a migration is pending. Same pattern as createPatientWithVisit.
+  const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
+  if (!isMissingFunction) throw error ?? new Error("Check-in fail hua");
+  return checkInExistingPatientLegacy(input);
+}
+
+async function checkInExistingPatientLegacy(input: {
+  patient_id: string;
+  branch: "BAJAJ_NAGAR" | "JAGATPURA";
+  chief_complaint?: string;
+}): Promise<{ visit: DBVisit }> {
   const token = await nextTokenForToday(input.branch);
   const { data: v, error: ve } = await supabase
     .from("visits")
