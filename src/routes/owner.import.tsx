@@ -71,6 +71,15 @@ function useCSVImport(fields: FieldDef[]) {
   const [mapping, setMapping] = useState<Record<string, number>>({});
 
   const onFile = (file: File) => {
+    // A CSV this large is almost certainly the wrong file selected by
+    // mistake — FileReader would read the whole thing into memory as
+    // text before parsing, which can hang the tab on a genuinely huge
+    // file. 10MB is already tens of thousands of rows, far more than
+    // any realistic clinic import.
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File 10MB se badi hai — sahi CSV select kiya hai?");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = String(e.target?.result ?? "");

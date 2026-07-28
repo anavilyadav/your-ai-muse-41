@@ -150,6 +150,14 @@ function CaseFormPage() {
   const [busy, setBusy] = useState(false);
 
   const handlePhoto = async (kind: "case" | "tongue" | "reports", file: File) => {
+    // Same reasoning as the patient-documents guard: compression shrinks
+    // the eventual upload regardless of input size, but decoding a huge
+    // original into a canvas to get there can itself hang/crash a
+    // low-end phone browser mid-case-taking.
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error("File 25MB se badi hai — chhoti photo lo");
+      return;
+    }
     setUploadingKind(kind);
     const res = await uploadCasePhoto(visitId, kind, file);
     setUploadingKind(null);

@@ -335,6 +335,14 @@ function UploadDocumentModal({
   const [saving, setSaving] = useState(false);
 
   const pickFile = (f: File) => {
+    // Compression (in uploadPatientDocument) shrinks the eventual upload
+    // regardless of input size, but decoding a huge original into a
+    // canvas to do that can itself hang/crash a low-end phone browser —
+    // this catches that before it ever gets that far.
+    if (f.size > 25 * 1024 * 1024) {
+      toast.error("File 25MB se badi hai — chhoti photo chuno");
+      return;
+    }
     setFile(f);
     setPreview(URL.createObjectURL(f));
   };
