@@ -4,12 +4,14 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
+  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import { ViewAsBanner, BackupDoctorBanner } from "@/components/yhc/RoleSwitcher";
 import { InstallPrompt } from "@/components/yhc/InstallPrompt";
 
@@ -120,6 +122,54 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+// ----------------------------------------------------------------------------
+// Global default-deny guard (audit P1-16).
+//
+// Before this: auth was enforced per-route by each route wrapping its own
+// component in <AuthGate>. That works, but it depends on every future route
+// remembering to do it — a new route file that forgets AuthGate rendered
+// wide open to anyone, logged in or not. 20 routes were found missing it
+// in an earlier audit pass and fixed one-by-one; this closes the class of
+// bug so the *next* forgotten route fails safe instead of failing open.
+//
+// This is a backstop, not a replacement for AuthGate: it only enforces
+// "must be logged in" for every route except the explicit public allowlist.
+// Role-specific access (allow=["OWNER"] etc.) still lives in each route's
+// own <AuthGate> — a logged-in Reception user hitting a route that forgot
+// AuthGate would still see it render here, just not an anonymous visitor.
+// ----------------------------------------------------------------------------
+const PUBLIC_PATHS = ["/login"];
+
+function GlobalAuthGuard({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
+  const isPublic = PUBLIC_PATHS.includes(pathname);
+
+  useEffect(() => {
+    if (isPublic || loading || user) return;
+    navigate({ to: "/login", replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPublic, loading, user, pathname, navigate]);
+
+  if (isPublic) return <>{children}</>;
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full bg-background grid place-items-center">
+        <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+      </div>
+    );
+  }
+  if (!user) {
+    return (
+      <div className="min-h-screen w-full bg-background grid place-items-center">
+        <div className="text-sm text-muted-foreground">Redirecting…</div>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -128,7 +178,9 @@ function RootComponent() {
       <AuthProvider>
         <ViewAsBanner />
         <BackupDoctorBanner />
-        <Outlet />
+        <GlobalAuthGuard>
+          <Outlet />
+        </GlobalAuthGuard>
         <InstallPrompt />
         <Toaster position="top-center" richColors />
       </AuthProvider>
