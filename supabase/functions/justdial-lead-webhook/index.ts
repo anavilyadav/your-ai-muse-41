@@ -15,6 +15,16 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Plain === on secrets leaks timing information (an attacker can narrow
+// down the correct value character-by-character from response latency).
+// This always compares every byte regardless of where the mismatch is.
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
@@ -22,7 +32,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const expectedSecret = Deno.env.get("JUSTDIAL_WEBHOOK_SECRET");
-    if (!expectedSecret || body.secret !== expectedSecret) {
+    const gotSecret = String(body.secret ?? "");
+    if (!expectedSecret || !constantTimeEqual(gotSecret, expectedSecret)) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
     const name = String(body.name ?? "").trim();
