@@ -633,6 +633,38 @@ export async function submitPrescription(input: {
   if (pe) throw pe;
 }
 
+// ---------- Holiday greetings (owner-configurable) ----------
+// Festival dates change every year (Diwali, Holi, Eid...), so this is a
+// plain list the owner adds specific dates to — no recurrence logic to
+// get wrong. whatsapp-holiday-greetings Edge Function (Cron, daily)
+// checks today against this list and broadcasts to every consented
+// patient. Needs an approved AiSensy campaign named "HOLIDAY_GREETING".
+export interface Holiday {
+  id: string;
+  name: string;
+  date: string; // YYYY-MM-DD, specific to this year
+  active: boolean;
+}
+
+export async function fetchHolidays(): Promise<Holiday[]> {
+  const { data, error } = await supabase.from("holidays").select("*").order("date", { ascending: true });
+  if (error) return [];
+  return (data ?? []) as Holiday[];
+}
+
+export async function saveHoliday(input: Partial<Holiday> & { name: string; date: string }) {
+  const { id, ...rest } = input;
+  const { error } = id
+    ? await supabase.from("holidays").update(rest).eq("id", id)
+    : await supabase.from("holidays").insert(rest);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function deleteHoliday(id: string) {
+  const { error } = await supabase.from("holidays").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Win-back tiers (owner-configurable) ----------
 // Lapsed patients get a staged nudge (60/90/120/150+ days by default) —
 // not one message then silence. Owner edits tiers from the app; the

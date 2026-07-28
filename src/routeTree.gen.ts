@@ -25,6 +25,7 @@ import { Route as OwnerIndexRouteImport } from './routes/owner.index'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
 import { Route as OwnerHealthRouteImport } from './routes/owner.health'
+import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
 import { Route as OwnerImportRouteImport } from './routes/owner.import'
 import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
@@ -122,6 +123,11 @@ const OwnerFollowupRulesRoute = OwnerFollowupRulesRouteImport.update({
 const OwnerHealthRoute = OwnerHealthRouteImport.update({
   id: '/owner/health',
   path: '/owner/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerHolidaysRoute = OwnerHolidaysRouteImport.update({
+  id: '/owner/holidays',
+  path: '/owner/holidays',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerImportRoute = OwnerImportRouteImport.update({
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -266,6 +273,7 @@ export interface FileRoutesByTo {
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
+  '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -341,6 +350,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
+    | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
@@ -377,6 +387,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
+    | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
@@ -413,6 +424,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
+    | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/reports'
@@ -450,6 +462,7 @@ export interface RootRouteChildren {
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerFollowupRulesRoute: typeof OwnerFollowupRulesRoute
   OwnerHealthRoute: typeof OwnerHealthRoute
+  OwnerHolidaysRoute: typeof OwnerHolidaysRoute
   OwnerImportRoute: typeof OwnerImportRoute
   OwnerIncentivesRoute: typeof OwnerIncentivesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
@@ -584,6 +597,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/health'
       fullPath: '/owner/health'
       preLoaderRoute: typeof OwnerHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/holidays': {
+      id: '/owner/holidays'
+      path: '/owner/holidays'
+      fullPath: '/owner/holidays'
+      preLoaderRoute: typeof OwnerHolidaysRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/import': {
@@ -730,6 +750,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerControlRoute: OwnerControlRoute,
   OwnerFollowupRulesRoute: OwnerFollowupRulesRoute,
   OwnerHealthRoute: OwnerHealthRoute,
+  OwnerHolidaysRoute: OwnerHolidaysRoute,
   OwnerImportRoute: OwnerImportRoute,
   OwnerIncentivesRoute: OwnerIncentivesRoute,
   OwnerReportsRoute: OwnerReportsRoute,

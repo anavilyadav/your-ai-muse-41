@@ -115,6 +115,11 @@ function OwnerDashboard() {
               <div className="font-bold text-primary text-sm mt-1">Win-back Tiers</div>
               <div className="text-[11px] text-muted-foreground">Lapsed patients</div>
             </Link>
+            <Link to="/owner/holidays" className="rounded-2xl bg-surface border border-border p-3.5">
+              <CalendarClock className="h-5 w-5 text-success" />
+              <div className="font-bold text-primary text-sm mt-1">Holidays</div>
+              <div className="text-[11px] text-muted-foreground">Greeting broadcasts</div>
+            </Link>
           </div>
         </>
       )}
