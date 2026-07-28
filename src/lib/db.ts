@@ -487,73 +487,40 @@ export async function collectPayment(input: {
   branch: string;
   notes?: string;
 }) {
-  // Guard: never double-process a DONE visit. Re-submitting a completed
-  // visit would demote its status back to PAYMENT, insert a second
-  // follow-up schedule, and double-count amount_received into the
-  // patient's lifetime_revenue. If a genuine correction is needed, it
-  // must happen through an explicit refund/adjustment flow, not this
-  // default path.
-  const { data: existing, error: exErr } = await supabase
-    .from("visits")
-    .select("visit_status, next_visit_date")
-    .eq("id", input.visit_id)
-    .maybeSingle();
-  if (exErr) throw exErr;
-  if (!existing) throw new Error("Visit not found");
-  if (existing.visit_status === "DONE") {
-    throw new Error("Yeh visit already DONE hai — dobara payment collect nahi kar sakte. Correction chahiye toh Owner se refund/adjustment karwao.");
-  }
-
-  const balance = Math.max(0, input.amount_charged - input.amount_received);
-  const { error: pe } = await supabase.from("payments").insert({
-    visit_id: input.visit_id,
-    patient_id: input.patient_id,
-    amount_charged: input.amount_charged,
-    amount_received: input.amount_received,
-    balance_due: balance,
-    payment_mode: input.payment_mode,
-    branch: input.branch,
-    notes: input.notes ?? null,
+  // Payment insert + patient-totals recompute + visit-status update all
+  // happen inside ONE Postgres function (collect_payment_atomic), which
+  // runs as a single transaction with row-level locks on the visit and
+  // patient rows. If any step fails, Postgres rolls back everything —
+  // no window where money is recorded but the visit/patient are stale,
+  // and no race where two simultaneous payments for the same patient
+  // clobber each other's totals. current_balance is always recomputed
+  // as SUM(payments.balance_due) for the patient, not overwritten from
+  // just this visit, so older outstanding dues are never wiped.
+  const { data, error } = await supabase.rpc("collect_payment_atomic", {
+    p_visit_id: input.visit_id,
+    p_patient_id: input.patient_id,
+    p_amount_charged: input.amount_charged,
+    p_amount_received: input.amount_received,
+    p_payment_mode: input.payment_mode,
+    p_branch: input.branch,
+    p_notes: input.notes ?? null,
   });
-  if (pe) throw pe;
+  if (error) throw error;
 
-
-  // update patient totals
-  const { data: pat } = await supabase
-    .from("patients")
-    .select("lifetime_revenue,current_balance")
-    .eq("id", input.patient_id)
-    .maybeSingle();
-  const newRev = Number(pat?.lifetime_revenue ?? 0) + input.amount_received;
-  const { error: patErr } = await supabase
-    .from("patients")
-    .update({ lifetime_revenue: newRev, current_balance: balance })
-    .eq("id", input.patient_id);
-
-  // update visit + create followup schedule if fully paid
-  let statusErr = null;
-  let followupErr = null;
-  if (balance === 0) {
-    ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "DONE" }).eq("id", input.visit_id));
+  // Follow-up scheduling is a downstream side effect, not money — it
+  // stays as a separate best-effort call so a follow-up-table hiccup
+  // never rolls back a payment that was already accepted from the
+  // patient. It's still surfaced (not silently swallowed) so staff know
+  // to check the follow-up queue manually if it fails.
+  if (data?.balance === 0) {
     try {
-      await generateFollowupSchedule(input.patient_id, input.visit_id, existing.next_visit_date ?? null);
+      await generateFollowupSchedule(input.patient_id, input.visit_id, data?.next_visit_date ?? null);
     } catch (e: any) {
-      followupErr = e;
+      throw new Error(
+        "Payment collect ho gaya aur visit DONE mark ho gayi, lekin follow-up schedule create nahi ho paya — follow-up queue manually check karo: " +
+          (e?.message || "unknown error"),
+      );
     }
-  } else {
-    ({ error: statusErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", input.visit_id));
-  }
-
-  // Payment itself is already recorded at this point (money was taken) —
-  // but if any update below failed, the visit will look stuck in the
-  // queue, the patient's totals will be stale, or the follow-up schedule
-  // will quietly never exist — so this needs to be visibly flagged
-  // rather than silently reported as a clean success.
-  if (patErr || statusErr || followupErr) {
-    throw new Error(
-      "Payment save ho gaya, lekin visit/patient/follow-up record update nahi ho paya — refresh karke check karo: " +
-        (patErr?.message || statusErr?.message || followupErr?.message),
-    );
   }
 }
 
