@@ -1433,7 +1433,7 @@ export interface NewAppointmentInput {
 }
 
 export async function fetchAppointments(date?: string) {
-  let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true });
+  let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true }).limit(500);
   if (date) q = q.eq("appointment_date", date);
   const { data, error } = await q;
   if (error) return [];
@@ -1720,7 +1720,7 @@ export async function runHealthChecks() {
 
 // ---------- Settings ----------
 export async function fetchSettings() {
-  const { data } = await supabase.from("settings").select("*");
+  const { data } = await supabase.from("settings").select("*").limit(1000);
   return data ?? [];
 }
 
@@ -2153,7 +2153,8 @@ export async function fetchFamilyMembers(patientId: string) {
     .from("patients")
     .select("id, name, mobile, age, gender, family_relationship, last_visit_date, patient_code")
     .eq("family_group_id", me.family_group_id)
-    .neq("id", patientId);
+    .neq("id", patientId)
+    .limit(50);
   if (error) return [];
   return data ?? [];
 }
