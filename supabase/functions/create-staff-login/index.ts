@@ -2,9 +2,16 @@
 // Uses REAL email addresses (not a fake @yhcos.in one) so password resets
 // and account recovery actually work.
 //
-// Called with:
+// Called with (Authorization: Bearer <caller's Supabase session JWT> required):
 //   { action: "create", mobile, email, pin }        — first-time login setup
 //   { action: "update-email", mobile, email }        — change email later
+//
+// SECURITY: this function uses the service-role key, which bypasses RLS
+// entirely — without a caller check, anyone with the URL could create or
+// take over ANY staff login (including Owner) just by knowing this
+// endpoint. The block below verifies the caller's JWT is a real, signed-in
+// session AND that the corresponding users row has role = 'OWNER', before
+// touching anything. Every other request is rejected.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -13,6 +20,31 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
   }
   try {
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // ---- Caller verification: must be a signed-in OWNER ----
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Not signed in" }), { status: 401 });
+    }
+    const { data: callerAuth, error: callerErr } = await supabaseAdmin.auth.getUser(token);
+    if (callerErr || !callerAuth?.user) {
+      return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401 });
+    }
+    const { data: callerProfile } = await supabaseAdmin
+      .from("users")
+      .select("role")
+      .eq("id", callerAuth.user.id)
+      .maybeSingle();
+    if (callerProfile?.role !== "OWNER") {
+      return new Response(JSON.stringify({ error: "Owner access required" }), { status: 403 });
+    }
+    // ---- End caller verification ----
+
     const body = await req.json();
     const { action, mobile, email, pin } = body;
 
@@ -22,11 +54,6 @@ Deno.serve(async (req) => {
     if (!email || !String(email).includes("@")) {
       return new Response(JSON.stringify({ error: "Valid email required" }), { status: 400 });
     }
-
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
 
     const { data: profile } = await supabaseAdmin
       .from("users")

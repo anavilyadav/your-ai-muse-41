@@ -6,8 +6,25 @@ import { X } from "lucide-react";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { fetchStaff, branchLabel, addStaffProfile, fetchCaseDrLevels, saveCaseDrLevels } from "@/lib/db";
+import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
+
+// Builds the create-staff-login call with the caller's real session JWT
+// attached — the edge function now rejects anything without a valid
+// OWNER-role token, so this header is required, not optional.
+async function callCreateStaffLogin(body: Record<string, unknown>) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  return fetch(`${SUPABASE_URL}/functions/v1/create-staff-login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
 
 const ROLE_OPTIONS = ["RECP1", "RECP2", "DOCTOR", "CASE_DR", "PHARMA", "CALLING", "BACKEND"];
 const BRANCH_OPTIONS = ["Bajaj Nagar", "Jagatpura", "Both"];
@@ -45,14 +62,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
 
     if (email.trim() && pin.trim()) {
       try {
-        const fnRes = await fetch(
-          "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/create-staff-login",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "create", mobile: cleanMobile, email: email.trim(), pin: pin.trim() }),
-          },
-        );
+        const fnRes = await callCreateStaffLogin({ action: "create", mobile: cleanMobile, email: email.trim(), pin: pin.trim() });
         const fnData = await fnRes.json();
         if (!fnRes.ok || fnData.error) {
           toast.error(name + " add ho gaye, lekin login banane mein dikkat: " + (fnData.error ?? "unknown error"));
@@ -138,17 +148,10 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
     if (needsPin && pin.trim().length < 4) { toast.error("Pehli baar login banane ke liye PIN chahiye (4+ digit)"); return; }
     setSaving(true);
     try {
-      const res = await fetch(
-        "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/create-staff-login",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            needsPin
-              ? { action: "create", mobile: s.mobile, email: email.trim(), pin: pin.trim() }
-              : { action: "update-email", mobile: s.mobile, email: email.trim() },
-          ),
-        },
+      const res = await callCreateStaffLogin(
+        needsPin
+          ? { action: "create", mobile: s.mobile, email: email.trim(), pin: pin.trim() }
+          : { action: "update-email", mobile: s.mobile, email: email.trim() },
       );
       const data = await res.json();
       if (!res.ok || data.error) {
