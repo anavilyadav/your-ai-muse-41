@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { supabase, type AppUser, type Role } from "./supabase";
+import { withTimeout } from "./db";
 
 export interface BackupDoctorConfig {
   userId: string;
@@ -57,16 +58,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // from "failed to load, we don't actually know" — these must NOT
   // behave the same way. See hasReceptionPermission below.
   const [permsLoaded, setPermsLoaded] = useState(false);
+  const permsLoadedRef = useRef(false);
   const userIdRef = useRef<string | undefined>(undefined);
 
   const loadUser = async (uid: string) => {
-    const { data, error } = await supabase
-      .from("users")
-      .select("id,name,mobile,role,branch")
-      .eq("id", uid)
-      .maybeSingle();
-    if (error || !data) return null;
-    return data as AppUser;
+    try {
+      const { data, error } = await withTimeout(
+        Promise.resolve(supabase.from("users").select("id,name,mobile,role,branch").eq("id", uid).maybeSingle()),
+        12_000,
+        "Load user",
+      );
+      if (error || !data) return null;
+      return data as AppUser;
+    } catch {
+      // A stalled request here must not leave the whole app stuck on the
+      // "Loading…" screen forever (setLoading(false) below only runs
+      // after this resolves, one way or another).
+      return null;
+    }
   };
 
   const refreshBackupDoctorStatus = async (currentUserId: string | undefined) => {
@@ -75,7 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const { data } = await supabase.from("settings").select("value").eq("key", "backup_doctor_config").maybeSingle();
+      const { data } = await withTimeout(
+        Promise.resolve(supabase.from("settings").select("value").eq("key", "backup_doctor_config").maybeSingle()),
+        12_000,
+        "Backup-doctor status",
+      );
       const cfg: BackupDoctorConfig | null = data?.value ? JSON.parse(data.value) : null;
       setBackupDoctorActive(isBackupActiveNow(cfg, currentUserId));
     } catch {
@@ -85,7 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshReceptionPerms = async () => {
     try {
-      const { data, error } = await supabase.from("settings").select("key,value").like("key", "recp_perm:%");
+      const { data, error } = await withTimeout(
+        Promise.resolve(supabase.from("settings").select("key,value").like("key", "recp_perm:%")),
+        12_000,
+        "Reception permissions",
+      );
       if (error) throw error;
       const map: Record<string, boolean> = {};
       (data ?? []).forEach((r: any) => {
@@ -93,13 +110,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setReceptionPerms(map);
       setPermsLoaded(true);
+      permsLoadedRef.current = true;
     } catch {
-      // A fetch failure is NOT the same as "nothing was ever restricted" —
-      // audit P1 #14. Leaving permsLoaded false makes hasReceptionPermission
-      // fail closed below, instead of silently granting every RECP1/RECP2
-      // screen just because a network blip happened.
+      // A fetch failure (or now, a timeout) is NOT the same as "nothing
+      // was ever restricted" — audit P1 #14. Leaving permsLoaded false
+      // makes hasReceptionPermission fail closed below, instead of
+      // silently granting every RECP1/RECP2 screen just because a
+      // network blip happened. The dedicated 20s retry loop below means
+      // a transient failure self-heals instead of leaving a RECP1/RECP2
+      // user locked out of every gated screen for their whole session.
       setReceptionPerms({});
       setPermsLoaded(false);
+      permsLoadedRef.current = false;
     }
   };
 
@@ -137,10 +159,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     // Re-check every 5 minutes in case a backup window starts/ends mid-session.
     const interval = setInterval(() => refreshBackupDoctorStatus(userIdRef.current), 5 * 60 * 1000);
+    // Separate, much faster retry specifically for reception permissions —
+    // if the one attempt above failed (network blip), a RECP1/RECP2 user
+    // would otherwise stay fail-closed out of every gated screen for the
+    // rest of their session. This keeps quietly retrying every 20s until
+    // it succeeds, then becomes a no-op (permsLoadedRef.current check is
+    // cheap — no real cost to leaving it running for the session).
+    const permsRetry = setInterval(() => {
+      if (!permsLoadedRef.current && userIdRef.current) refreshReceptionPerms();
+    }, 20_000);
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
       clearInterval(interval);
+      clearInterval(permsRetry);
     };
   }, []);
 

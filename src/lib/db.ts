@@ -1127,7 +1127,7 @@ async function compressImageForUpload(
 // Clinic wifi can stall completely rather than error out. Without a hard
 // timeout, "Uploading…" (and the whole submit flow behind it) can sit frozen
 // indefinitely. This forces a clear failure the user can retry instead.
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} timed out — check your connection and try again`)), ms);
     promise.then(
@@ -2379,6 +2379,12 @@ export async function fetchDaySummary(branch?: string) {
     jagat: visits.filter((v: any) => v.branch === "JAGATPURA").length,
   };
 }
+
+// Single source of truth for the two branch enum keys — was duplicated
+// as slightly different local arrays (some enum-keyed, some display-
+// label-keyed) across appointments.tsx, register.tsx, pharmacy.inventory
+// .tsx, owner.reports.tsx, pharmacy.master.tsx, owner.import.tsx.
+export const BRANCH_KEYS = ["BAJAJ_NAGAR", "JAGATPURA"] as const;
 
 export function branchLabel(b: string | null | undefined): string {
   if (b === "BAJAJ_NAGAR") return "Bajaj Nagar";
