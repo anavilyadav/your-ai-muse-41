@@ -75,8 +75,8 @@ Deno.serve(async (req) => {
     }
 
     // default action: create the login
-    if (!pin || String(pin).length < 4) {
-      return new Response(JSON.stringify({ error: "4+ digit PIN required" }), { status: 400 });
+    if (!pin || String(pin).length < 6) {
+      return new Response(JSON.stringify({ error: "6+ digit PIN required" }), { status: 400 });
     }
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,

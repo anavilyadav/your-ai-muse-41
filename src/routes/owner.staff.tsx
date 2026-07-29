@@ -48,8 +48,8 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       toast.error("Email sahi format mein daalo (ya khaali chhod do)");
       return;
     }
-    if (email.trim() && pin.trim().length < 4) {
-      toast.error("Login banane ke liye PIN kam se kam 4 digit ka hona chahiye");
+    if (email.trim() && pin.trim().length < 6) {
+      toast.error("Login banane ke liye PIN kam se kam 6 digit ka hona chahiye");
       return;
     }
     setSaving(true);
@@ -117,7 +117,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Real Email</label>
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="unki asli email" />
             <label className="text-[11px] font-bold text-muted-foreground uppercase mt-2 block">PIN</label>
-            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="4-6 digit PIN" />
+            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="6-digit PIN" />
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Add Staff"}
@@ -145,7 +145,7 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
 
   const submit = async () => {
     if (!email.includes("@")) { toast.error("Sahi email daalo"); return; }
-    if (needsPin && pin.trim().length < 4) { toast.error("Pehli baar login banane ke liye PIN chahiye (4+ digit)"); return; }
+    if (needsPin && pin.trim().length < 6) { toast.error("Pehli baar login banane ke liye PIN chahiye (6 digit)"); return; }
     setSaving(true);
     try {
       const res = await callCreateStaffLogin(
@@ -180,7 +180,7 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
         <div className="flex flex-col gap-3">
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Real email" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           {needsPin && (
-            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} placeholder="4-6 digit PIN" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+            <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} placeholder="6-digit PIN" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           )}
           <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Save"}

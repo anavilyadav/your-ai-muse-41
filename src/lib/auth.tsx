@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { supabase, type AppUser, type Role } from "./supabase";
+import { supabase, SUPABASE_URL, type AppUser, type Role } from "./supabase";
 import { withTimeout } from "./db";
 
 export interface BackupDoctorConfig {
@@ -179,17 +179,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (mobile: string, pin: string) => {
     const cleaned = mobile.replace(/\D/g, "");
     if (cleaned.length !== 10 || pin.length < 4) return "Mobile ya PIN galat hai";
-    const { data: profile } = await supabase
-      .from("users")
-      .select("email")
-      .eq("mobile", cleaned)
-      .maybeSingle();
-    // Real email if set; falls back to the old synthetic address for
-    // accounts created before real emails were supported.
-    const email = profile?.email || `${cleaned}@yhcos.in`;
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pin });
-    if (error) return "Mobile ya PIN galat hai";
-    return null;
+    // Proxied through staff-signin (audit P1-14) so a server-side lockout
+    // (5 failed attempts -> 15 min) can be enforced — calling
+    // supabase.auth.signInWithPassword directly here, like before, would
+    // have no way to know or care how many times this mobile just failed.
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/staff-signin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: cleaned, pin }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.access_token) {
+        return data?.error || "Mobile ya PIN galat hai";
+      }
+      const { error: setErr } = await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      });
+      if (setErr) return "Login mein dikkat aayi, dobara try karo";
+      return null;
+    } catch {
+      return "Network issue — dobara try karo";
+    }
   };
 
   const signOut = async () => {
