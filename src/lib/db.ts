@@ -1253,14 +1253,22 @@ export async function fetchLeadStats() {
   };
 }
 
-export async function fetchLeads() {
+// Phase 1 #8: fetches LIMIT+1 rows so it can tell whether the real table
+// has more than LIMIT rows without a separate count() query. If it does,
+// the extra row is dropped and truncated=true is returned so the UI can
+// show a warning instead of silently looking "complete" while actually
+// missing rows past the cap.
+export async function fetchLeads(): Promise<{ rows: any[]; truncated: boolean }> {
+  const LIMIT = 500;
   const { data, error } = await supabase
     .from("leads")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) return [];
-  return data ?? [];
+    .limit(LIMIT + 1);
+  if (error) return { rows: [], truncated: false };
+  const rows = data ?? [];
+  const truncated = rows.length > LIMIT;
+  return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
 }
 export async function updateLeadStatus(id: string, status: LeadStatus) {
   const { error } = await supabase.from("leads").update({ status }).eq("id", id);
@@ -1273,14 +1281,17 @@ export async function setLeadDnd(id: string, dnd: boolean) {
 }
 
 // ---------- Inventory ----------
-export async function fetchInventory() {
+export async function fetchInventory(): Promise<{ rows: any[]; truncated: boolean }> {
+  const LIMIT = 2000;
   const { data, error } = await supabase
     .from("inventory")
     .select("*")
     .order("medicine_name", { ascending: true })
-    .limit(2000);
-  if (error) return [];
-  return data ?? [];
+    .limit(LIMIT + 1);
+  if (error) return { rows: [], truncated: false };
+  const rows = data ?? [];
+  const truncated = rows.length > LIMIT;
+  return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
 }
 
 export interface StockEntryInput {
@@ -1795,7 +1806,7 @@ export interface NewAppointmentInput {
   patient_id?: string;
 }
 
-export async function fetchAppointments(date?: string) {
+export async function fetchAppointments(date?: string): Promise<{ rows: any[]; truncated: boolean }> {
   // Re-audit finding: ascending order + limit(500) with no date meant
   // that once the table crossed 500 total rows, the oldest appointments
   // would always win the limit and new ones would never appear. The one
@@ -1804,12 +1815,15 @@ export async function fetchAppointments(date?: string) {
   // caller that forgot to pass date would hit it silently. Now floors
   // to today() whenever no specific date is given, so "no date" means
   // "upcoming", never "the oldest 500 ever created".
-  let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true }).limit(500);
+  const LIMIT = 500;
+  let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true }).limit(LIMIT + 1);
   if (date) q = q.eq("appointment_date", date);
   else q = q.gte("appointment_date", today());
   const { data, error } = await q;
-  if (error) return [];
-  return data ?? [];
+  if (error) return { rows: [], truncated: false };
+  const rows = data ?? [];
+  const truncated = rows.length > LIMIT;
+  return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
 }
 
 export async function createAppointment(input: NewAppointmentInput) {
@@ -1918,7 +1932,7 @@ export async function fetchSlotAvailability(date: string, branch: ApptBranch): P
   ]);
   const hours = cfg.hours[branch] ?? DEFAULT_SLOT_CONFIG.hours[branch];
   const times = generateSlots(hours.start, hours.end, cfg.slotMinutes);
-  const activeAppts = (appts as any[]).filter((a) => a.branch === branch && a.status !== "Cancelled");
+  const activeAppts = appts.rows.filter((a) => a.branch === branch && a.status !== "Cancelled");
   const vipForThis = vip.filter((v) => v.date === date && v.branch === branch);
   return times.map((t) => {
     const booked = activeAppts.filter((a) => (a.appointment_time ?? "").slice(0, 5) === t).length;

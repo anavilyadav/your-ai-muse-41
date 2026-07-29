@@ -394,7 +394,8 @@ function AppointmentsPage() {
     queryFn: () => fetchAppointments(selectedDate),
   });
   const queryClient = useQueryClient();
-  const appts = (data ?? []) as any[];
+  const appts = (data?.rows ?? []) as any[];
+  const apptsTruncated = data?.truncated ?? false;
   const [branch, setBranch] = useState<(typeof branches)[number]>("All");
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -446,6 +447,11 @@ function AppointmentsPage() {
         <StatCard label="Arrived" value={stats.arrived} />
         <StatCard label="Cancelled" value={stats.cancelled} tone="destructive" />
       </div>
+      {apptsTruncated && (
+        <div className="mt-2 text-[11px] text-muted-foreground text-center">
+          Is din ke sirf pehle 500 appointments dikh rahe hain.
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2">
         <input

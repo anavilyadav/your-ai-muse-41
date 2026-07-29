@@ -135,7 +135,8 @@ function InventoryPage() {
   const [showAdd, setShowAdd] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
   const queryClient = useQueryClient();
-  const rows = (data ?? []) as any[];
+  const rows = (data?.rows ?? []) as any[];
+  const inventoryTruncated = data?.truncated ?? false;
   const list = f === "Low Stock" ? rows.filter(isLow) : rows;
 
   return (
@@ -159,6 +160,11 @@ function InventoryPage() {
         <Stat v={rows.length} l="Total Items" />
         <Stat v={rows.filter(isLow).length} l="Low Stock" tone="destructive" />
       </div>
+      {inventoryTruncated && (
+        <div className="mt-2 text-[11px] text-muted-foreground text-center">
+          Sirf pehle 2000 items yahan dikh rahe hain — specific medicine chahiye toh search use karo.
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
         {(["All", "Low Stock"] as const).map((x) => (
           <button

@@ -47,7 +47,8 @@ function daysSince(iso: string | null | undefined): number {
 function LeadsPage() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["leads"], queryFn: fetchLeads });
-  const leads = (data ?? []) as any[];
+  const leads = (data?.rows ?? []) as any[];
+  const leadsTruncated = data?.truncated ?? false;
   const [filter, setFilter] = useState<Filter>("All");
   const [mounted, setMounted] = useState(false);
   const [historyLead, setHistoryLead] = useState<{ id: string; name: string } | null>(null);
@@ -147,7 +148,7 @@ function LeadsPage() {
           ))}
         </div>
       )}
-      {!isSearching && leads.length >= 500 && (
+      {!isSearching && leadsTruncated && (
         <div className="mt-2 text-[11px] text-muted-foreground text-center">
           Sirf latest 500 leads yahan dikh rahe hain — purana lead dhoondne ke liye upar search karo.
         </div>
