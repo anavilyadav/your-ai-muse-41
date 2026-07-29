@@ -9,6 +9,12 @@
 -- for what to deploy and where that URL comes from) before this does
 -- anything useful — until then it'll just fail fast with a clear error in
 -- the Edge Function logs, not silently no-op.
+--
+-- BEFORE RUNNING THIS: replace PASTE_YOUR_SECRET_HERE below with the
+-- EXACT same value already set as the BACKUP_FUNCTION_SECRET Edge
+-- Function secret (the same one backup-to-sheets already uses — see
+-- migration 0002 for that one's header, confirmed working; this mirrors
+-- it exactly rather than the Vault-lookup guess from an earlier draft).
 -- ============================================================================
 
 select cron.schedule(
@@ -17,21 +23,11 @@ select cron.schedule(
   $cmd$
 select net.http_post(
   url := 'https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1/backup-storage-to-drive',
-  headers := jsonb_build_object(
-    'Content-Type', 'application/json',
-    'x-backup-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'BACKUP_FUNCTION_SECRET')
-  ),
+  headers := '{"Content-Type": "application/json", "x-backup-secret": "PASTE_YOUR_SECRET_HERE"}'::jsonb,
   body := '{}'::jsonb
 ) as request_id;
 $cmd$
 );
 
--- NOTE: the header above assumes BACKUP_FUNCTION_SECRET is stored in
--- Supabase Vault under that exact name, matching whatever pattern the
--- existing backup-to-sheets cron job already uses for its own
--- x-backup-secret header (migration 0002) — copy that job's actual
--- header approach here if it differs from the vault lookup above; this
--- repo doesn't have visibility into how 0002 was ultimately run.
-
--- VERIFY:
+-- VERIFY — headers should show your actual secret, not a placeholder:
 -- select jobid, jobname, schedule, command from cron.job where jobname = 'backup-storage-to-drive';
