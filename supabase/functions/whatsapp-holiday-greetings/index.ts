@@ -26,6 +26,17 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
+// Edge Functions run in UTC. India has no DST, so IST is always exactly
+// UTC+5:30 -- shift the clock by that fixed offset before reading today's
+// date, instead of trusting the server's own local calendar date. Without
+// this, a cron that fires in the IST 12:00am-5:29am window reads a date
+// that's still "yesterday" in UTC, and a holiday falling on that boundary
+// day gets missed entirely (checked against the wrong date, once, ever).
+function istTodayStr(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 Deno.serve(async () => {
   try {
     const supabaseAdmin = createClient(
@@ -37,7 +48,7 @@ Deno.serve(async () => {
       return new Response(JSON.stringify({ error: "AISENSY_API_KEY not configured as a secret" }), { status: 500 });
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = istTodayStr();
     const { data: holidays, error: hErr } = await supabaseAdmin
       .from("holidays")
       .select("*")
@@ -56,13 +67,21 @@ Deno.serve(async () => {
 
     let sent = 0, skipped = 0, failed = 0;
     for (const holiday of holidays) {
+      // Was one dedup count() query PER patient PER holiday (N+1 — e.g.
+      // 500 consented patients meant 500 round trips just to check
+      // "already sent this holiday?"). Now one batched query per holiday:
+      // fetch every patient_id already sent this holiday, check
+      // membership in memory.
+      const allPatientIds = (patients ?? []).map((p: any) => p.id);
+      const { data: alreadySent } = await supabaseAdmin
+        .from("holiday_greeting_log")
+        .select("patient_id")
+        .eq("holiday_id", holiday.id)
+        .in("patient_id", allPatientIds);
+      const alreadySentSet = new Set((alreadySent ?? []).map((r: any) => r.patient_id));
+
       for (const patient of patients ?? []) {
-        const { count } = await supabaseAdmin
-          .from("holiday_greeting_log")
-          .select("id", { count: "exact", head: true })
-          .eq("patient_id", patient.id)
-          .eq("holiday_id", holiday.id);
-        if ((count ?? 0) > 0) { skipped++; continue; }
+        if (alreadySentSet.has(patient.id)) { skipped++; continue; }
 
         try {
           const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
