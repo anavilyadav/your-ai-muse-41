@@ -43,6 +43,10 @@ function istTodayParts(): { mm: string; dd: string; year: number } {
   };
 }
 
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
 // Was one dedup count() query PER matching patient PER wish type — N+1.
 // Now: caller passes the full candidate id list once, this returns the
 // Set of ids already wished this year, checked in memory per patient.
@@ -103,6 +107,17 @@ Deno.serve(async () => {
 
     const { mm, dd, year } = istTodayParts();
 
+    // Phase 1 #10: someone born/married on Feb 29 would otherwise only
+    // ever get wished once every 4 years, since "today" never equals
+    // "02-29" in a non-leap year. Convention used here: wish them on
+    // Feb 28 instead, in years where Feb 29 doesn't exist. matchDays is
+    // normally just today's own month-day, with "02-29" added to it
+    // specifically when today is Feb 28 of a non-leap year.
+    const matchDays = [`${mm}-${dd}`];
+    if (mm === "02" && dd === "28" && !isLeapYear(year)) {
+      matchDays.push("02-29");
+    }
+
     // dob/anniversary_date are stored as full dates (YYYY-MM-DD) — match
     // on month+day only, year is irrelevant for a recurring wish.
     const { data: patients, error } = await supabaseAdmin
@@ -111,8 +126,8 @@ Deno.serve(async () => {
       .eq("wa_consent", true);
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
 
-    const birthdayMatches = (patients ?? []).filter((p: any) => p.dob && p.dob.slice(5, 10) === `${mm}-${dd}`);
-    const anniversaryMatches = (patients ?? []).filter((p: any) => p.anniversary_date && p.anniversary_date.slice(5, 10) === `${mm}-${dd}`);
+    const birthdayMatches = (patients ?? []).filter((p: any) => p.dob && matchDays.includes(p.dob.slice(5, 10)));
+    const anniversaryMatches = (patients ?? []).filter((p: any) => p.anniversary_date && matchDays.includes(p.anniversary_date.slice(5, 10)));
 
     // Two batched dedup queries total (one per log table) instead of one
     // count() query per matching patient per wish type.
