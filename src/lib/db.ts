@@ -106,7 +106,18 @@ export async function nextTokenForToday(branch: string): Promise<string> {
 // registers, any lead sitting on the same mobile number gets flipped and
 // linked automatically. Best-effort — a lead-matching hiccup must never
 // block a real registration that already succeeded.
-export async function autoConvertMatchingLead(patientId: string, mobile: string): Promise<void> {
+export async function autoConvertMatchingLead(patientId: string, mobile: string, mobileCountryCode?: string | null): Promise<void> {
+  // Phase 1 #6 — +91 prefix mismatch guard. The leads table has no
+  // mobile_country_code column at all: every lead in it (JustDial,
+  // manual entry, bulk import) is implicitly assumed to be a +91 Indian
+  // 10-digit number. Matching purely on the raw digits, with no country
+  // check, risks converting an unrelated lead that happens to share the
+  // same 10 digits under a different country code. The register.tsx
+  // caller already guarded this at the call site (only calls for +91
+  // patients) — moved the guard IN here too so it's structurally
+  // guaranteed even if a future caller (e.g. the returning-patient
+  // check-in flow) forgets to check first.
+  if (mobileCountryCode && mobileCountryCode !== "+91") return;
   try {
     const { error } = await supabase
       .from("leads")

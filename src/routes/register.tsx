@@ -205,9 +205,10 @@ function RegisterPage() {
         caseChannel: f.caseChannel,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
-      if (effectiveCountryCode === "+91") {
-        autoConvertMatchingLead(patient.id, patient.mobile);
-      }
+      // Guard now also lives inside autoConvertMatchingLead itself (Phase
+      // 1 #6) — passing the country code here so it's checked regardless
+      // of what future callers remember to do.
+      autoConvertMatchingLead(patient.id, patient.mobile, effectiveCountryCode);
       if (f.consent) {
         const todayFormatted = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
         const waRes = await sendWhatsApp({
