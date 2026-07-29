@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, applyAvailableCredit, revertCreditApplication } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pay/$id")({
@@ -77,22 +77,20 @@ function PayPage() {
   const doCollect = async () => {
     if (charged <= 0) return toast.error("Amount daalo");
     setBusy(true);
-    let appliedCredit = 0;
     try {
-      // Credit is reserved+applied first (row-locked RPC, so two staff
-      // can't spend the same credit twice). If the payment insert below
-      // then fails, we must give the credit back — see catch block.
-      if (creditToApply > 0) {
-        appliedCredit = await applyAvailableCredit(visit.patient_id, visit.id, creditToApply);
-      }
+      // Credit consumption + payment insert now happen inside ONE atomic
+      // RPC call (migration 0012) — no more separate apply-then-revert
+      // steps. If anything fails, Postgres rolls back the whole thing,
+      // including any credit that was about to be spent, so credit can
+      // never get stuck "applied" against a payment that never happened.
       await collectPayment({
         visit_id: visit.id,
         patient_id: visit.patient_id,
         amount_charged: charged,
-        amount_received: received + appliedCredit,
+        amount_received: received,
         payment_mode: mode,
         branch: visit.branch,
-        notes: appliedCredit > 0 ? `Includes ₹${appliedCredit} credit note applied` : undefined,
+        credit_to_apply: creditToApply,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
@@ -100,10 +98,6 @@ function PayPage() {
       toast.success(balance === 0 ? "Payment done." : "Partial payment saved.");
       navigate({ to: "/", replace: true });
     } catch (e: any) {
-      if (appliedCredit > 0) {
-        await revertCreditApplication(visit.id);
-        qc.invalidateQueries({ queryKey: ["available-credit", visit.patient_id] });
-      }
       toast.error(e?.message || "Payment fail hua");
     } finally {
       setBusy(false);

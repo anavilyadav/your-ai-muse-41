@@ -576,14 +576,22 @@ export async function collectPayment(input: {
   payment_mode: "CASH" | "UPI" | "CARD";
   branch: string;
   notes?: string;
+  // Phase 1 #1: credit consumption now happens INSIDE this same RPC/
+  // transaction (see migration 0012), not as a separate apply-then-revert
+  // pair of calls. Pass how much credit to apply here — the DB locks and
+  // consumes the patient's CREDIT_AVAILABLE rows atomically alongside the
+  // payment insert, so there's no window where credit is "applied" but no
+  // payment exists (or vice versa).
+  credit_to_apply?: number;
 }) {
-  // Payment insert + patient-totals recompute + visit-status update all
-  // happen inside ONE Postgres function (collect_payment_atomic), which
-  // runs as a single transaction with row-level locks on the visit and
-  // patient rows. If any step fails, Postgres rolls back everything —
-  // no window where money is recorded but the visit/patient are stale,
-  // and no race where two simultaneous payments for the same patient
-  // clobber each other's totals. current_balance is always recomputed
+  // Payment insert + credit consumption + patient-totals recompute +
+  // visit-status update all happen inside ONE Postgres function
+  // (collect_payment_atomic), which runs as a single transaction with
+  // row-level locks on the visit, patient, and credit rows. If any step
+  // fails, Postgres rolls back everything — no window where money is
+  // recorded but the visit/patient are stale, and no race where two
+  // simultaneous payments (or two simultaneous credit spends) for the
+  // same patient clobber each other. current_balance is always recomputed
   // as SUM(payments.balance_due) for the patient, not overwritten from
   // just this visit, so older outstanding dues are never wiped.
   const { data, error } = await supabase.rpc("collect_payment_atomic", {
@@ -594,6 +602,7 @@ export async function collectPayment(input: {
     p_payment_mode: input.payment_mode,
     p_branch: input.branch,
     p_notes: input.notes ?? null,
+    p_credit_to_apply: input.credit_to_apply ?? 0,
   });
   if (error) throw error;
 
@@ -680,11 +689,14 @@ export async function fetchAvailableCredit(patientId: string): Promise<number> {
   return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
 }
 
-// The RPC row-locks the patient's credit rows and applies them inside one
-// transaction, so two staff can't spend the same credit twice. This call
-// must happen BEFORE collectPayment; if collectPayment then fails, the
-// caller MUST call revertCreditApplication or the credit is stuck as
-// "applied" against a payment that never happened. See pay.$id.tsx.
+// DEPRECATED (Phase 1 #1, 29 Jul 2026 follow-up) — credit is now applied
+// INSIDE collect_payment_atomic via the credit_to_apply param on
+// collectPayment(), in the same transaction as the payment insert. That
+// removed the two-step "apply, then hope collectPayment succeeds, else
+// remember to revert" pattern these two functions implemented. Kept here
+// (unused, no callers left in the app) only in case the old 2-RPC flow is
+// ever needed again — safe to delete along with apply_available_credit /
+// revert_credit_application in the DB once confirmed unneeded.
 export async function applyAvailableCredit(patientId: string, visitId: string, requestedAmount: number): Promise<number> {
   if (requestedAmount <= 0) return 0;
   const { data, error } = await supabase.rpc("apply_available_credit", {
@@ -696,8 +708,8 @@ export async function applyAvailableCredit(patientId: string, visitId: string, r
   return Number((data as any)?.applied ?? 0);
 }
 
-// Compensating action for the failure case above — best-effort, logged
-// not thrown, matching the pattern already used for follow-up scheduling.
+// DEPRECATED — see applyAvailableCredit note above. No longer called by
+// the payment flow; the RPC transaction rollback now does this job.
 export async function revertCreditApplication(visitId: string): Promise<void> {
   try {
     const { error } = await supabase.rpc("revert_credit_application", { p_visit_id: visitId });
