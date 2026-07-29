@@ -7,17 +7,27 @@
 //
 // Needs:
 //   - AISENSY_API_KEY secret (already set for the other WhatsApp functions)
-//   - JUSTDIAL_WEBHOOK_SECRET secret (shared secret so randoms on the
-//     internet can't POST fake leads — the Apps Script sends it back)
+//   - JUSTDIAL_WEBHOOK_SECRET secret (used as the HMAC key now, see below)
 //   - An approved AiSensy API Campaign named exactly "LEAD_WELCOME"
 //
-// RATE LIMITING (audit P1-11 remainder, Dr. Yadav's decision 29 Jul: rate
-// limit only for now, not HMAC — HMAC would also need the Apps Script
-// side changed, which is a separate follow-up if ever wanted). Even with
-// the correct secret, this caps requests at MAX_PER_MINUTE so a leaked
-// secret can't be used to spam unlimited fake leads / burn AiSensy quota.
+// AUTH (audit P1-11, Dr. Yadav's decision 29 Jul: rate-limit AND HMAC).
+// Preferred: Apps Script sends an `x-justdial-signature` header —
+// HMAC-SHA256(JUSTDIAL_WEBHOOK_SECRET, raw request body), hex-encoded.
+// The secret itself is never transmitted, so a network/log leak can't be
+// replayed the way a plain shared secret could.
+// Fallback (TEMPORARY): if no signature header is present, still accepts
+// the old `body.secret` plain-secret method, so leads don't stop flowing
+// the moment this function is redeployed but before the Apps Script is
+// updated to send the signature. Once the Apps Script change is live and
+// confirmed (leads still coming in for a day or so), ask me to remove
+// this fallback — until then the old leak risk technically still exists
+// via this path, rate-limited but not eliminated.
 //
-// Called with: { name, mobile, note?, secret }
+// RATE LIMITING: even a correctly-authenticated caller is capped at
+// MAX_PER_MINUTE so a compromised secret can't spam unlimited fake leads.
+//
+// Called with: raw JSON body { name, mobile, note?, secret? }
+// Header (preferred): x-justdial-signature: <hex HMAC-SHA256 of the body>
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -33,17 +43,41 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
   }
   try {
-    const body = await req.json();
-    const expectedSecret = Deno.env.get("JUSTDIAL_WEBHOOK_SECRET");
-    const gotSecret = String(body.secret ?? "");
-    if (!expectedSecret || !constantTimeEqual(gotSecret, expectedSecret)) {
+    const rawBody = await req.text();
+    const expectedSecret = Deno.env.get("JUSTDIAL_WEBHOOK_SECRET") ?? "";
+    const signatureHeader = req.headers.get("x-justdial-signature");
+
+    let authorized = false;
+    if (signatureHeader && expectedSecret) {
+      const computed = await hmacHex(expectedSecret, rawBody);
+      authorized = constantTimeEqual(computed.toLowerCase(), signatureHeader.trim().toLowerCase());
+    } else {
+      // Legacy fallback — see migration note above.
+      let legacySecret = "";
+      try {
+        legacySecret = String(JSON.parse(rawBody)?.secret ?? "");
+      } catch {
+        // not valid JSON — falls through to authorized=false below
+      }
+      authorized = !!expectedSecret && constantTimeEqual(legacySecret, expectedSecret);
+    }
+    if (!authorized) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
+
+    const body = JSON.parse(rawBody);
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
