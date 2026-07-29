@@ -2273,6 +2273,36 @@ export async function rollbackImportBatch(batchId: string) {
 // ----- Leads -----
 export interface ImportLeadRow { name: string; mobile: string; source?: string; note?: string }
 
+// Phase 1 #12 — manual single-lead entry. "Bulk Import" already exists for
+// CSV files, but there was no way to add ONE lead by hand (e.g. a walk-in
+// enquiry, or a call that doesn't fit the JustDial/import path). Reuses
+// the exact same normalization + dedup rules as bulk import so a manually
+// typed lead can't create a duplicate against either an existing lead or
+// an already-registered patient.
+export async function createLead(input: { name: string; mobile: string; source?: string; note?: string }): Promise<{ success: boolean; error: string | null }> {
+  const name = input.name.trim();
+  const mobile = normalizeMobile(input.mobile);
+  if (!name) return { success: false, error: "Naam zaroori hai" };
+  if (mobile.length !== 10) return { success: false, error: "10-digit mobile zaroori hai" };
+
+  const [existingLeads, existingPatients] = await Promise.all([
+    findExistingMobiles("leads", [mobile]),
+    findExistingMobiles("patients", [mobile]),
+  ]);
+  if (existingLeads.has(mobile)) return { success: false, error: "Yeh mobile already lead list mein hai" };
+  if (existingPatients.has(mobile)) return { success: false, error: "Yeh mobile already registered patient hai" };
+
+  const { error } = await supabase.from("leads").insert({
+    name,
+    mobile,
+    source: input.source?.trim() || "Manual",
+    status: "Cold",
+    note: input.note?.trim() || null,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}
+
 // Checks which of the given mobile numbers already exist in a table, in
 // chunks (avoids PostgREST's request-size limits with very long lists).
 // This scales correctly to any existing table size — a plain

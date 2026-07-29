@@ -1,12 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff } from "lucide-react";
+import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff, Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
-import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, type LeadStatus } from "@/lib/db";
+import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, createLead, type LeadStatus } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -52,6 +52,7 @@ function LeadsPage() {
   const [filter, setFilter] = useState<Filter>("All");
   const [mounted, setMounted] = useState(false);
   const [historyLead, setHistoryLead] = useState<{ id: string; name: string } | null>(null);
+  const [showAddLead, setShowAddLead] = useState(false);
   useEffect(() => setMounted(true), []);
   const navigate = useNavigate();
 
@@ -108,7 +109,25 @@ function LeadsPage() {
   const displayLoading = isSearching ? searchQ.isLoading : isLoading;
 
   return (
-    <MobileShell title="Lead CRM" subtitle="Enquiries • Convert to patients" showBack>
+    <MobileShell
+      title="Lead CRM"
+      subtitle="Enquiries • Convert to patients"
+      showBack
+      right={
+        <button
+          onClick={() => setShowAddLead(true)}
+          className="rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-3 py-1.5 inline-flex items-center gap-1"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add Lead
+        </button>
+      }
+    >
+      {showAddLead && (
+        <AddLeadModal
+          onClose={() => setShowAddLead(false)}
+          onAdded={() => qc.invalidateQueries({ queryKey: ["leads"] })}
+        />
+      )}
       <div className="grid grid-cols-3 gap-2">
         <StatCard label="Total Leads" value={stats.total} />
         <StatCard label="HOT" value={stats.hot} tone="destructive" />
@@ -279,6 +298,89 @@ function StatCard({
         {value}
       </div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+// Phase 1 #12 — manual single-lead entry. Bulk Import already handles CSV
+// files; this covers the one-off case (walk-in enquiry, a call that
+// doesn't fit any automated source) without needing a whole file upload.
+function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [source, setSource] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    const res = await createLead({ name, mobile, source, note });
+    setSaving(false);
+    if (!res.success) {
+      toast.error(res.error ?? "Save nahi hua");
+      return;
+    }
+    toast.success("Lead add ho gaya");
+    onAdded();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-extrabold text-primary text-lg">Naya Lead</h2>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Naam</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enquiry karne wale ka naam"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Mobile</label>
+            <input
+              inputMode="numeric"
+              maxLength={10}
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              placeholder="10 digit mobile"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Source (optional)</label>
+            <input
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="e.g. Walk-in, Referral, Phone call"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Note (optional)</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Kya poocha, koi context"
+              rows={2}
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <button
+            onClick={submit}
+            disabled={saving || !name.trim() || mobile.length !== 10}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Lead Add Karo"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
