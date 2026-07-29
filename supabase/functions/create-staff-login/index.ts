@@ -15,6 +15,69 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Phase 1 #5 — orphan-risk verified and fixed.
+//
+// When a staff member's login is first created below, users.id is
+// reassigned from a placeholder id (set when the profile was added) to
+// the real Supabase Auth user id. If anything was configured for that
+// staff member BEFORE their login existed, it stored the OLD id — and
+// silently stops matching once the id changes, with no error anywhere
+// (it just quietly never fires/applies again). Verified three real spots
+// in the app that persist a users.id outside the users table itself, all
+// as JSON blobs in `settings`:
+//   - backup_doctor_config   { userId, start, end, enabled }
+//   - case_dr_levels         { [userId]: "Junior" | "Senior" }
+//   - incentive_splits       { [userId]: percentageWeight }
+// This repoints all three from oldId to newId in the same request that
+// changes the id, so a login created after any of these were configured
+// doesn't quietly break them.
+//
+// NOTE (flagging, not fixing today): the more structural fix would be to
+// never change users.id at all -- add a separate auth_user_id column and
+// have the app look up sessions by that instead. That touches the core
+// auth lookup path (src/lib/auth.tsx) for every role, so it's a bigger,
+// riskier change than this targeted repoint. Worth doing in a dedicated
+// session if more of these userId-keyed settings show up later.
+async function repointStaffId(supabaseAdmin: any, oldId: string, newId: string) {
+  const { data: backupCfgRow } = await supabaseAdmin
+    .from("settings").select("value").eq("key", "backup_doctor_config").maybeSingle();
+  if (backupCfgRow?.value) {
+    try {
+      const cfg = JSON.parse(backupCfgRow.value);
+      if (cfg?.userId === oldId) {
+        cfg.userId = newId;
+        await supabaseAdmin.from("settings").update({ value: JSON.stringify(cfg) }).eq("key", "backup_doctor_config");
+      }
+    } catch { /* malformed JSON already -- not this function's job to repair */ }
+  }
+
+  const { data: levelsRow } = await supabaseAdmin
+    .from("settings").select("value").eq("key", "case_dr_levels").maybeSingle();
+  if (levelsRow?.value) {
+    try {
+      const levels = JSON.parse(levelsRow.value);
+      if (levels && Object.prototype.hasOwnProperty.call(levels, oldId)) {
+        levels[newId] = levels[oldId];
+        delete levels[oldId];
+        await supabaseAdmin.from("settings").update({ value: JSON.stringify(levels) }).eq("key", "case_dr_levels");
+      }
+    } catch { /* malformed JSON already -- not this function's job to repair */ }
+  }
+
+  const { data: splitsRow } = await supabaseAdmin
+    .from("settings").select("value").eq("key", "incentive_splits").maybeSingle();
+  if (splitsRow?.value) {
+    try {
+      const splits = JSON.parse(splitsRow.value);
+      if (splits && Object.prototype.hasOwnProperty.call(splits, oldId)) {
+        splits[newId] = splits[oldId];
+        delete splits[oldId];
+        await supabaseAdmin.from("settings").update({ value: JSON.stringify(splits) }).eq("key", "incentive_splits");
+      }
+    } catch { /* malformed JSON already -- not this function's job to repair */ }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
@@ -86,8 +149,22 @@ Deno.serve(async (req) => {
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 400 });
     }
-    await supabaseAdmin.from("users").update({ id: data.user.id, email, has_login: true }).eq("mobile", mobile);
-    return new Response(JSON.stringify({ success: true, userId: data.user.id }), {
+    const oldId = profile.id;
+    const newId = data.user.id;
+    await supabaseAdmin.from("users").update({ id: newId, email, has_login: true }).eq("mobile", mobile);
+
+    if (oldId && oldId !== newId) {
+      try {
+        await repointStaffId(supabaseAdmin, oldId, newId);
+      } catch (e) {
+        // The login itself already succeeded and matters more than these
+        // secondary settings -- don't fail the request over this, but
+        // don't swallow it silently either.
+        console.error("repointStaffId failed:", e);
+      }
+    }
+
+    return new Response(JSON.stringify({ success: true, userId: newId }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
