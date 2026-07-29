@@ -2107,8 +2107,17 @@ export async function runHealthChecks() {
 }
 
 // ---------- Settings ----------
+// Phase 1 #9: settings is a small, bounded config table (roughly 50 fixed
+// keys total across the whole app -- case_dr_levels, incentive_splits,
+// backup_doctor_config, appointment_slot_config, recp_perm:<role>:<screen>
+// for each role/screen combo, etc). Unlike the transactional tables
+// elsewhere (leads/patients/visits), it does NOT grow per-patient or
+// per-visit, so there's no realistic path to it ever approaching 1000
+// rows. The old .limit(1000) was already ~20x headroom over any real
+// count -- removed rather than bumped further, since an arbitrary cap on
+// a table that structurally can't grow large serves no purpose.
 export async function fetchSettings() {
-  const { data } = await supabase.from("settings").select("*").limit(1000);
+  const { data } = await supabase.from("settings").select("*");
   return data ?? [];
 }
 
@@ -2154,6 +2163,16 @@ export async function saveIncentiveConfig(cfg: IncentiveConfig) {
   await upsertSetting("incentive_config", JSON.stringify(cfg));
 }
 
+// NOTE (flagged during Phase 1 #9, not fixed today): this is a
+// check-then-write, not an atomic upsert. Two concurrent calls for the
+// SAME key (e.g. Owner saving Control Centre settings from two tabs) could
+// both see "no existing row" and both INSERT, leaving two rows with the
+// same key -- if that ever happens, every .maybeSingle() reader elsewhere
+// in this file (fetchIncentiveSplits, fetchCaseDrLevels, etc.) would start
+// throwing, since maybeSingle() requires 0 or 1 rows. A real fix needs a
+// UNIQUE constraint on settings.key plus .upsert({onConflict:"key"}) --
+// couldn't verify from this repo whether that constraint already exists
+// at the DB level (settings predates the migrations/ folder convention).
 export async function upsertSetting(key: string, value: string) {
   const { data, error: selErr } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
   if (selErr) console.error(`upsertSetting(${key}) existence check failed:`, selErr.message);
