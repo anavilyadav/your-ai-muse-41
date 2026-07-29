@@ -1143,10 +1143,21 @@ export async function fetchVisitPrescriptions(visitId: string) {
 }
 
 export async function markDispensed(visitId: string) {
-  // Guard: dispensing must only fire from PHARMACY. Without this, a stale
-  // Pharmacy tab (e.g. two staff on the same visit, or a re-click after
-  // the visit was already paid/closed) would silently push a DONE visit
-  // backward into PAYMENT.
+  // Now one atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the
+  // status guard + status update + inventory decrement for every
+  // prescription line on this visit all happen in one transaction.
+  // Decrement is approximate by design (Dr. Yadav's own words: exact
+  // drops aren't fixed, staff already eyeballs the physical bottle) —
+  // is_slx (SL globules, the default per Locked Architectural Decisions)
+  // = 4 drams (a full 45ml bottle), non-SLX (drops/liquid) = 0.5 dram.
+  // Falls back to the old two-step (no inventory decrement) only until
+  // that SQL migration is run, same not-hard-fail pattern used elsewhere.
+  const { data, error } = await supabase.rpc("dispense_visit_atomic", { p_visit_id: visitId });
+  if (!error) return data;
+
+  const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
+  if (!isMissingFunction) throw error;
+
   const { data: existing, error: exErr } = await supabase
     .from("visits")
     .select("visit_status")
@@ -1157,8 +1168,8 @@ export async function markDispensed(visitId: string) {
   if (existing.visit_status !== "PHARMACY") {
     throw new Error("Yeh visit abhi Pharmacy stage mein nahi hai — dispense nahi kar sakte.");
   }
-  const { error } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
-  if (error) throw error;
+  const { error: upErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
+  if (upErr) throw upErr;
 }
 
 // ---------- Case notes ----------
