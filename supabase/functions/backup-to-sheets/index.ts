@@ -22,6 +22,14 @@ const TABLES = [
   "appointments",
   "deliveries",
   "inventory",
+  // Added Phase 1 #2 (29 Jul 2026 follow-up) — these 5 tables were built
+  // this/last session and never added to the backup list, so they had
+  // zero backup coverage until now.
+  "payment_adjustments",   // overpayment refund/credit ledger (P0-6)
+  "login_attempts",        // staff PIN lockout tracking (P1-14)
+  "system_alerts",         // degraded-mode alerts
+  "daily_token_counters",  // atomic daily token sequence
+  "webhook_hits",          // JustDial webhook rate-limit tracking
 ];
 
 // Plain === on secrets leaks timing information (an attacker can narrow
