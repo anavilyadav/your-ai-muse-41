@@ -11,23 +11,19 @@
 //   - An approved AiSensy API Campaign named exactly "LEAD_WELCOME"
 //
 // AUTH (audit P1-11, Dr. Yadav's decision 29 Jul: rate-limit AND HMAC).
-// Preferred: Apps Script sends an `x-justdial-signature` header —
+// Apps Script sends an `x-justdial-signature` header —
 // HMAC-SHA256(JUSTDIAL_WEBHOOK_SECRET, raw request body), hex-encoded.
 // The secret itself is never transmitted, so a network/log leak can't be
-// replayed the way a plain shared secret could.
-// Fallback (TEMPORARY): if no signature header is present, still accepts
-// the old `body.secret` plain-secret method, so leads don't stop flowing
-// the moment this function is redeployed but before the Apps Script is
-// updated to send the signature. Once the Apps Script change is live and
-// confirmed (leads still coming in for a day or so), ask me to remove
-// this fallback — until then the old leak risk technically still exists
-// via this path, rate-limited but not eliminated.
+// replayed the way a plain shared secret could. No legacy plain-secret
+// fallback — this webhook wasn't connected to any live Apps Script yet
+// as of 29 Jul 2026, so there was nothing to stay backward-compatible
+// with; the Apps Script is being written signature-only from the start.
 //
 // RATE LIMITING: even a correctly-authenticated caller is capped at
 // MAX_PER_MINUTE so a compromised secret can't spam unlimited fake leads.
 //
-// Called with: raw JSON body { name, mobile, note?, secret? }
-// Header (preferred): x-justdial-signature: <hex HMAC-SHA256 of the body>
+// Called with: raw JSON body { name, mobile, note? }
+// Header (required): x-justdial-signature: <hex HMAC-SHA256 of the body>
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -63,15 +59,6 @@ Deno.serve(async (req) => {
     if (signatureHeader && expectedSecret) {
       const computed = await hmacHex(expectedSecret, rawBody);
       authorized = constantTimeEqual(computed.toLowerCase(), signatureHeader.trim().toLowerCase());
-    } else {
-      // Legacy fallback — see migration note above.
-      let legacySecret = "";
-      try {
-        legacySecret = String(JSON.parse(rawBody)?.secret ?? "");
-      } catch {
-        // not valid JSON — falls through to authorized=false below
-      }
-      authorized = !!expectedSecret && constantTimeEqual(legacySecret, expectedSecret);
     }
     if (!authorized) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
