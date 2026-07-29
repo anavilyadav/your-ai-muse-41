@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchReports, BRANCH_LABELS } from "@/lib/db";
+import { fetchReports, fetchReferralLeaderboard, BRANCH_LABELS } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -85,6 +85,13 @@ function ReportsPage() {
     queryFn: () => fetchReports(period),
   });
   const rows = data?.rows ?? [];
+  // Phase 1 #13 — family-linking data existed but was never surfaced as a
+  // report. Independent of the period filter above (it's a lifetime
+  // ranking, not a time-boxed metric).
+  const { data: referrals, isLoading: referralsLoading } = useQuery({
+    queryKey: ["referral-leaderboard"],
+    queryFn: fetchReferralLeaderboard,
+  });
 
   return (
     <RoleShell title="Reports & Analytics" nav={OWNER_NAV}>
@@ -137,6 +144,34 @@ function ReportsPage() {
       >
         📊 Compare Branches
       </button>
+
+      <div className="mt-5">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+          Referral Leaderboard — family linking se
+        </div>
+        {referralsLoading ? (
+          <LoadingBlock />
+        ) : !referrals || referrals.length === 0 ? (
+          <div className="rounded-2xl bg-surface border border-border p-4 text-center text-xs text-muted-foreground">
+            Abhi koi family-linked referral nahi mila. Patient Detail se family members link karke yahan track ho jaayenge.
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-surface border border-border overflow-hidden divide-y divide-border">
+            {referrals.map((r, i) => (
+              <div key={r.family_group_id} className="flex items-center justify-between px-3.5 py-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-[11px] font-bold text-muted-foreground w-5 shrink-0">#{i + 1}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-primary truncate">{r.referrer_name}</div>
+                    <div className="text-[11px] text-muted-foreground">{r.referrer_patient_code ?? "—"}</div>
+                  </div>
+                </div>
+                <div className="text-sm font-bold text-accent-foreground shrink-0">{r.member_count} family</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </RoleShell>
   );
 }

@@ -2625,6 +2625,50 @@ export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; n
 }
 
 // ---------- Family linking ----------
+export interface ReferralGroup {
+  family_group_id: string;
+  referrer_name: string;
+  referrer_patient_code: string | null;
+  member_count: number; // total patients in the group, including the referrer
+}
+
+// Phase 1 #13 — family_group_id/family_relationship has existed since the
+// family-linking feature was built, but nothing ever reported on it. This
+// turns it into a ranked leaderboard: which family "anchor" has brought in
+// the most linked family members. Anchor = whoever is marked "Head" in
+// the group, falling back to the earliest-registered member. Groups with
+// only 1 member (family_group_id set but nobody else ever linked) aren't
+// a referral yet, so they're excluded.
+export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
+  const { data, error } = await supabase
+    .from("patients")
+    .select("id, name, patient_code, family_group_id, family_relationship, created_at")
+    .not("family_group_id", "is", null)
+    .order("created_at", { ascending: true });
+  if (error) return [];
+
+  const groups = new Map<string, { name: string; patient_code: string | null; family_relationship: string | null }[]>();
+  (data ?? []).forEach((p: any) => {
+    const arr = groups.get(p.family_group_id) ?? [];
+    arr.push({ name: p.name, patient_code: p.patient_code, family_relationship: p.family_relationship });
+    groups.set(p.family_group_id, arr);
+  });
+
+  const leaderboard: ReferralGroup[] = [];
+  groups.forEach((members, groupId) => {
+    if (members.length < 2) return;
+    const anchor = members.find((m) => m.family_relationship === "Head") ?? members[0];
+    leaderboard.push({
+      family_group_id: groupId,
+      referrer_name: anchor.name,
+      referrer_patient_code: anchor.patient_code,
+      member_count: members.length,
+    });
+  });
+
+  leaderboard.sort((a, b) => b.member_count - a.member_count);
+  return leaderboard.slice(0, 50);
+}
 export async function fetchFamilyMembers(patientId: string) {
   const me = await fetchPatientById(patientId);
   if (!me?.family_group_id) return [];
