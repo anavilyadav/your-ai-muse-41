@@ -11,7 +11,7 @@ import { roleHome } from "@/lib/supabase";
  * RECP1/RECP2 ON/OFF permission toggles (Owner Control Centre).
  */
 export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?: string; children: ReactNode }) {
-  const { user, loading, hasReceptionPermission } = useAuth();
+  const { user, loading, profileLoadFailed, retryLoadProfile, hasReceptionPermission } = useAuth();
   const role = useEffectiveRole();
   const navigate = useNavigate();
 
@@ -24,6 +24,14 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
 
   useEffect(() => {
     if (loading) return;
+    // Phase 1 #7: a real session that just failed to load OUR profile
+    // (slow network — see auth.tsx) must NOT bounce to /login. That was
+    // the "login karke turant bounce" bug: staff genuinely signs in,
+    // network is slow, profile fetch times out, and this effect used to
+    // treat that identically to "never logged in" and kick them straight
+    // back to the login screen. Now it just waits — the retry UI below
+    // handles it, and /login is only for a confirmed absence of session.
+    if (profileLoadFailed) return;
     if (!user) {
       navigate({ to: "/login", replace: true });
       return;
@@ -32,9 +40,32 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
       navigate({ to: roleHome(role), replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, user, role, allowKey, permOk, navigate]);
+  }, [loading, user, profileLoadFailed, role, allowKey, permOk, navigate]);
 
-  if (loading || !user) {
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full bg-background grid place-items-center">
+        <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+      </div>
+    );
+  }
+  if (profileLoadFailed) {
+    return (
+      <div className="min-h-screen w-full bg-background grid place-items-center px-6">
+        <div className="text-center max-w-xs">
+          <div className="text-sm font-semibold text-foreground mb-1">Connection slow hai</div>
+          <div className="text-xs text-muted-foreground mb-4">Login ho gaya hai, lekin profile load nahi ho paya — network check karke dobara try karo.</div>
+          <button
+            onClick={retryLoadProfile}
+            className="rounded-full bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold"
+          >
+            Dobara try karo
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!user) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
         <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>

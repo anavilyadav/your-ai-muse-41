@@ -29,6 +29,14 @@ interface AuthCtx {
   user: AppUser | null;
   viewAsRole: Role | null; // OWNER can preview other roles
   loading: boolean;
+  // Phase 1 #7 — distinguishes "there is no session, go to /login" from
+  // "there IS a valid session, but OUR profile fetch from the users table
+  // timed out/failed" (slow network). These must not be treated the same:
+  // the old code collapsed both into "no user" once loading finished,
+  // which bounced a genuinely-logged-in staff member on slow network
+  // straight back to the login screen right after they'd just signed in.
+  profileLoadFailed: boolean;
+  retryLoadProfile: () => void;
   backupDoctorActive: boolean; // true if THIS user currently has temporary backup-doctor access
   hasReceptionPermission: (screenKey: string) => boolean;
   signIn: (mobile: string, pin: string) => Promise<string | null>; // null = ok, else error msg
@@ -53,6 +61,7 @@ function isBackupActiveNow(cfg: BackupDoctorConfig | null, userId: string | unde
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [viewAsRole, setViewAsRoleState] = useState<Role | null>(null);
   const [backupDoctorActive, setBackupDoctorActive] = useState(false);
   const [receptionPerms, setReceptionPerms] = useState<Record<string, boolean>>({});
@@ -62,6 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permsLoaded, setPermsLoaded] = useState(false);
   const permsLoadedRef = useRef(false);
   const userIdRef = useRef<string | undefined>(undefined);
+  // The raw Supabase Auth session's user id — kept separately from `user`
+  // (our own users-table profile) so retryLoadProfile knows what to
+  // re-fetch even when the profile load itself failed and `user` is null.
+  const authUserIdRef = useRef<string | undefined>(undefined);
 
   const loadUser = async (uid: string) => {
     try {
@@ -78,6 +91,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // after this resolves, one way or another).
       return null;
     }
+  };
+
+  // Phase 1 #7: wraps loadUser so a slow-network timeout sets
+  // profileLoadFailed=true (session is real, our fetch just didn't
+  // finish) instead of leaving the caller to conflate it with "no
+  // session at all".
+  const attemptLoadUser = async (authUserId: string) => {
+    authUserIdRef.current = authUserId;
+    const u = await loadUser(authUserId);
+    setUser(u);
+    setProfileLoadFailed(!u);
+    return u;
+  };
+
+  const retryLoadProfile = () => {
+    const uid = authUserIdRef.current;
+    if (!uid) return;
+    setLoading(true);
+    attemptLoadUser(uid).then(async (u) => {
+      userIdRef.current = u?.id;
+      await refreshBackupDoctorStatus(u?.id);
+      await refreshReceptionPerms();
+      setLoading(false);
+    });
   };
 
   const refreshBackupDoctorStatus = async (currentUserId: string | undefined) => {
@@ -132,8 +169,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
       if (data.session?.user) {
-        const u = await loadUser(data.session.user.id);
-        if (mounted) setUser(u);
+        const u = await attemptLoadUser(data.session.user.id);
+        if (!mounted) return;
         userIdRef.current = u?.id;
         await refreshBackupDoctorStatus(u?.id);
         await refreshReceptionPerms();
@@ -148,13 +185,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        const u = await loadUser(session.user.id);
-        setUser(u);
+        const u = await attemptLoadUser(session.user.id);
         userIdRef.current = u?.id;
         await refreshBackupDoctorStatus(u?.id);
         await refreshReceptionPerms();
       } else {
+        // A genuine sign-out/no-session — this is the real "go to
+        // /login" case, distinct from a profile-load failure above.
+        authUserIdRef.current = undefined;
         setUser(null);
+        setProfileLoadFailed(false);
         userIdRef.current = undefined;
         setBackupDoctorActive(false);
       }
@@ -242,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ user, viewAsRole, loading, backupDoctorActive, hasReceptionPermission, signIn, signOut, setViewAsRole }}
+      value={{ user, viewAsRole, loading, profileLoadFailed, retryLoadProfile, backupDoctorActive, hasReceptionPermission, signIn, signOut, setViewAsRole }}
     >
       {children}
     </Ctx.Provider>

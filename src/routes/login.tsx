@@ -10,7 +10,7 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
-  const { user, signIn, loading } = useAuth();
+  const { user, signIn, loading, profileLoadFailed, retryLoadProfile } = useAuth();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
@@ -30,6 +30,30 @@ function LoginPage() {
       return;
     }
   };
+
+  // Phase 1 #7: signIn() above succeeded (Supabase Auth session is real),
+  // but our own profile fetch from the users table timed out on a slow
+  // connection. Without this, the person is stuck looking at an unchanged
+  // login form with no feedback that anything happened at all. Show what
+  // actually happened instead.
+  if (profileLoadFailed) {
+    return (
+      <div className="min-h-screen w-full bg-background flex justify-center">
+        <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col items-center justify-center px-6 shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]">
+          <div className="text-center max-w-xs">
+            <div className="text-sm font-semibold text-foreground mb-1">Login ho gaya, connection slow hai</div>
+            <div className="text-xs text-muted-foreground mb-4">Profile load nahi ho paya — network check karke dobara try karo.</div>
+            <button
+              onClick={retryLoadProfile}
+              className="rounded-full bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold"
+            >
+              Dobara try karo
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
