@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
-import { fetchStaff, branchLabel, addStaffProfile, fetchCaseDrLevels, saveCaseDrLevels } from "@/lib/db";
+import { fetchStaff, branchLabel, addStaffProfile, fetchCaseDrLevels, saveCaseDrLevels, unlockStaffLogin } from "@/lib/db";
 import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
@@ -288,6 +288,18 @@ function StaffPage() {
                   >
                     {s.email ? s.email : "Set login email →"}
                   </button>
+                  {s.has_login && (
+                    <button
+                      onClick={async () => {
+                        const res = await unlockStaffLogin(s.mobile);
+                        if (res.success) toast.success(`${s.name} ka login unlock ho gaya`);
+                        else toast.error("Unlock nahi hua: " + res.error);
+                      }}
+                      className="text-[10px] text-muted-foreground underline mt-0.5 block"
+                    >
+                      🔓 Unlock Login (5 galat attempt lock hata do)
+                    </button>
+                  )}
                   {role === "CASE_DR" && (
                     <div className="flex gap-1.5 mt-1.5">
                       {(["Junior", "Senior"] as const).map((lvl) => {

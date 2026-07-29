@@ -927,6 +927,16 @@ export async function resolveSystemAlert(id: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+// Manual override for the staff PIN lockout (audit P1-14). The lockout
+// auto-expires after 15 minutes on its own, but a staff member stuck
+// mid-shift can't wait that out — Owner needs a way to clear it
+// immediately. Gap Dr. Yadav caught (29 Jul 2026): this didn't exist.
+export async function unlockStaffLogin(mobile: string) {
+  const cleaned = mobile.replace(/\D/g, "");
+  const { error } = await supabase.from("login_attempts").delete().eq("mobile", cleaned);
+  return { success: !error, error: error?.message ?? null };
+}
+
 
 // Festival dates change every year (Diwali, Holi, Eid...), so this is a
 // plain list the owner adds specific dates to — no recurrence logic to
