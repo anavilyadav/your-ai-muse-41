@@ -1,0 +1,99 @@
+/**
+ * YHC-OS — Storage-to-Drive backup receiver (Phase 1 #15)
+ *
+ * HOW TO DEPLOY (same pattern as the existing Sheets-backup Apps Script):
+ *   1. Go to script.google.com → New project
+ *   2. Paste this whole file in, replacing the default code
+ *   3. Change DRIVE_SECRET below to a long random string (your choice)
+ *   4. Deploy → New deployment → Web app
+ *        - Execute as: Me
+ *        - Who has access: Anyone
+ *   5. Copy the Web App URL it gives you
+ *   6. In Supabase Dashboard → Edge Functions → Secrets, set:
+ *        DRIVE_BACKUP_URL = <that Web App URL>
+ *     (BACKUP_FUNCTION_SECRET is reused from the existing Sheets backup —
+ *      no new secret needed for that one)
+ *   7. Also put the SAME value from DRIVE_SECRET below into this Apps
+ *      Script's own script property so the two match — Project Settings
+ *      → Script Properties → add DRIVE_SECRET
+ *
+ * WHAT IT DOES: receives one file at a time (base64), decodes it, and
+ * saves it into a Drive folder named after the storage bucket
+ * (case-photos / patient-documents), inside a subfolder per patient/visit
+ * (taken from the file's path, same folder structure as Supabase Storage).
+ */
+
+function doPost(e) {
+  var props = PropertiesService.getScriptProperties();
+  var expectedSecret = props.getProperty("DRIVE_SECRET");
+
+  try {
+    var body = JSON.parse(e.postData.contents);
+
+    // Optional but recommended: if you set a DRIVE_SECRET script property,
+    // require the caller to prove it knows it via a query param
+    // (?secret=...) since Apps Script web apps don't easily support custom
+    // headers from a Deno fetch() the same way — this is a lighter check
+    // than the main backup function's header-based one, adjust if needed.
+    if (expectedSecret) {
+      var gotSecret = e.parameter.secret || "";
+      if (gotSecret !== expectedSecret) {
+        return jsonResponse({ success: false, error: "Unauthorized" });
+      }
+    }
+
+    var bucket = body.bucket;
+    var path = body.path;
+    var contentBase64 = body.contentBase64;
+    if (!bucket || !path || !contentBase64) {
+      return jsonResponse({ success: false, error: "bucket, path, contentBase64 required" });
+    }
+
+    var rootFolder = getOrCreateFolder(DriveApp.getRootFolder(), "YHC-OS-Storage-Backup");
+    var bucketFolder = getOrCreateFolder(rootFolder, bucket);
+
+    // path looks like "<patientOrVisitId>/<filename>" — mirror that as a
+    // subfolder so Drive's structure matches Supabase Storage's structure.
+    var parts = path.split("/");
+    var filename = parts.pop();
+    var folder = bucketFolder;
+    parts.forEach(function (p) {
+      folder = getOrCreateFolder(folder, p);
+    });
+
+    var bytes = Utilities.base64Decode(contentBase64);
+    var mimeType = guessMimeType(filename);
+    var blob = Utilities.newBlob(bytes, mimeType, filename);
+
+    // Overwrite-safe: if a file with this exact name already exists in
+    // this folder (re-run after a partial failure), replace it instead of
+    // creating a duplicate copy.
+    var existing = folder.getFilesByName(filename);
+    if (existing.hasNext()) {
+      existing.next().setTrashed(true);
+    }
+    folder.createFile(blob);
+
+    return jsonResponse({ success: true });
+  } catch (err) {
+    return jsonResponse({ success: false, error: String(err) });
+  }
+}
+
+function getOrCreateFolder(parent, name) {
+  var it = parent.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(name);
+}
+
+function guessMimeType(filename) {
+  var ext = filename.split(".").pop().toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "heic" || ext === "heif") return "image/heic";
+  return "image/jpeg";
+}
+
+function jsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}

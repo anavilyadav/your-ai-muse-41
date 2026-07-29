@@ -1516,6 +1516,13 @@ export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" |
       "Photo upload",
     );
     if (error) return { success: false, error: error.message, url: null };
+    // Phase 1 #15 — queue this file for the Storage-to-Drive backup sync.
+    // Best-effort: a queue-insert hiccup must never fail an upload that
+    // already succeeded, so it's fire-and-forget like the other
+    // secondary-effect writes in this file (follow-up scheduling, etc).
+    supabase.from("storage_backup_queue").insert({ bucket: "case-photos", path }).then(({ error: qErr }) => {
+      if (qErr) console.error("storage_backup_queue enqueue failed:", qErr.message);
+    });
     const { data } = supabase.storage.from("case-photos").getPublicUrl(path);
     return { success: true, error: null, url: data.publicUrl };
   } catch (e: any) {
@@ -2753,6 +2760,10 @@ export async function uploadPatientDocument(
       "Document upload",
     );
     if (upErr) return { success: false, error: upErr.message };
+    // Phase 1 #15 — same backup queue as uploadCasePhoto above.
+    supabase.from("storage_backup_queue").insert({ bucket: "patient-documents", path }).then(({ error: qErr }) => {
+      if (qErr) console.error("storage_backup_queue enqueue failed:", qErr.message);
+    });
     const { data: pub } = supabase.storage.from("patient-documents").getPublicUrl(path);
     const { error } = await supabase.from("patient_documents").insert({
       patient_id: patientId,
