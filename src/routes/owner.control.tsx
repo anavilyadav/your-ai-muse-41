@@ -7,7 +7,7 @@ import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchSettings, upsertSetting, fetchStaff } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
-import { RECEPTION_SCREENS } from "@/lib/auth";
+import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -110,7 +110,17 @@ function BackupDoctorModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
+function ReceptionPermissionsGrid({
+  settings,
+  items,
+  title,
+  helpText,
+}: {
+  settings: any[];
+  items: { key: string; label: string }[];
+  title: string;
+  helpText: string;
+}) {
   const qc = useQueryClient();
   const [pending, setPending] = useState<string | null>(null);
 
@@ -135,7 +145,7 @@ function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
   return (
     <div>
       <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-        Reception Permissions — per screen ON/OFF
+        {title}
       </div>
       <div className="rounded-2xl bg-surface border border-border overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_auto] bg-primary text-primary-foreground text-[11px] font-bold px-3 py-2">
@@ -143,12 +153,12 @@ function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
           <span className="w-12 text-center">RECP1</span>
           <span className="w-12 text-center">RECP2</span>
         </div>
-        {RECEPTION_SCREENS.map((s, i) => (
+        {items.map((s, i) => (
           <div
             key={s.key}
             className={cn(
               "grid grid-cols-[1fr_auto_auto] items-center px-3 py-2.5",
-              i < RECEPTION_SCREENS.length - 1 && "border-b border-border",
+              i < items.length - 1 && "border-b border-border",
             )}
           >
             <span className="text-[13px] text-primary truncate pr-2">{s.label}</span>
@@ -185,7 +195,7 @@ function ReceptionPermissionsGrid({ settings }: { settings: any[] }) {
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground mt-2">
-        Default sabke liye ON hai. Jisko rokna ho us role ka wahi switch OFF kar do — turant apply hoga.
+        {helpText}
       </p>
     </div>
   );
@@ -319,7 +329,18 @@ function ControlPage() {
       ) : (
         <div className="space-y-4">
           {showBackupModal && <BackupDoctorModal onClose={() => setShowBackupModal(false)} />}
-          <ReceptionPermissionsGrid settings={data ?? []} />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
+            items={RECEPTION_SCREENS}
+            title="Reception Permissions — per screen ON/OFF"
+            helpText="Default sabke liye ON hai. Jisko rokna ho us role ka wahi switch OFF kar do — turant apply hoga."
+          />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
+            items={RECEPTION_FEATURES}
+            title="Feature-level Permissions — within a screen"
+            helpText="Screen ON hone ke baad bhi in specific actions ko alag se rok sakte ho — poora screen band karne ki zaroorat nahi."
+          />
           <JustDialToggle settings={data ?? []} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">

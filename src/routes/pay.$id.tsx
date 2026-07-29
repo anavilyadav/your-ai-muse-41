@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pay/$id")({
@@ -27,6 +28,12 @@ function PayPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { hasReceptionPermission } = useAuth();
+  // Phase 1 #11 — feature-level permission, separate from the whole-screen
+  // "payment" gate above. Owner can restrict specific RECP1/RECP2 staff
+  // from saving a partial payment at all, without touching their access
+  // to the Payment screen for full payments.
+  const canPartial = hasReceptionPermission("payment.partial");
   const { data: visit, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["visit", id],
     queryFn: () => fetchVisit(id),
@@ -76,6 +83,9 @@ function PayPage() {
 
   const doCollect = async () => {
     if (charged <= 0) return toast.error("Amount daalo");
+    if (balance > 0 && !canPartial) {
+      return toast.error("Partial payment ki permission nahi hai — Owner/Doctor se poora amount collect karwao.");
+    }
     setBusy(true);
     try {
       // Credit consumption + payment insert now happen inside ONE atomic
@@ -203,10 +213,15 @@ function PayPage() {
           ⚠ Partial payment — ₹{balance} balance due. Visit "Pay Due" mein rahega.
         </div>
       )}
+      {balance > 0 && !canPartial && (
+        <div className="mt-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive font-semibold">
+          Aapke paas partial payment save karne ki permission nahi hai. Poora amount collect karo ya Owner/Doctor ko bulao.
+        </div>
+      )}
 
       <button
         onClick={doCollect}
-        disabled={busy}
+        disabled={busy || (balance > 0 && !canPartial)}
         className="mt-5 w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold disabled:opacity-60"
       >
         {busy ? "Saving…" : balance === 0 ? "Collect Payment" : "Save Partial Payment"}

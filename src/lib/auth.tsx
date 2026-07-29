@@ -25,6 +25,22 @@ export const RECEPTION_SCREENS: { key: string; label: string }[] = [
   { key: "caseTracking", label: "Case Tracking (Pending Discussion)" },
 ];
 
+// Phase 1 #11 — feature-level permissions, one layer more granular than
+// RECEPTION_SCREENS above. Those gate an ENTIRE screen; these gate one
+// specific action inside a screen that's otherwise ON, using the exact
+// same recp_perm:<role>:<key> mechanism (hasReceptionPermission doesn't
+// care whether the key is a screen or a feature — any string works).
+// Starts with one concrete example tied to an existing decision that
+// wasn't actually wired up anywhere in code: partial payment was
+// supposed to need Owner/Doctor involvement, but any RECP1/RECP2 with
+// the Payment screen ON could save one unrestricted. Add more entries
+// here as specific actions need their own gate — no new plumbing needed,
+// this list plus a hasReceptionPermission(key) check at the action is
+// the whole mechanism.
+export const RECEPTION_FEATURES: { key: string; label: string }[] = [
+  { key: "payment.partial", label: "Partial Payment (full amount na aane par)" },
+];
+
 interface AuthCtx {
   user: AppUser | null;
   viewAsRole: Role | null; // OWNER can preview other roles
