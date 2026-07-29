@@ -38,3 +38,5 @@ session it was run. Number new files sequentially (`0008_...`, `0009_...`).
 | `0005_login_attempts_lockout.sql` | `login_attempts` table backing staff PIN lockout (audit P1-14) |
 | `0006_dispense_inventory_decrement.sql` | `dispense_visit_atomic()` — atomic dispense + inventory decrement (audit P0-5) |
 | `0007_webhook_rate_limiting.sql` | `webhook_hits` table backing JustDial webhook rate-limiting (audit P1-11) |
+| `0008_atomic_daily_token.sql` | `daily_token_counters` + `next_token_for_day()` — atomic token generation, same race class as patient_code (re-audit finding) |
+| `0009_atomic_stock_increment.sql` | `increment_stock()` — atomic stock-add, fixes read-modify-write race (re-audit finding) |

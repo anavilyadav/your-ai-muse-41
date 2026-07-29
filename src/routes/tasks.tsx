@@ -6,7 +6,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 export const Route = createFileRoute("/tasks")({
   head: () => ({ meta: [{ title: "Reception Tasks — YHC Jaipur" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]}>
+    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="tasks">
       <TasksPage />
     </AuthGate>
   ),

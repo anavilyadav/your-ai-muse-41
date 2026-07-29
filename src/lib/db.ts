@@ -78,6 +78,15 @@ export async function nextPatientCode(): Promise<string> {
 }
 
 export async function nextTokenForToday(branch: string): Promise<string> {
+  // Was a plain count()+1 — same race class as the old patient_code bug
+  // (audit finding, re-audit 29 Jul): two simultaneous registrations at
+  // the same branch could compute the same token (T-05, T-05). Now an
+  // atomic RPC (a real per-branch-per-day counter row, incremented with
+  // ON CONFLICT ... DO UPDATE, which Postgres serializes safely).
+  // Falls back to the old racy count() only until that SQL is run.
+  const { data, error } = await supabase.rpc("next_token_for_day", { p_branch: branch, p_date: today() });
+  if (!error && typeof data === "string") return data;
+
   const { count } = await supabase
     .from("visits")
     .select("id", { count: "exact", head: true })
@@ -932,7 +941,7 @@ export async function fetchFollowups() {
   // was ever fetched. Now includes the next 7 days too, so upcoming
   // follow-ups are visible ahead of time instead of only on/after the day
   // they're due.
-  const upper = new Date();
+  const upper = istNow();
   upper.setDate(upper.getDate() + 7);
   const upperStr = upper.toISOString().slice(0, 10);
   const { data, error } = await supabase
@@ -1090,6 +1099,21 @@ export interface StockEntryInput {
 
 /** Adds stock: if a row for this medicine+potency+branch exists, increments it; else creates it. */
 export async function addStockEntry(input: StockEntryInput) {
+  // Was read-then-write (select stock_drams, add in JS, write back) —
+  // two staff adding stock for the same medicine at the same moment
+  // could clobber each other's update (audit finding, re-audit 29 Jul:
+  // "lost update" — one entry silently vanishes). Now a row-locked RPC
+  // does the read+increment inside one transaction. Falls back to the
+  // old racy path only until that SQL is run.
+  const { data, error: rpcError } = await supabase.rpc("increment_stock", {
+    p_medicine_name: input.medicine_name,
+    p_potency: input.potency,
+    p_branch: input.branch,
+    p_quantity: input.quantity,
+    p_type: input.type ?? null,
+  });
+  if (!rpcError) return { success: true, error: null, id: (data as any)?.id };
+
   const { data: existing } = await supabase
     .from("inventory")
     .select("id, stock_drams")

@@ -21,6 +21,7 @@ export const RECEPTION_SCREENS: { key: string; label: string }[] = [
   { key: "delivery", label: "Delivery Tracking" },
   { key: "appointments", label: "Appointments" },
   { key: "outstanding", label: "Outstanding Dues" },
+  { key: "tasks", label: "Tasks Hub" },
 ];
 
 interface AuthCtx {
