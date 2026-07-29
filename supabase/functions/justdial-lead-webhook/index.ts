@@ -11,9 +11,17 @@
 //     internet can't POST fake leads — the Apps Script sends it back)
 //   - An approved AiSensy API Campaign named exactly "LEAD_WELCOME"
 //
+// RATE LIMITING (audit P1-11 remainder, Dr. Yadav's decision 29 Jul: rate
+// limit only for now, not HMAC — HMAC would also need the Apps Script
+// side changed, which is a separate follow-up if ever wanted). Even with
+// the correct secret, this caps requests at MAX_PER_MINUTE so a leaked
+// secret can't be used to spam unlimited fake leads / burn AiSensy quota.
+//
 // Called with: { name, mobile, note?, secret }
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+const MAX_PER_MINUTE = 20;
 
 // Plain === on secrets leaks timing information (an attacker can narrow
 // down the correct value character-by-character from response latency).
@@ -36,17 +44,33 @@ Deno.serve(async (req) => {
     if (!expectedSecret || !constantTimeEqual(gotSecret, expectedSecret)) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // ---- Rate limit (checked right after auth, before doing any real
+    // work) — even a correctly-authenticated caller is capped. ----
+    await supabaseAdmin.from("webhook_hits").insert({ source: "justdial" });
+    // Opportunistic cleanup piggybacked on every hit — keeps the table
+    // small without needing a separate cron job.
+    await supabaseAdmin.from("webhook_hits").delete().eq("source", "justdial").lt("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+    const { count: recentHits } = await supabaseAdmin
+      .from("webhook_hits")
+      .select("id", { count: "exact", head: true })
+      .eq("source", "justdial")
+      .gte("created_at", new Date(Date.now() - 60_000).toISOString());
+    if ((recentHits ?? 0) > MAX_PER_MINUTE) {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded — try again in a minute" }), { status: 429 });
+    }
+
     const name = String(body.name ?? "").trim();
     const mobileRaw = String(body.mobile ?? "").replace(/\D/g, "");
     const mobile = mobileRaw.length > 10 ? mobileRaw.slice(-10) : mobileRaw;
     if (!name || mobile.length !== 10) {
       return new Response(JSON.stringify({ error: "name and 10-digit mobile required" }), { status: 400 });
     }
-
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
 
     // Master on/off — Owner Control Centre → JustDial toggle
     const { data: toggleRow } = await supabaseAdmin.from("settings").select("value").eq("key", "justdial_webhook_enabled").maybeSingle();
