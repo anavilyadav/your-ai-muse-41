@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
-import { BarChart3, CalendarDays, ChevronRight, IndianRupee, PhoneCall, Truck, Users } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronRight, IndianRupee, PhoneCall, Truck, Users, ClipboardList } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 
 export const Route = createFileRoute("/tasks")({
@@ -23,6 +23,7 @@ function TasksPage() {
         <ShortcutLink to="/delivery" icon={Truck} title="Delivery Tracking" sub="Packed → Dispatched → Delivered" />
         <ShortcutLink to="/summary" icon={BarChart3} title="Day Summary" sub="Revenue • Modes • Sources" />
         <ShortcutLink to="/outstanding" icon={IndianRupee} title="Outstanding Dues" sub="Pending payments — call/WhatsApp worklist" />
+        <ShortcutLink to="/owner/case-tracking" icon={ClipboardList} title="Case Tracking" sub="Online + walk-in — jo abhi discuss nahi hua" />
       </div>
     </MobileShell>
   );

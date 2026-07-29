@@ -63,7 +63,7 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
 function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [saved, setSaved] = useState<{ token: string; code: string; branch: string; name: string } | null>(null);
+  const [saved, setSaved] = useState<{ token: string; code: string; branch: string; name: string; visitId: string; caseChannel: "WALK_IN" | "ONLINE" } | null>(null);
 
   const [f, setF] = useState({
     name: "",
@@ -87,6 +87,8 @@ function RegisterPage() {
     annualIncome: "",
     branch: "" as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
+    // Online-case tracking (Dr. Yadav, 29 Jul 2026)
+    caseChannel: "WALK_IN" as "WALK_IN" | "ONLINE",
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
 
@@ -127,12 +129,15 @@ function RegisterPage() {
         patient_id: existingPatient.id,
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
+        case_channel: f.caseChannel,
       });
       setSaved({
         token: visit.token_number ?? "T-01",
         code: existingPatient.patient_code ?? "YHC-—",
         branch: f.branch,
         name: existingPatient.name,
+        visitId: visit.id,
+        caseChannel: f.caseChannel,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       toast.success(`${existingPatient.name} check-in ho gaye`);
@@ -189,12 +194,15 @@ function RegisterPage() {
         annual_income: f.annualIncome ? Number(f.annualIncome) : undefined,
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
+        case_channel: f.caseChannel,
       });
       setSaved({
         token: visit.token_number ?? "T-01",
         code: patient.patient_code ?? "YHC-—",
         branch: patient.branch,
         name: patient.name,
+        visitId: visit.id,
+        caseChannel: f.caseChannel,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       if (effectiveCountryCode === "+91") {
@@ -257,7 +265,14 @@ function RegisterPage() {
             </p>
           </div>
 
-          <div className="mt-6 w-full grid grid-cols-2 gap-2">
+          <button
+            onClick={() => navigate({ to: "/pay/$id", params: { id: saved.visitId } })}
+            className="mt-4 w-full rounded-xl bg-accent text-accent-foreground py-3 text-sm font-bold"
+          >
+            {saved.caseChannel === "ONLINE" ? "₹3700 Collect Karo Abhi" : "₹1000 Collect Karo Abhi"}
+          </button>
+
+          <div className="mt-3 w-full grid grid-cols-2 gap-2">
             <button
               onClick={() => {
                 setSaved(null);
@@ -267,7 +282,7 @@ function RegisterPage() {
                   age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "",
                   dob: "", anniversary: "", profession: "", annualIncome: "",
-                  branch: "", consent: true,
+                  branch: "", consent: true, caseChannel: "WALK_IN",
                 });
                 setDupWarn(false);
                 setExistingPatient(null);
@@ -458,6 +473,37 @@ function RegisterPage() {
                 {b.label}
               </button>
             ))}
+          </div>
+        </Section>
+
+        <Section label="Case Type *">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => set("caseChannel", "WALK_IN")}
+              className={cn(
+                "flex-1 rounded-xl px-3.5 py-2.5 text-xs font-semibold border transition",
+                f.caseChannel === "WALK_IN"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-surface text-foreground border-border",
+              )}
+            >
+              Walk-in (Clinic)
+              <div className="text-[10px] font-normal opacity-80 mt-0.5">₹1000 registration</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => set("caseChannel", "ONLINE")}
+              className={cn(
+                "flex-1 rounded-xl px-3.5 py-2.5 text-xs font-semibold border transition",
+                f.caseChannel === "ONLINE"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-surface text-foreground border-border",
+              )}
+            >
+              Online (Courier)
+              <div className="text-[10px] font-normal opacity-80 mt-0.5">₹3700 upfront</div>
+            </button>
           </div>
         </Section>
 

@@ -22,6 +22,7 @@ import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as OwnerIndexRouteImport } from './routes/owner.index'
+import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
 import { Route as OwnerHealthRouteImport } from './routes/owner.health'
@@ -109,6 +110,11 @@ const DoctorIndexRoute = DoctorIndexRouteImport.update({
 const OwnerIndexRoute = OwnerIndexRouteImport.update({
   id: '/owner/',
   path: '/owner/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerCaseTrackingRoute = OwnerCaseTrackingRouteImport.update({
+  id: '/owner/case-tracking',
+  path: '/owner/case-tracking',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerControlRoute = OwnerControlRouteImport.update({
@@ -239,6 +245,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
@@ -277,6 +284,7 @@ export interface FileRoutesByTo {
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
@@ -316,6 +324,7 @@ export interface FileRoutesById {
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
+  '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
@@ -356,6 +365,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/summary'
     | '/tasks'
+    | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
@@ -394,6 +404,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/summary'
     | '/tasks'
+    | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
@@ -432,6 +443,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/summary'
     | '/tasks'
+    | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/followup-rules'
     | '/owner/health'
@@ -471,6 +483,7 @@ export interface RootRouteChildren {
   SearchRoute: typeof SearchRoute
   SummaryRoute: typeof SummaryRoute
   TasksRoute: typeof TasksRoute
+  OwnerCaseTrackingRoute: typeof OwnerCaseTrackingRoute
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerFollowupRulesRoute: typeof OwnerFollowupRulesRoute
   OwnerHealthRoute: typeof OwnerHealthRoute
@@ -589,6 +602,13 @@ declare module '@tanstack/react-router' {
       path: '/owner'
       fullPath: '/owner/'
       preLoaderRoute: typeof OwnerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/case-tracking': {
+      id: '/owner/case-tracking'
+      path: '/owner/case-tracking'
+      fullPath: '/owner/case-tracking'
+      preLoaderRoute: typeof OwnerCaseTrackingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/control': {
@@ -767,6 +787,7 @@ const rootRouteChildren: RootRouteChildren = {
   SearchRoute: SearchRoute,
   SummaryRoute: SummaryRoute,
   TasksRoute: TasksRoute,
+  OwnerCaseTrackingRoute: OwnerCaseTrackingRoute,
   OwnerControlRoute: OwnerControlRoute,
   OwnerFollowupRulesRoute: OwnerFollowupRulesRoute,
   OwnerHealthRoute: OwnerHealthRoute,

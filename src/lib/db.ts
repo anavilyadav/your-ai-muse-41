@@ -146,6 +146,7 @@ export async function checkInExistingPatient(input: {
   patient_id: string;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
+  case_channel?: "WALK_IN" | "ONLINE";
 }): Promise<{ visit: DBVisit }> {
   // Token generation + visit insert + lifetime_visits bump + follow-up
   // closure all happen inside one Postgres function now — this was the
@@ -159,7 +160,17 @@ export async function checkInExistingPatient(input: {
     p_visit_date: today(),
   });
   if (!error && data) {
-    return { visit: data as DBVisit };
+    let visit = data as DBVisit;
+    if (input.case_channel === "ONLINE") {
+      const { data: updatedVisit } = await supabase
+        .from("visits")
+        .update({ visit_type: "ONLINE" })
+        .eq("id", visit.id)
+        .select("*")
+        .maybeSingle();
+      if (updatedVisit) visit = updatedVisit as DBVisit;
+    }
+    return { visit };
   }
   // Fall back to the old approach only if the RPC isn't deployed yet
   // (SQL migration not run) — check-in must never hard-fail just because
@@ -173,6 +184,7 @@ async function checkInExistingPatientLegacy(input: {
   patient_id: string;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
+  case_channel?: "WALK_IN" | "ONLINE";
 }): Promise<{ visit: DBVisit }> {
   const token = await nextTokenForToday(input.branch);
   const { data: v, error: ve } = await supabase
@@ -180,7 +192,7 @@ async function checkInExistingPatientLegacy(input: {
     .insert({
       patient_id: input.patient_id,
       visit_date: today(),
-      visit_type: "OPD",
+      visit_type: input.case_channel === "ONLINE" ? "ONLINE" : "OPD",
       visit_status: "REGISTERED",
       token_number: token,
       branch: input.branch,
@@ -255,6 +267,11 @@ export async function createPatientWithVisit(input: {
   annual_income?: number;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
+  // Online-case tracking (Dr. Yadav, 29 Jul 2026) — was entirely
+  // paper-based before, which is exactly why cases went missing for
+  // 10-20 days. Defaults to walk-in so every existing caller keeps
+  // working unchanged.
+  case_channel?: "WALK_IN" | "ONLINE";
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
@@ -304,7 +321,19 @@ export async function createPatientWithVisit(input: {
         .maybeSingle();
       if (updated) patient = updated as DBPatient;
     }
-    return { patient, visit: data.visit as DBVisit };
+    let visit = data.visit as DBVisit;
+    if (input.case_channel === "ONLINE") {
+      // Same "small follow-up write" pattern as the patient-extras block
+      // above — the atomic RPC doesn't know about this yet either.
+      const { data: updatedVisit } = await supabase
+        .from("visits")
+        .update({ visit_type: "ONLINE" })
+        .eq("id", visit.id)
+        .select("*")
+        .maybeSingle();
+      if (updatedVisit) visit = updatedVisit as DBVisit;
+    }
+    return { patient, visit };
   }
   // Fall back to the old two-step approach if the RPC isn't deployed yet
   // (SQL migration not run) — registration must never hard-fail just
@@ -337,6 +366,7 @@ async function createPatientWithVisitLegacy(input: {
   annual_income?: number;
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
+  case_channel?: "WALK_IN" | "ONLINE";
 }) {
   const code = await nextPatientCode();
   const token = await nextTokenForToday(input.branch);
@@ -373,7 +403,7 @@ async function createPatientWithVisitLegacy(input: {
     .insert({
       patient_id: p.id,
       visit_date: today(),
-      visit_type: "OPD",
+      visit_type: input.case_channel === "ONLINE" ? "ONLINE" : "OPD",
       visit_status: "REGISTERED",
       token_number: token,
       branch: input.branch,
@@ -723,9 +753,35 @@ export async function submitPrescription(input: {
 }) {
   if (input.rows.length === 0) throw new Error("Add at least one medicine");
 
-  // Guard: a stale doctor tab re-submitting Rx after the visit has already
-  // moved to Payment/Done must not drag it back to PHARMACY — that would
-  // re-open a visit the pharmacy or reception already closed out.
+  // Now one atomic RPC: status guard + prescription insert + visit-status
+  // update + patient.last_visit_date + case_discussed_at all happen in one
+  // transaction. This used to be 3 separate writes — a crash between them
+  // (e.g. prescriptions inserted but the visit-status update failing)
+  // left medicine "prescribed" with the visit never reaching Pharmacy, or
+  // the visit advancing without last_visit_date updating (which quietly
+  // skews win-back cutoffs). case_discussed_at is new — it's what powers
+  // the online-case pending-discussion tracking (Dr. Yadav, 29 Jul 2026).
+  // Falls back to the old 3-step approach only until the SQL is run.
+  const { error } = await supabase.rpc("submit_prescription_atomic", {
+    p_visit_id: input.visit_id,
+    p_patient_id: input.patient_id,
+    p_rows: input.rows.map((r) => ({
+      medicine_name: r.medicine_name,
+      potency: r.potency,
+      dose: r.dose,
+      frequency: r.frequency,
+      duration_days: r.duration_days,
+      is_slx: r.is_slx,
+    })),
+    p_doctor_notes: input.doctor_notes,
+    p_next_visit_date: input.next_visit_date,
+  });
+  if (!error) return;
+
+  const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
+  if (!isMissingFunction) throw error;
+
+  // ---- Legacy fallback (pre-atomic behaviour) ----
   const { data: existing, error: exErr } = await supabase
     .from("visits")
     .select("visit_status")
@@ -756,6 +812,7 @@ export async function submitPrescription(input: {
       visit_status: "PHARMACY",
       doctor_notes: input.doctor_notes,
       next_visit_date: input.next_visit_date,
+      case_discussed_at: new Date().toISOString(),
     })
     .eq("id", input.visit_id);
   if (ve) throw ve;
@@ -766,7 +823,60 @@ export async function submitPrescription(input: {
   if (pe) throw pe;
 }
 
-// ---------- Holiday greetings (owner-configurable) ----------
+// ---------- Case discussion tracking (Dr. Yadav, 29 Jul 2026) ----------
+// The actual problem being solved: online cases pay upfront (₹3700, vs
+// ₹1000 for walk-in) and used to be tracked entirely on paper — a case
+// could sit for 10-20 days with nobody noticing the doctor never
+// reviewed it and the courier never went out. case_discussed_at (set
+// atomically the moment Rx is submitted, see submitPrescription above)
+// is what makes "still pending" a real, queryable fact instead of
+// something staff had to remember to check a notebook for.
+export interface PendingCase {
+  id: string;
+  patient_id: string;
+  visit_date: string;
+  visit_type: string;
+  visit_status: string;
+  token_number: string | null;
+  branch: string;
+  created_at: string;
+  patient?: { name: string; mobile: string; patient_code: string | null };
+}
+
+// Deliberately NO 30-day floor like fetchTodayQueue has — a case that's
+// been stuck for 45 days must still show up here. That's the entire
+// point: it should be structurally impossible for one to go missing.
+export async function fetchPendingCases(): Promise<PendingCase[]> {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("*, patient:patients(name, mobile, patient_code)")
+    .is("case_discussed_at", null)
+    .order("created_at", { ascending: true })
+    .limit(500);
+  if (error) return [];
+  return (data ?? []) as PendingCase[];
+}
+
+export interface CaseFunnelPeriodStats {
+  total: number;
+  discussed: number;
+  online_total: number;
+  online_discussed: number;
+}
+export interface CaseFunnelStats {
+  today: CaseFunnelPeriodStats;
+  week: CaseFunnelPeriodStats;
+  month: CaseFunnelPeriodStats;
+  year: CaseFunnelPeriodStats;
+}
+
+export async function fetchCaseFunnelStats(): Promise<CaseFunnelStats | null> {
+  const { data, error } = await supabase.rpc("case_funnel_stats");
+  if (error || !data) return null;
+  return data as CaseFunnelStats;
+}
+
+
 // Festival dates change every year (Diwali, Holi, Eid...), so this is a
 // plain list the owner adds specific dates to — no recurrence logic to
 // get wrong. whatsapp-holiday-greetings Edge Function (Cron, daily)
