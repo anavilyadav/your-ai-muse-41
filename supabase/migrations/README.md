@@ -41,3 +41,4 @@ session it was run. Number new files sequentially (`0008_...`, `0009_...`).
 | `0008_atomic_daily_token.sql` | `daily_token_counters` + `next_token_for_day()` — atomic token generation, same race class as patient_code (re-audit finding) |
 | `0009_atomic_stock_increment.sql` | `increment_stock()` — atomic stock-add, fixes read-modify-write race (re-audit finding) |
 | `0010_case_discussion_tracking.sql` | `case_discussed_at` column + backfill, `submit_prescription_atomic()` (also fixes long-standing Rx non-atomicity), `case_funnel_stats()` — online-case pending-discussion tracking (Dr. Yadav, 29 Jul 2026) |
+| `0011_system_alerts.sql` | `system_alerts` table — degraded-mode alerting, shown on Owner Health page whenever a fallback path triggers (re-audit C-4) |

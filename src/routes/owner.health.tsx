@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits } from "@/lib/db";
+import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits, fetchSystemAlerts, resolveSystemAlert } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
@@ -19,10 +19,17 @@ export const Route = createFileRoute("/owner/health")({
 type Result = { label: string; ok: boolean; detail: string };
 
 function HealthPage() {
+  const qc = useQueryClient();
   const [results, setResults] = useState<Result[] | null>(null);
   const [running, setRunning] = useState(false);
   const issues = useQuery({ queryKey: ["stock-issues"], queryFn: () => fetchStockIssues() });
   const stale = useQuery({ queryKey: ["stale-open-visits"], queryFn: fetchStaleOpenVisits });
+  const alerts = useQuery({ queryKey: ["system-alerts"], queryFn: fetchSystemAlerts });
+
+  const dismissAlert = async (id: string) => {
+    await resolveSystemAlert(id);
+    qc.invalidateQueries({ queryKey: ["system-alerts"] });
+  };
 
   const run = async () => {
     setRunning(true);
@@ -39,6 +46,26 @@ function HealthPage() {
 
   return (
     <RoleShell title="System Health" subtitle="Live Supabase checks" showBack>
+      {alerts.data && alerts.data.length > 0 && (
+        <div className="mb-4">
+          <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-2 text-[11px] text-destructive font-semibold">
+            ⚠ Kuch RPC missing hain — app purane, kam-safe fallback pe chal raha hai. Matching SQL migration run karo.
+          </div>
+          <ul className="space-y-2">
+            {alerts.data.map((a) => (
+              <li key={a.id} className="rounded-xl bg-surface border border-destructive/30 border-l-[4px] p-3">
+                <div className="text-[13px] text-primary font-semibold">{a.message}</div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[10px] text-muted-foreground">{new Date(a.created_at).toLocaleString("en-IN")}</span>
+                  <button onClick={() => dismissAlert(a.id)} className="text-[11px] font-semibold text-primary underline">
+                    Dismiss
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!results ? (
         <div className="rounded-2xl bg-surface border border-border p-6 text-center">
           <div className="text-sm text-muted-foreground">"Run Health Check Now" dabao — real Supabase connectivity aur table counts check karega</div>

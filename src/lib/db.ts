@@ -73,6 +73,7 @@ export interface DBPrescription {
 export async function nextPatientCode(): Promise<string> {
   const { data, error } = await supabase.rpc("next_patient_codes", { p_count: 1 });
   if (!error && Array.isArray(data) && data[0]) return data[0] as string;
+  logDegradedModeAlert("next_patient_codes");
   const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
   return `YHC-${1000 + (count ?? 0) + 1}`;
 }
@@ -86,6 +87,7 @@ export async function nextTokenForToday(branch: string): Promise<string> {
   // Falls back to the old racy count() only until that SQL is run.
   const { data, error } = await supabase.rpc("next_token_for_day", { p_branch: branch, p_date: today() });
   if (!error && typeof data === "string") return data;
+  logDegradedModeAlert("next_token_for_day", { branch });
 
   const { count } = await supabase
     .from("visits")
@@ -177,6 +179,7 @@ export async function checkInExistingPatient(input: {
   // a migration is pending. Same pattern as createPatientWithVisit.
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error ?? new Error("Check-in fail hua");
+  logDegradedModeAlert("check_in_existing_patient_atomic", { patient_id: input.patient_id });
   return checkInExistingPatientLegacy(input);
 }
 
@@ -343,6 +346,7 @@ export async function createPatientWithVisit(input: {
   // any other (real) RPC error.
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error ?? new Error("Registration fail hui");
+  logDegradedModeAlert("register_patient_with_visit", { mobile: input.mobile });
   return createPatientWithVisitLegacy(input);
 }
 
@@ -780,6 +784,7 @@ export async function submitPrescription(input: {
 
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error;
+  logDegradedModeAlert("submit_prescription_atomic", { visit_id: input.visit_id });
 
   // ---- Legacy fallback (pre-atomic behaviour) ----
   const { data: existing, error: exErr } = await supabase
@@ -874,6 +879,52 @@ export async function fetchCaseFunnelStats(): Promise<CaseFunnelStats | null> {
   const { data, error } = await supabase.rpc("case_funnel_stats");
   if (error || !data) return null;
   return data as CaseFunnelStats;
+}
+
+// ---------- Degraded-mode alerts (re-audit C-4, 29 Jul 2026) ----------
+// Several functions (registration, check-in, dispense, Rx submission,
+// patient code, token, stock) fall back to an older, less-safe path if
+// their atomic RPC is missing (SQL migration not run yet, or the
+// function got dropped/renamed). That fallback is intentional — it
+// keeps the clinic running instead of hard-failing — but it used to be
+// completely silent. Nobody would know it was happening for months.
+// This logs it, fire-and-forget, so Owner Health can surface it.
+export async function logDegradedModeAlert(rpcName: string, context?: Record<string, unknown>) {
+  try {
+    await supabase.from("system_alerts").insert({
+      type: "RPC_FALLBACK",
+      message: `${rpcName} RPC missing — fell back to the older, less-safe path. Run the matching SQL migration.`,
+      context: context ?? null,
+    });
+  } catch (e: any) {
+    // Never let alert-logging itself break the actual operation.
+    console.error("logDegradedModeAlert failed:", e?.message ?? e);
+  }
+}
+
+export interface SystemAlert {
+  id: string;
+  type: string;
+  message: string;
+  context: Record<string, unknown> | null;
+  created_at: string;
+  resolved: boolean;
+}
+
+export async function fetchSystemAlerts(): Promise<SystemAlert[]> {
+  const { data, error } = await supabase
+    .from("system_alerts")
+    .select("*")
+    .eq("resolved", false)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) return [];
+  return (data ?? []) as SystemAlert[];
+}
+
+export async function resolveSystemAlert(id: string) {
+  const { error } = await supabase.from("system_alerts").update({ resolved: true }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
 }
 
 
@@ -1223,6 +1274,7 @@ export async function addStockEntry(input: StockEntryInput) {
     p_type: input.type ?? null,
   });
   if (!rpcError) return { success: true, error: null, id: (data as any)?.id };
+  logDegradedModeAlert("increment_stock", { medicine_name: input.medicine_name, branch: input.branch });
 
   const { data: existing } = await supabase
     .from("inventory")
@@ -1291,6 +1343,7 @@ export async function markDispensed(visitId: string) {
 
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error;
+  logDegradedModeAlert("dispense_visit_atomic", { visit_id: visitId });
 
   const { data: existing, error: exErr } = await supabase
     .from("visits")
@@ -1710,8 +1763,17 @@ export interface NewAppointmentInput {
 }
 
 export async function fetchAppointments(date?: string) {
+  // Re-audit finding: ascending order + limit(500) with no date meant
+  // that once the table crossed 500 total rows, the oldest appointments
+  // would always win the limit and new ones would never appear. The one
+  // live call site always passes a date so this wasn't actively biting,
+  // but the function itself wasn't safe by construction — a future
+  // caller that forgot to pass date would hit it silently. Now floors
+  // to today() whenever no specific date is given, so "no date" means
+  // "upcoming", never "the oldest 500 ever created".
   let q = supabase.from("appointments").select("*").order("appointment_time", { ascending: true }).limit(500);
   if (date) q = q.eq("appointment_date", date);
+  else q = q.gte("appointment_date", today());
   const { data, error } = await q;
   if (error) return [];
   return data ?? [];
