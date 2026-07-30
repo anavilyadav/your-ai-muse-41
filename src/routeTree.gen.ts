@@ -9,87 +9,47 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AppointmentsRouteImport } from './routes/appointments'
-import { Route as DeliveryRouteImport } from './routes/delivery'
-import { Route as FollowUpRouteImport } from './routes/follow-up'
-import { Route as LeadsRouteImport } from './routes/leads'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as OutstandingRouteImport } from './routes/outstanding'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as SearchRouteImport } from './routes/search'
-import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
-import { Route as OwnerIndexRouteImport } from './routes/owner.index'
-import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
-import { Route as OwnerControlRouteImport } from './routes/owner.control'
-import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
-import { Route as OwnerHealthRouteImport } from './routes/owner.health'
-import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
-import { Route as OwnerImportRouteImport } from './routes/owner.import'
-import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
-import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.payment-adjustments'
-import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
-import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
-import { Route as OwnerWinbackTiersRouteImport } from './routes/owner.winback-tiers'
-import { Route as PatientIdRouteImport } from './routes/patient.$id'
-import { Route as PayIdRouteImport } from './routes/pay.$id'
+import { Route as SummaryRouteImport } from './routes/summary'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as OutstandingRouteImport } from './routes/outstanding'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as LeadsRouteImport } from './routes/leads'
+import { Route as FollowUpRouteImport } from './routes/follow-up'
+import { Route as DeliveryRouteImport } from './routes/delivery'
+import { Route as AppointmentsRouteImport } from './routes/appointments'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as PharmacyIndexRouteImport } from './routes/pharmacy.index'
-import { Route as PharmacyInventoryRouteImport } from './routes/pharmacy.inventory'
+import { Route as OwnerIndexRouteImport } from './routes/owner.index'
+import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as PharmacyMasterRouteImport } from './routes/pharmacy.master'
-import { Route as DoctorCaseIndexRouteImport } from './routes/doctor.case.index'
-import { Route as DoctorCaseReferenceRouteImport } from './routes/doctor.case.reference'
+import { Route as PharmacyInventoryRouteImport } from './routes/pharmacy.inventory'
+import { Route as PayIdRouteImport } from './routes/pay.$id'
+import { Route as PatientIdRouteImport } from './routes/patient.$id'
+import { Route as OwnerWinbackTiersRouteImport } from './routes/owner.winback-tiers'
+import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
+import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
+import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.payment-adjustments'
+import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
+import { Route as OwnerImportRouteImport } from './routes/owner.import'
+import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
+import { Route as OwnerHealthRouteImport } from './routes/owner.health'
+import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
+import { Route as OwnerControlRouteImport } from './routes/owner.control'
+import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
 import { Route as DoctorRxIndexRouteImport } from './routes/doctor.rx.index'
-import { Route as DoctorRxDashboardRouteImport } from './routes/doctor.rx.dashboard'
-import { Route as DoctorRxHistoryRouteImport } from './routes/doctor.rx.history'
+import { Route as DoctorCaseIndexRouteImport } from './routes/doctor.case.index'
 import { Route as PharmacyDispenseTokenRouteImport } from './routes/pharmacy.dispense.$token'
-import { Route as DoctorCaseFormTokenRouteImport } from './routes/doctor.case.form.$token'
+import { Route as DoctorRxHistoryRouteImport } from './routes/doctor.rx.history'
+import { Route as DoctorRxDashboardRouteImport } from './routes/doctor.rx.dashboard'
+import { Route as DoctorCaseReferenceRouteImport } from './routes/doctor.case.reference'
 import { Route as DoctorRxConsultTokenRouteImport } from './routes/doctor.rx.consult.$token'
+import { Route as DoctorCaseFormTokenRouteImport } from './routes/doctor.case.form.$token'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppointmentsRoute = AppointmentsRouteImport.update({
-  id: '/appointments',
-  path: '/appointments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DeliveryRoute = DeliveryRouteImport.update({
-  id: '/delivery',
-  path: '/delivery',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FollowUpRoute = FollowUpRouteImport.update({
-  id: '/follow-up',
-  path: '/follow-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LeadsRoute = LeadsRouteImport.update({
-  id: '/leads',
-  path: '/leads',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OutstandingRoute = OutstandingRouteImport.update({
-  id: '/outstanding',
-  path: '/outstanding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SearchRoute = SearchRouteImport.update({
-  id: '/search',
-  path: '/search',
+const TasksRoute = TasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SummaryRoute = SummaryRouteImport.update({
@@ -97,84 +57,49 @@ const SummaryRoute = SummaryRouteImport.update({
   path: '/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TasksRoute = TasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoctorIndexRoute = DoctorIndexRouteImport.update({
-  id: '/doctor/',
-  path: '/doctor/',
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerIndexRoute = OwnerIndexRouteImport.update({
-  id: '/owner/',
-  path: '/owner/',
+const OutstandingRoute = OutstandingRouteImport.update({
+  id: '/outstanding',
+  path: '/outstanding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerCaseTrackingRoute = OwnerCaseTrackingRouteImport.update({
-  id: '/owner/case-tracking',
-  path: '/owner/case-tracking',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerControlRoute = OwnerControlRouteImport.update({
-  id: '/owner/control',
-  path: '/owner/control',
+const LeadsRoute = LeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerFollowupRulesRoute = OwnerFollowupRulesRouteImport.update({
-  id: '/owner/followup-rules',
-  path: '/owner/followup-rules',
+const FollowUpRoute = FollowUpRouteImport.update({
+  id: '/follow-up',
+  path: '/follow-up',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerHealthRoute = OwnerHealthRouteImport.update({
-  id: '/owner/health',
-  path: '/owner/health',
+const DeliveryRoute = DeliveryRouteImport.update({
+  id: '/delivery',
+  path: '/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerHolidaysRoute = OwnerHolidaysRouteImport.update({
-  id: '/owner/holidays',
-  path: '/owner/holidays',
+const AppointmentsRoute = AppointmentsRouteImport.update({
+  id: '/appointments',
+  path: '/appointments',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OwnerImportRoute = OwnerImportRouteImport.update({
-  id: '/owner/import',
-  path: '/owner/import',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OwnerIncentivesRoute = OwnerIncentivesRouteImport.update({
-  id: '/owner/incentives',
-  path: '/owner/incentives',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OwnerPaymentAdjustmentsRoute = OwnerPaymentAdjustmentsRouteImport.update({
-  id: '/owner/payment-adjustments',
-  path: '/owner/payment-adjustments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OwnerReportsRoute = OwnerReportsRouteImport.update({
-  id: '/owner/reports',
-  path: '/owner/reports',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OwnerStaffRoute = OwnerStaffRouteImport.update({
-  id: '/owner/staff',
-  path: '/owner/staff',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OwnerWinbackTiersRoute = OwnerWinbackTiersRouteImport.update({
-  id: '/owner/winback-tiers',
-  path: '/owner/winback-tiers',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PatientIdRoute = PatientIdRouteImport.update({
-  id: '/patient/$id',
-  path: '/patient/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PayIdRoute = PayIdRouteImport.update({
-  id: '/pay/$id',
-  path: '/pay/$id',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PharmacyIndexRoute = PharmacyIndexRouteImport.update({
@@ -182,9 +107,14 @@ const PharmacyIndexRoute = PharmacyIndexRouteImport.update({
   path: '/pharmacy/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PharmacyInventoryRoute = PharmacyInventoryRouteImport.update({
-  id: '/pharmacy/inventory',
-  path: '/pharmacy/inventory',
+const OwnerIndexRoute = OwnerIndexRouteImport.update({
+  id: '/owner/',
+  path: '/owner/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorIndexRoute = DoctorIndexRouteImport.update({
+  id: '/doctor/',
+  path: '/doctor/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PharmacyMasterRoute = PharmacyMasterRouteImport.update({
@@ -192,14 +122,74 @@ const PharmacyMasterRoute = PharmacyMasterRouteImport.update({
   path: '/pharmacy/master',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoctorCaseIndexRoute = DoctorCaseIndexRouteImport.update({
-  id: '/doctor/case/',
-  path: '/doctor/case/',
+const PharmacyInventoryRoute = PharmacyInventoryRouteImport.update({
+  id: '/pharmacy/inventory',
+  path: '/pharmacy/inventory',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoctorCaseReferenceRoute = DoctorCaseReferenceRouteImport.update({
-  id: '/doctor/case/reference',
-  path: '/doctor/case/reference',
+const PayIdRoute = PayIdRouteImport.update({
+  id: '/pay/$id',
+  path: '/pay/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PatientIdRoute = PatientIdRouteImport.update({
+  id: '/patient/$id',
+  path: '/patient/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerWinbackTiersRoute = OwnerWinbackTiersRouteImport.update({
+  id: '/owner/winback-tiers',
+  path: '/owner/winback-tiers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerStaffRoute = OwnerStaffRouteImport.update({
+  id: '/owner/staff',
+  path: '/owner/staff',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerReportsRoute = OwnerReportsRouteImport.update({
+  id: '/owner/reports',
+  path: '/owner/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerPaymentAdjustmentsRoute = OwnerPaymentAdjustmentsRouteImport.update({
+  id: '/owner/payment-adjustments',
+  path: '/owner/payment-adjustments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerIncentivesRoute = OwnerIncentivesRouteImport.update({
+  id: '/owner/incentives',
+  path: '/owner/incentives',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerImportRoute = OwnerImportRouteImport.update({
+  id: '/owner/import',
+  path: '/owner/import',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerHolidaysRoute = OwnerHolidaysRouteImport.update({
+  id: '/owner/holidays',
+  path: '/owner/holidays',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerHealthRoute = OwnerHealthRouteImport.update({
+  id: '/owner/health',
+  path: '/owner/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerFollowupRulesRoute = OwnerFollowupRulesRouteImport.update({
+  id: '/owner/followup-rules',
+  path: '/owner/followup-rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerControlRoute = OwnerControlRouteImport.update({
+  id: '/owner/control',
+  path: '/owner/control',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerCaseTrackingRoute = OwnerCaseTrackingRouteImport.update({
+  id: '/owner/case-tracking',
+  path: '/owner/case-tracking',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DoctorRxIndexRoute = DoctorRxIndexRouteImport.update({
@@ -207,14 +197,9 @@ const DoctorRxIndexRoute = DoctorRxIndexRouteImport.update({
   path: '/doctor/rx/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoctorRxDashboardRoute = DoctorRxDashboardRouteImport.update({
-  id: '/doctor/rx/dashboard',
-  path: '/doctor/rx/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DoctorRxHistoryRoute = DoctorRxHistoryRouteImport.update({
-  id: '/doctor/rx/history',
-  path: '/doctor/rx/history',
+const DoctorCaseIndexRoute = DoctorCaseIndexRouteImport.update({
+  id: '/doctor/case/',
+  path: '/doctor/case/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PharmacyDispenseTokenRoute = PharmacyDispenseTokenRouteImport.update({
@@ -222,14 +207,29 @@ const PharmacyDispenseTokenRoute = PharmacyDispenseTokenRouteImport.update({
   path: '/pharmacy/dispense/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoctorCaseFormTokenRoute = DoctorCaseFormTokenRouteImport.update({
-  id: '/doctor/case/form/$token',
-  path: '/doctor/case/form/$token',
+const DoctorRxHistoryRoute = DoctorRxHistoryRouteImport.update({
+  id: '/doctor/rx/history',
+  path: '/doctor/rx/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorRxDashboardRoute = DoctorRxDashboardRouteImport.update({
+  id: '/doctor/rx/dashboard',
+  path: '/doctor/rx/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorCaseReferenceRoute = DoctorCaseReferenceRouteImport.update({
+  id: '/doctor/case/reference',
+  path: '/doctor/case/reference',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DoctorRxConsultTokenRoute = DoctorRxConsultTokenRouteImport.update({
   id: '/doctor/rx/consult/$token',
   path: '/doctor/rx/consult/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoctorCaseFormTokenRoute = DoctorCaseFormTokenRouteImport.update({
+  id: '/doctor/case/form/$token',
+  path: '/doctor/case/form/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -513,67 +513,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/appointments': {
-      id: '/appointments'
-      path: '/appointments'
-      fullPath: '/appointments'
-      preLoaderRoute: typeof AppointmentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/delivery': {
-      id: '/delivery'
-      path: '/delivery'
-      fullPath: '/delivery'
-      preLoaderRoute: typeof DeliveryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/follow-up': {
-      id: '/follow-up'
-      path: '/follow-up'
-      fullPath: '/follow-up'
-      preLoaderRoute: typeof FollowUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/leads': {
-      id: '/leads'
-      path: '/leads'
-      fullPath: '/leads'
-      preLoaderRoute: typeof LeadsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/outstanding': {
-      id: '/outstanding'
-      path: '/outstanding'
-      fullPath: '/outstanding'
-      preLoaderRoute: typeof OutstandingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/search': {
-      id: '/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof SearchRouteImport
+    '/tasks': {
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/summary': {
@@ -583,116 +527,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tasks': {
-      id: '/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof TasksRouteImport
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doctor/': {
-      id: '/doctor/'
-      path: '/doctor'
-      fullPath: '/doctor/'
-      preLoaderRoute: typeof DoctorIndexRouteImport
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/': {
-      id: '/owner/'
-      path: '/owner'
-      fullPath: '/owner/'
-      preLoaderRoute: typeof OwnerIndexRouteImport
+    '/outstanding': {
+      id: '/outstanding'
+      path: '/outstanding'
+      fullPath: '/outstanding'
+      preLoaderRoute: typeof OutstandingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/case-tracking': {
-      id: '/owner/case-tracking'
-      path: '/owner/case-tracking'
-      fullPath: '/owner/case-tracking'
-      preLoaderRoute: typeof OwnerCaseTrackingRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/control': {
-      id: '/owner/control'
-      path: '/owner/control'
-      fullPath: '/owner/control'
-      preLoaderRoute: typeof OwnerControlRouteImport
+    '/leads': {
+      id: '/leads'
+      path: '/leads'
+      fullPath: '/leads'
+      preLoaderRoute: typeof LeadsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/followup-rules': {
-      id: '/owner/followup-rules'
-      path: '/owner/followup-rules'
-      fullPath: '/owner/followup-rules'
-      preLoaderRoute: typeof OwnerFollowupRulesRouteImport
+    '/follow-up': {
+      id: '/follow-up'
+      path: '/follow-up'
+      fullPath: '/follow-up'
+      preLoaderRoute: typeof FollowUpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/health': {
-      id: '/owner/health'
-      path: '/owner/health'
-      fullPath: '/owner/health'
-      preLoaderRoute: typeof OwnerHealthRouteImport
+    '/delivery': {
+      id: '/delivery'
+      path: '/delivery'
+      fullPath: '/delivery'
+      preLoaderRoute: typeof DeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/holidays': {
-      id: '/owner/holidays'
-      path: '/owner/holidays'
-      fullPath: '/owner/holidays'
-      preLoaderRoute: typeof OwnerHolidaysRouteImport
+    '/appointments': {
+      id: '/appointments'
+      path: '/appointments'
+      fullPath: '/appointments'
+      preLoaderRoute: typeof AppointmentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/owner/import': {
-      id: '/owner/import'
-      path: '/owner/import'
-      fullPath: '/owner/import'
-      preLoaderRoute: typeof OwnerImportRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/owner/incentives': {
-      id: '/owner/incentives'
-      path: '/owner/incentives'
-      fullPath: '/owner/incentives'
-      preLoaderRoute: typeof OwnerIncentivesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/owner/payment-adjustments': {
-      id: '/owner/payment-adjustments'
-      path: '/owner/payment-adjustments'
-      fullPath: '/owner/payment-adjustments'
-      preLoaderRoute: typeof OwnerPaymentAdjustmentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/owner/reports': {
-      id: '/owner/reports'
-      path: '/owner/reports'
-      fullPath: '/owner/reports'
-      preLoaderRoute: typeof OwnerReportsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/owner/staff': {
-      id: '/owner/staff'
-      path: '/owner/staff'
-      fullPath: '/owner/staff'
-      preLoaderRoute: typeof OwnerStaffRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/owner/winback-tiers': {
-      id: '/owner/winback-tiers'
-      path: '/owner/winback-tiers'
-      fullPath: '/owner/winback-tiers'
-      preLoaderRoute: typeof OwnerWinbackTiersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/patient/$id': {
-      id: '/patient/$id'
-      path: '/patient/$id'
-      fullPath: '/patient/$id'
-      preLoaderRoute: typeof PatientIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pay/$id': {
-      id: '/pay/$id'
-      path: '/pay/$id'
-      fullPath: '/pay/$id'
-      preLoaderRoute: typeof PayIdRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pharmacy/': {
@@ -702,11 +597,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PharmacyIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/pharmacy/inventory': {
-      id: '/pharmacy/inventory'
-      path: '/pharmacy/inventory'
-      fullPath: '/pharmacy/inventory'
-      preLoaderRoute: typeof PharmacyInventoryRouteImport
+    '/owner/': {
+      id: '/owner/'
+      path: '/owner'
+      fullPath: '/owner/'
+      preLoaderRoute: typeof OwnerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/': {
+      id: '/doctor/'
+      path: '/doctor'
+      fullPath: '/doctor/'
+      preLoaderRoute: typeof DoctorIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pharmacy/master': {
@@ -716,18 +618,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PharmacyMasterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doctor/case/': {
-      id: '/doctor/case/'
-      path: '/doctor/case'
-      fullPath: '/doctor/case/'
-      preLoaderRoute: typeof DoctorCaseIndexRouteImport
+    '/pharmacy/inventory': {
+      id: '/pharmacy/inventory'
+      path: '/pharmacy/inventory'
+      fullPath: '/pharmacy/inventory'
+      preLoaderRoute: typeof PharmacyInventoryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doctor/case/reference': {
-      id: '/doctor/case/reference'
-      path: '/doctor/case/reference'
-      fullPath: '/doctor/case/reference'
-      preLoaderRoute: typeof DoctorCaseReferenceRouteImport
+    '/pay/$id': {
+      id: '/pay/$id'
+      path: '/pay/$id'
+      fullPath: '/pay/$id'
+      preLoaderRoute: typeof PayIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/patient/$id': {
+      id: '/patient/$id'
+      path: '/patient/$id'
+      fullPath: '/patient/$id'
+      preLoaderRoute: typeof PatientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/winback-tiers': {
+      id: '/owner/winback-tiers'
+      path: '/owner/winback-tiers'
+      fullPath: '/owner/winback-tiers'
+      preLoaderRoute: typeof OwnerWinbackTiersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/staff': {
+      id: '/owner/staff'
+      path: '/owner/staff'
+      fullPath: '/owner/staff'
+      preLoaderRoute: typeof OwnerStaffRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/reports': {
+      id: '/owner/reports'
+      path: '/owner/reports'
+      fullPath: '/owner/reports'
+      preLoaderRoute: typeof OwnerReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/payment-adjustments': {
+      id: '/owner/payment-adjustments'
+      path: '/owner/payment-adjustments'
+      fullPath: '/owner/payment-adjustments'
+      preLoaderRoute: typeof OwnerPaymentAdjustmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/incentives': {
+      id: '/owner/incentives'
+      path: '/owner/incentives'
+      fullPath: '/owner/incentives'
+      preLoaderRoute: typeof OwnerIncentivesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/import': {
+      id: '/owner/import'
+      path: '/owner/import'
+      fullPath: '/owner/import'
+      preLoaderRoute: typeof OwnerImportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/holidays': {
+      id: '/owner/holidays'
+      path: '/owner/holidays'
+      fullPath: '/owner/holidays'
+      preLoaderRoute: typeof OwnerHolidaysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/health': {
+      id: '/owner/health'
+      path: '/owner/health'
+      fullPath: '/owner/health'
+      preLoaderRoute: typeof OwnerHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/followup-rules': {
+      id: '/owner/followup-rules'
+      path: '/owner/followup-rules'
+      fullPath: '/owner/followup-rules'
+      preLoaderRoute: typeof OwnerFollowupRulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/control': {
+      id: '/owner/control'
+      path: '/owner/control'
+      fullPath: '/owner/control'
+      preLoaderRoute: typeof OwnerControlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/case-tracking': {
+      id: '/owner/case-tracking'
+      path: '/owner/case-tracking'
+      fullPath: '/owner/case-tracking'
+      preLoaderRoute: typeof OwnerCaseTrackingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/doctor/rx/': {
@@ -737,18 +723,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DoctorRxIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doctor/rx/dashboard': {
-      id: '/doctor/rx/dashboard'
-      path: '/doctor/rx/dashboard'
-      fullPath: '/doctor/rx/dashboard'
-      preLoaderRoute: typeof DoctorRxDashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/doctor/rx/history': {
-      id: '/doctor/rx/history'
-      path: '/doctor/rx/history'
-      fullPath: '/doctor/rx/history'
-      preLoaderRoute: typeof DoctorRxHistoryRouteImport
+    '/doctor/case/': {
+      id: '/doctor/case/'
+      path: '/doctor/case'
+      fullPath: '/doctor/case/'
+      preLoaderRoute: typeof DoctorCaseIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pharmacy/dispense/$token': {
@@ -758,11 +737,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PharmacyDispenseTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doctor/case/form/$token': {
-      id: '/doctor/case/form/$token'
-      path: '/doctor/case/form/$token'
-      fullPath: '/doctor/case/form/$token'
-      preLoaderRoute: typeof DoctorCaseFormTokenRouteImport
+    '/doctor/rx/history': {
+      id: '/doctor/rx/history'
+      path: '/doctor/rx/history'
+      fullPath: '/doctor/rx/history'
+      preLoaderRoute: typeof DoctorRxHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/rx/dashboard': {
+      id: '/doctor/rx/dashboard'
+      path: '/doctor/rx/dashboard'
+      fullPath: '/doctor/rx/dashboard'
+      preLoaderRoute: typeof DoctorRxDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/case/reference': {
+      id: '/doctor/case/reference'
+      path: '/doctor/case/reference'
+      fullPath: '/doctor/case/reference'
+      preLoaderRoute: typeof DoctorCaseReferenceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/doctor/rx/consult/$token': {
@@ -770,6 +763,13 @@ declare module '@tanstack/react-router' {
       path: '/doctor/rx/consult/$token'
       fullPath: '/doctor/rx/consult/$token'
       preLoaderRoute: typeof DoctorRxConsultTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doctor/case/form/$token': {
+      id: '/doctor/case/form/$token'
+      path: '/doctor/case/form/$token'
+      fullPath: '/doctor/case/form/$token'
+      preLoaderRoute: typeof DoctorCaseFormTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
