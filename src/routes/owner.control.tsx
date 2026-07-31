@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
