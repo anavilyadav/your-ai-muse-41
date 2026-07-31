@@ -73,10 +73,23 @@ function RxWrite() {
   const [notes, setNotes] = useState("");
   const [nextVisit, setNextVisit] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     if (visit?.doctor_notes) setNotes(visit.doctor_notes);
   }, [visit?.doctor_notes]);
+
+  // TASK 3 — warn before an in-progress Rx is thrown away by a back-swipe,
+  // bottom-nav tap or tab close. "Dirty" = anything actually typed: a
+  // medicine name, notes the doctor changed, or a next-visit date. Cleared
+  // once the Rx is submitted so the post-save redirect doesn't prompt.
+  const isDirty =
+    !submitted &&
+    (rows.some((r) => r.medicine_name.trim().length > 0) ||
+      notes.trim() !== (visit?.doctor_notes ?? "").trim() ||
+      nextVisit !== "");
+  useUnsavedChanges(isDirty, "Prescription abhi save nahi hui. Bahar jaana hai?");
+
 
   const setNextInDays = (d: number) => {
     const n = new Date();
