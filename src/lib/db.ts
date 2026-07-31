@@ -2170,24 +2170,82 @@ export async function saveIncentiveConfig(cfg: IncentiveConfig) {
   await upsertSetting("incentive_config", JSON.stringify(cfg));
 }
 
-// NOTE (flagged during Phase 1 #9, not fixed today): this is a
-// check-then-write, not an atomic upsert. Two concurrent calls for the
-// SAME key (e.g. Owner saving Control Centre settings from two tabs) could
-// both see "no existing row" and both INSERT, leaving two rows with the
-// same key -- if that ever happens, every .maybeSingle() reader elsewhere
-// in this file (fetchIncentiveSplits, fetchCaseDrLevels, etc.) would start
-// throwing, since maybeSingle() requires 0 or 1 rows. A real fix needs a
-// UNIQUE constraint on settings.key plus .upsert({onConflict:"key"}) --
-// couldn't verify from this repo whether that constraint already exists
-// at the DB level (settings predates the migrations/ folder convention).
+// Atomic single-statement upsert (migration 0018 adds the UNIQUE constraint
+// on settings.key that makes onConflict work). Previously this was a
+// check-then-write: two concurrent calls for the SAME key (Owner saving
+// Control Centre from two tabs) could both see "no existing row" and both
+// INSERT, leaving two rows with the same key -- after which every
+// .maybeSingle() reader in this file (fetchIncentiveSplits,
+// fetchCaseDrLevels, ...) would start throwing outright.
+//
+// If 0018 hasn't been run yet, Postgres answers 42P10 ("no unique or
+// exclusion constraint matching the ON CONFLICT specification") and we fall
+// back to the old two-step path, same not-hard-fail pattern used for the
+// atomic RPCs elsewhere -- saving settings must never break just because a
+// migration is pending.
 export async function upsertSetting(key: string, value: string) {
+  const { error } = await supabase.from("settings").upsert({ key, value }, { onConflict: "key" });
+  if (!error) return;
+
+  const noConstraint = error.code === "42P10" || /no unique or exclusion constraint/i.test(error.message ?? "");
+  if (!noConstraint) throw error;
+  logDegradedModeAlert("settings_key_unique", { key });
+
   const { data, error: selErr } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
   if (selErr) console.error(`upsertSetting(${key}) existence check failed:`, selErr.message);
-  const { error } = data?.id
+  const { error: writeErr } = data?.id
     ? await supabase.from("settings").update({ value }).eq("id", data.id)
     : await supabase.from("settings").insert({ key, value });
-  if (error) throw error;
+  if (writeErr) throw writeErr;
 }
+
+// ---------- Fee Master (TASK 4) ----------
+// Consultation fees live in the settings table so the Owner can change them
+// without a deploy, but they ALWAYS have a hard-coded default so the Payment
+// screen can prefill even if settings hasn't been touched yet / fails to load.
+export type FeeMaster = { NEW: number; FOLLOWUP: number; ONLINE: number };
+
+export const DEFAULT_FEE_MASTER: FeeMaster = { NEW: 3500, FOLLOWUP: 2500, ONLINE: 3700 };
+
+export const FEE_LABELS: Record<keyof FeeMaster, string> = {
+  NEW: "New case",
+  FOLLOWUP: "Follow-up",
+  ONLINE: "Online case",
+};
+
+export async function fetchFeeMaster(): Promise<FeeMaster> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "fee_master").maybeSingle();
+  if (error) console.error("fetchFeeMaster failed:", error.message);
+  if (!data?.value) return { ...DEFAULT_FEE_MASTER };
+  try {
+    const parsed = JSON.parse(data.value) as Partial<FeeMaster>;
+    // Merge over defaults so a partially-saved blob can never yield ₹0/NaN.
+    return {
+      NEW: Number(parsed.NEW) > 0 ? Number(parsed.NEW) : DEFAULT_FEE_MASTER.NEW,
+      FOLLOWUP: Number(parsed.FOLLOWUP) > 0 ? Number(parsed.FOLLOWUP) : DEFAULT_FEE_MASTER.FOLLOWUP,
+      ONLINE: Number(parsed.ONLINE) > 0 ? Number(parsed.ONLINE) : DEFAULT_FEE_MASTER.ONLINE,
+    };
+  } catch {
+    return { ...DEFAULT_FEE_MASTER };
+  }
+}
+
+export async function saveFeeMaster(fees: FeeMaster) {
+  await upsertSetting("fee_master", JSON.stringify(fees));
+}
+
+/**
+ * Which fee bucket a visit falls into.
+ * ONLINE wins over everything (it's a different service, priced separately),
+ * otherwise the patient's very first visit is a new case and the rest are
+ * follow-ups. lifetime_visits is set to 1 at registration and bumped on each
+ * check-in, so <= 1 means "this is their first".
+ */
+export function feeKindForVisit(visit: { visit_type?: string | null; patient?: { lifetime_visits?: number | null } | null }): keyof FeeMaster {
+  if ((visit.visit_type ?? "").toUpperCase() === "ONLINE") return "ONLINE";
+  return Number(visit.patient?.lifetime_visits ?? 1) <= 1 ? "NEW" : "FOLLOWUP";
+}
+
 
 // ---------- Bulk Import (Leads / Patients / Visit-Revenue History) ----------
 // Design principles (matching the safety rules this project runs on):
