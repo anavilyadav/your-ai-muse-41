@@ -1253,6 +1253,74 @@ export async function fetchLeadStats() {
   };
 }
 
+// ---------- Lead source tracking (TASK 5) ----------
+// Fixed vocabulary so the analytics below can actually group. Free-typed
+// sources ("jd", "Just Dial", "justdial ") would splinter into useless
+// one-row buckets, which is exactly what the imported data already suffers
+// from — anything unrecognised rolls up under "Other" instead.
+export const LEAD_SOURCES = [
+  "Walk-in",
+  "Referral",
+  "JustDial",
+  "Google",
+  "Facebook",
+  "Instagram",
+  "WhatsApp",
+  "Other",
+] as const;
+export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+export function normalizeLeadSource(raw: string | null | undefined): LeadSource {
+  const s = (raw ?? "").trim().toLowerCase();
+  if (!s) return "Other";
+  if (/walk|opd|clinic/.test(s)) return "Walk-in";
+  if (/refer/.test(s)) return "Referral";
+  if (/just ?dial|^jd$/.test(s)) return "JustDial";
+  if (/google|gmb|search|ads?$/.test(s)) return "Google";
+  if (/facebook|fb|meta/.test(s)) return "Facebook";
+  if (/insta|ig$/.test(s)) return "Instagram";
+  if (/whats ?app|wa$/.test(s)) return "WhatsApp";
+  return "Other";
+}
+
+/**
+ * Per-source counts, computed with COUNT queries (never from the capped
+ * 500-row list) so the numbers stay honest at 30k+ leads.
+ *
+ * `leads` = enquiries received, `converted` = those that became patients,
+ * `patients` = patients whose own lead_source says they came from there
+ * (covers walk-ins that never existed as a lead row at all).
+ */
+export async function fetchLeadSourceStats(): Promise<
+  { source: LeadSource; leads: number; converted: number; patients: number }[]
+> {
+  const results = await Promise.all(
+    LEAD_SOURCES.map(async (source) => {
+      const [leadsRes, convRes, patRes] = await Promise.all([
+        supabase.from("leads").select("id", { count: "exact", head: true }).eq("source", source),
+        supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("source", source)
+          .eq("status", "Converted"),
+        supabase.from("patients").select("id", { count: "exact", head: true }).eq("lead_source", source),
+      ]);
+      return {
+        source,
+        leads: leadsRes.count ?? 0,
+        converted: convRes.count ?? 0,
+        patients: patRes.count ?? 0,
+      };
+    }),
+  );
+  // Busiest source first; hide the sources with literally nothing in them so
+  // the reception screen doesn't show eight rows of zeros.
+  return results
+    .filter((r) => r.leads > 0 || r.patients > 0)
+    .sort((a, b) => b.leads + b.patients - (a.leads + a.patients));
+}
+
+
 // Phase 1 #8: fetches LIMIT+1 rows so it can tell whether the real table
 // has more than LIMIT rows without a separate count() query. If it does,
 // the extra row is dropped and truncated=true is returned so the UI can
