@@ -162,10 +162,11 @@ function RxWrite() {
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       // Drop the unsaved-changes guard BEFORE navigating away, otherwise a
-      // successful save would still pop the "leave page?" confirm.
+      // successful save would still pop the "leave page?" confirm. The
+      // navigation itself runs from an effect once `submitted` has actually
+      // rendered, so the blocker is genuinely disabled by then.
       setSubmitted(true);
       toast.success("Rx saved — pharmacy queue update ho gayi");
-      navigate({ to: "/doctor/rx" });
     } catch (e: any) {
       toast.error(e?.message || "Rx save fail hua");
     } finally {
