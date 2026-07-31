@@ -286,6 +286,9 @@ export async function createPatientWithVisit(input: {
   // 10-20 days. Defaults to walk-in so every existing caller keeps
   // working unchanged.
   case_channel?: "WALK_IN" | "ONLINE";
+  // TASK 5 — where this patient came from (Walk-in, Referral, JustDial, ...).
+  lead_source?: string;
+
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
