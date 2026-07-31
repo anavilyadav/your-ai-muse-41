@@ -161,7 +161,12 @@ function RxWrite() {
 
   return (
     <MobileShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
-      <div className="md:grid md:grid-cols-2 md:gap-4">
+      {/* Single column on purpose. DoctorShell caps content at a fixed
+          430px phone width, so the old `md:grid md:grid-cols-2` never got
+          the room it needed — it just crushed both columns to ~200px and
+          broke the Rx rows. */}
+      <div>
+
         {/* LEFT: patient summary */}
         <section className="space-y-3">
           <div className="rounded-2xl bg-primary text-primary-foreground p-4">
