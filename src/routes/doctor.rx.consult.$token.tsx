@@ -91,6 +91,12 @@ function RxWrite() {
       nextVisit !== "");
   useUnsavedChanges(isDirty, "Prescription abhi save nahi hui. Bahar jaana hai?");
 
+  useEffect(() => {
+    if (submitted) navigate({ to: "/doctor/rx" });
+  }, [submitted, navigate]);
+
+
+
 
   const setNextInDays = (d: number) => {
     const n = new Date();
