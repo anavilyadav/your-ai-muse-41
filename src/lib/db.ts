@@ -338,6 +338,21 @@ export async function createPatientWithVisit(input: {
         .maybeSingle();
       if (updated) patient = updated as DBPatient;
     }
+    // TASK 5 — kept as its own write on purpose: lead_source only exists
+    // after migration 0018, and folding it into the block above would make
+    // an un-migrated DB reject the whole update and silently lose the
+    // WhatsApp/DOB/profession fields too.
+    if (input.lead_source) {
+      const { data: srcUpdated, error: srcErr } = await supabase
+        .from("patients")
+        .update({ lead_source: input.lead_source })
+        .eq("id", patient.id)
+        .select("*")
+        .maybeSingle();
+      if (srcErr) console.error("lead_source save failed (migration 0018 pending?):", srcErr.message);
+      if (srcUpdated) patient = srcUpdated as DBPatient;
+    }
+
     let visit = data.visit as DBVisit;
     if (input.case_channel === "ONLINE") {
       // Same "small follow-up write" pattern as the patient-extras block
