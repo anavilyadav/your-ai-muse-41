@@ -376,7 +376,20 @@ export async function createPatientWithVisit(input: {
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error ?? new Error("Registration fail hui");
   logDegradedModeAlert("register_patient_with_visit", { mobile: input.mobile });
-  return createPatientWithVisitLegacy(input);
+  const legacy = await createPatientWithVisitLegacy(input);
+  if (input.lead_source) {
+    // Best-effort, same reasoning as the atomic path above.
+    const { data: srcUpdated, error: srcErr } = await supabase
+      .from("patients")
+      .update({ lead_source: input.lead_source })
+      .eq("id", legacy.patient.id)
+      .select("*")
+      .maybeSingle();
+    if (srcErr) console.error("lead_source save failed (migration 0018 pending?):", srcErr.message);
+    if (srcUpdated) legacy.patient = srcUpdated as DBPatient;
+  }
+  return legacy;
+
 }
 
 async function createPatientWithVisitLegacy(input: {
