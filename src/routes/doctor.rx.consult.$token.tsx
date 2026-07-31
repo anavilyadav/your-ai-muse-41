@@ -16,6 +16,7 @@ import {
 import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
   head: () => ({ meta: [{ title: "Write Rx — Doctor" }, { name: "robots", content: "noindex" }] }),
