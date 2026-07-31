@@ -174,23 +174,40 @@ function CaseFormPage() {
     toast.success("Photo save ho gayi");
   };
 
+  // One source of truth for the case text — submit(), saveDraft() and the
+  // unsaved-changes guard all have to agree on exactly what "the case" is.
+  const notesText = [
+    thermals && `Thermals: ${thermals}`,
+    thirst && `Thirst: ${thirst}`,
+    sleep && `Sleep: ${sleep}`,
+    appetite && `Appetite: ${appetite}`,
+    sweat && `Sweat: ${sweat}`,
+    mentals.length && `Mentals: ${mentals.join(", ")}`,
+    worse.length && `Worse: ${worse.join(", ")}`,
+    better.length && `Better: ${better.join(", ")}`,
+    detail && `Detail: ${detail}`,
+    past && `Past history: ${past}`,
+    flag && `Flag to Rx: ${flag}`,
+  ].filter(Boolean).join("\n");
+
+  // TASK 3 — a case sheet is 10+ minutes of typing on a phone; one stray
+  // back-swipe used to wipe it silently. Snapshot = everything a save would
+  // persist, compared against whatever was last actually written to the DB.
+  const snapshot = [notesText, casePhotoUrl ?? "", tonguePhotoUrl ?? "", reportsPhotoUrl ?? ""].join("|");
+  const [savedSnapshot, setSavedSnapshot] = useState<string>("|||");
+  const [submitted, setSubmitted] = useState(false);
+  const isDirty = !submitted && snapshot !== savedSnapshot;
+  useUnsavedChanges(isDirty, "Case abhi save nahi hua. Bahar jaana hai? Draft save kar lo pehle.");
+
+  useEffect(() => {
+    if (submitted) navigate({ to: "/doctor/case" });
+  }, [submitted, navigate]);
+
   const submit = async () => {
     if (!casePhotoUrl) return toast.error("Case paper photo is required");
     if (dupCardWarn && !window.confirm("Ye card number isi register mein already kisi aur patient ke paas hai. Phir bhi save karein?")) return;
     if (!window.confirm("Submit case to the prescribing doctor? Cannot be edited after submit.")) return;
-    const notes = [
-      thermals && `Thermals: ${thermals}`,
-      thirst && `Thirst: ${thirst}`,
-      sleep && `Sleep: ${sleep}`,
-      appetite && `Appetite: ${appetite}`,
-      sweat && `Sweat: ${sweat}`,
-      mentals.length && `Mentals: ${mentals.join(", ")}`,
-      worse.length && `Worse: ${worse.join(", ")}`,
-      better.length && `Better: ${better.join(", ")}`,
-      detail && `Detail: ${detail}`,
-      past && `Past history: ${past}`,
-      flag && `Flag to Rx: ${flag}`,
-    ].filter(Boolean).join("\n");
+    const notes = notesText;
     setBusy(true);
     try {
       if (visit?.patient?.id && (cardNumber.trim() || cardRegister.trim())) {
@@ -203,8 +220,11 @@ function CaseFormPage() {
         reports_photo_url: reportsPhotoUrl,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      setSavedSnapshot(snapshot);
+      // Redirect happens from the effect above, once `submitted` has
+      // rendered and the unsaved-changes blocker is genuinely off.
+      setSubmitted(true);
       toast.success("Case submitted — moved to prescriber's queue");
-      navigate({ to: "/doctor/case" });
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to submit");
     } finally {
@@ -213,19 +233,7 @@ function CaseFormPage() {
   };
 
   const saveDraft = async () => {
-    const notes = [
-      thermals && `Thermals: ${thermals}`,
-      thirst && `Thirst: ${thirst}`,
-      sleep && `Sleep: ${sleep}`,
-      appetite && `Appetite: ${appetite}`,
-      sweat && `Sweat: ${sweat}`,
-      mentals.length && `Mentals: ${mentals.join(", ")}`,
-      worse.length && `Worse: ${worse.join(", ")}`,
-      better.length && `Better: ${better.join(", ")}`,
-      detail && `Detail: ${detail}`,
-      past && `Past history: ${past}`,
-      flag && `Flag to Rx: ${flag}`,
-    ].filter(Boolean).join("\n");
+    const notes = notesText;
     setBusy(true);
     try {
       await saveCaseNotes(visitId, {
@@ -235,6 +243,7 @@ function CaseFormPage() {
         tongue_photo_url: tonguePhotoUrl,
         reports_photo_url: reportsPhotoUrl,
       });
+      setSavedSnapshot(snapshot);
       toast.success("Draft saved — case abhi bhi tumhare paas hai");
     } catch (e: any) {
       toast.error(e?.message ?? "Draft save nahi hua");
@@ -242,6 +251,7 @@ function CaseFormPage() {
       setBusy(false);
     }
   };
+
 
   if (isLoading) {
     return <DoctorShell title="Case Taking" showBack><LoadingBlock /></DoctorShell>;
