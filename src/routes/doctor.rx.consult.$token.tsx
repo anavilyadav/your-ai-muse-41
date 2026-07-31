@@ -161,6 +161,9 @@ function RxWrite() {
         next_visit_date: nextVisit || null,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      // Drop the unsaved-changes guard BEFORE navigating away, otherwise a
+      // successful save would still pop the "leave page?" confirm.
+      setSubmitted(true);
       toast.success("Rx saved — pharmacy queue update ho gayi");
       navigate({ to: "/doctor/rx" });
     } catch (e: any) {
