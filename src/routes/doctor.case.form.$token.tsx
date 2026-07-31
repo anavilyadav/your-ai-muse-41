@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl, isDuplicateCardNumber, savePatientCardNumber } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
 export const Route = createFileRoute("/doctor/case/form/$token")({
   head: () => ({ meta: [{ title: "Case Taking — Doctor App" }, { name: "robots", content: "noindex" }] }),
