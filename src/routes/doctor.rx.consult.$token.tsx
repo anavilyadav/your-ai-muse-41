@@ -208,7 +208,7 @@ function RxWrite() {
         </section>
 
         {/* RIGHT: write rx */}
-        <section className="mt-4 md:mt-0 space-y-3">
+        <section className="mt-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-xs font-bold uppercase text-primary">Prescription</div>
             <label className="flex items-center gap-2 text-xs">
