@@ -286,6 +286,9 @@ export async function createPatientWithVisit(input: {
   // 10-20 days. Defaults to walk-in so every existing caller keeps
   // working unchanged.
   case_channel?: "WALK_IN" | "ONLINE";
+  // TASK 5 — where this patient came from (Walk-in, Referral, JustDial, ...).
+  lead_source?: string;
+
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
@@ -335,6 +338,21 @@ export async function createPatientWithVisit(input: {
         .maybeSingle();
       if (updated) patient = updated as DBPatient;
     }
+    // TASK 5 — kept as its own write on purpose: lead_source only exists
+    // after migration 0018, and folding it into the block above would make
+    // an un-migrated DB reject the whole update and silently lose the
+    // WhatsApp/DOB/profession fields too.
+    if (input.lead_source) {
+      const { data: srcUpdated, error: srcErr } = await supabase
+        .from("patients")
+        .update({ lead_source: input.lead_source })
+        .eq("id", patient.id)
+        .select("*")
+        .maybeSingle();
+      if (srcErr) console.error("lead_source save failed (migration 0018 pending?):", srcErr.message);
+      if (srcUpdated) patient = srcUpdated as DBPatient;
+    }
+
     let visit = data.visit as DBVisit;
     if (input.case_channel === "ONLINE") {
       // Same "small follow-up write" pattern as the patient-extras block
@@ -358,7 +376,20 @@ export async function createPatientWithVisit(input: {
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
   if (!isMissingFunction) throw error ?? new Error("Registration fail hui");
   logDegradedModeAlert("register_patient_with_visit", { mobile: input.mobile });
-  return createPatientWithVisitLegacy(input);
+  const legacy = await createPatientWithVisitLegacy(input);
+  if (input.lead_source) {
+    // Best-effort, same reasoning as the atomic path above.
+    const { data: srcUpdated, error: srcErr } = await supabase
+      .from("patients")
+      .update({ lead_source: input.lead_source })
+      .eq("id", legacy.patient.id)
+      .select("*")
+      .maybeSingle();
+    if (srcErr) console.error("lead_source save failed (migration 0018 pending?):", srcErr.message);
+    if (srcUpdated) legacy.patient = srcUpdated as DBPatient;
+  }
+  return legacy;
+
 }
 
 async function createPatientWithVisitLegacy(input: {
@@ -1252,6 +1283,74 @@ export async function fetchLeadStats() {
     newToday: newToday.count ?? 0,
   };
 }
+
+// ---------- Lead source tracking (TASK 5) ----------
+// Fixed vocabulary so the analytics below can actually group. Free-typed
+// sources ("jd", "Just Dial", "justdial ") would splinter into useless
+// one-row buckets, which is exactly what the imported data already suffers
+// from — anything unrecognised rolls up under "Other" instead.
+export const LEAD_SOURCES = [
+  "Walk-in",
+  "Referral",
+  "JustDial",
+  "Google",
+  "Facebook",
+  "Instagram",
+  "WhatsApp",
+  "Other",
+] as const;
+export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+export function normalizeLeadSource(raw: string | null | undefined): LeadSource {
+  const s = (raw ?? "").trim().toLowerCase();
+  if (!s) return "Other";
+  if (/walk|opd|clinic/.test(s)) return "Walk-in";
+  if (/refer/.test(s)) return "Referral";
+  if (/just ?dial|^jd$/.test(s)) return "JustDial";
+  if (/google|gmb|search|ads?$/.test(s)) return "Google";
+  if (/facebook|fb|meta/.test(s)) return "Facebook";
+  if (/insta|ig$/.test(s)) return "Instagram";
+  if (/whats ?app|wa$/.test(s)) return "WhatsApp";
+  return "Other";
+}
+
+/**
+ * Per-source counts, computed with COUNT queries (never from the capped
+ * 500-row list) so the numbers stay honest at 30k+ leads.
+ *
+ * `leads` = enquiries received, `converted` = those that became patients,
+ * `patients` = patients whose own lead_source says they came from there
+ * (covers walk-ins that never existed as a lead row at all).
+ */
+export async function fetchLeadSourceStats(): Promise<
+  { source: LeadSource; leads: number; converted: number; patients: number }[]
+> {
+  const results = await Promise.all(
+    LEAD_SOURCES.map(async (source) => {
+      const [leadsRes, convRes, patRes] = await Promise.all([
+        supabase.from("leads").select("id", { count: "exact", head: true }).eq("source", source),
+        supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("source", source)
+          .eq("status", "Converted"),
+        supabase.from("patients").select("id", { count: "exact", head: true }).eq("lead_source", source),
+      ]);
+      return {
+        source,
+        leads: leadsRes.count ?? 0,
+        converted: convRes.count ?? 0,
+        patients: patRes.count ?? 0,
+      };
+    }),
+  );
+  // Busiest source first; hide the sources with literally nothing in them so
+  // the reception screen doesn't show eight rows of zeros.
+  return results
+    .filter((r) => r.leads > 0 || r.patients > 0)
+    .sort((a, b) => b.leads + b.patients - (a.leads + a.patients));
+}
+
 
 // Phase 1 #8: fetches LIMIT+1 rows so it can tell whether the real table
 // has more than LIMIT rows without a separate count() query. If it does,
@@ -2170,24 +2269,82 @@ export async function saveIncentiveConfig(cfg: IncentiveConfig) {
   await upsertSetting("incentive_config", JSON.stringify(cfg));
 }
 
-// NOTE (flagged during Phase 1 #9, not fixed today): this is a
-// check-then-write, not an atomic upsert. Two concurrent calls for the
-// SAME key (e.g. Owner saving Control Centre settings from two tabs) could
-// both see "no existing row" and both INSERT, leaving two rows with the
-// same key -- if that ever happens, every .maybeSingle() reader elsewhere
-// in this file (fetchIncentiveSplits, fetchCaseDrLevels, etc.) would start
-// throwing, since maybeSingle() requires 0 or 1 rows. A real fix needs a
-// UNIQUE constraint on settings.key plus .upsert({onConflict:"key"}) --
-// couldn't verify from this repo whether that constraint already exists
-// at the DB level (settings predates the migrations/ folder convention).
+// Atomic single-statement upsert (migration 0018 adds the UNIQUE constraint
+// on settings.key that makes onConflict work). Previously this was a
+// check-then-write: two concurrent calls for the SAME key (Owner saving
+// Control Centre from two tabs) could both see "no existing row" and both
+// INSERT, leaving two rows with the same key -- after which every
+// .maybeSingle() reader in this file (fetchIncentiveSplits,
+// fetchCaseDrLevels, ...) would start throwing outright.
+//
+// If 0018 hasn't been run yet, Postgres answers 42P10 ("no unique or
+// exclusion constraint matching the ON CONFLICT specification") and we fall
+// back to the old two-step path, same not-hard-fail pattern used for the
+// atomic RPCs elsewhere -- saving settings must never break just because a
+// migration is pending.
 export async function upsertSetting(key: string, value: string) {
+  const { error } = await supabase.from("settings").upsert({ key, value }, { onConflict: "key" });
+  if (!error) return;
+
+  const noConstraint = error.code === "42P10" || /no unique or exclusion constraint/i.test(error.message ?? "");
+  if (!noConstraint) throw error;
+  logDegradedModeAlert("settings_key_unique", { key });
+
   const { data, error: selErr } = await supabase.from("settings").select("id").eq("key", key).maybeSingle();
   if (selErr) console.error(`upsertSetting(${key}) existence check failed:`, selErr.message);
-  const { error } = data?.id
+  const { error: writeErr } = data?.id
     ? await supabase.from("settings").update({ value }).eq("id", data.id)
     : await supabase.from("settings").insert({ key, value });
-  if (error) throw error;
+  if (writeErr) throw writeErr;
 }
+
+// ---------- Fee Master (TASK 4) ----------
+// Consultation fees live in the settings table so the Owner can change them
+// without a deploy, but they ALWAYS have a hard-coded default so the Payment
+// screen can prefill even if settings hasn't been touched yet / fails to load.
+export type FeeMaster = { NEW: number; FOLLOWUP: number; ONLINE: number };
+
+export const DEFAULT_FEE_MASTER: FeeMaster = { NEW: 3500, FOLLOWUP: 2500, ONLINE: 3700 };
+
+export const FEE_LABELS: Record<keyof FeeMaster, string> = {
+  NEW: "New case",
+  FOLLOWUP: "Follow-up",
+  ONLINE: "Online case",
+};
+
+export async function fetchFeeMaster(): Promise<FeeMaster> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "fee_master").maybeSingle();
+  if (error) console.error("fetchFeeMaster failed:", error.message);
+  if (!data?.value) return { ...DEFAULT_FEE_MASTER };
+  try {
+    const parsed = JSON.parse(data.value) as Partial<FeeMaster>;
+    // Merge over defaults so a partially-saved blob can never yield ₹0/NaN.
+    return {
+      NEW: Number(parsed.NEW) > 0 ? Number(parsed.NEW) : DEFAULT_FEE_MASTER.NEW,
+      FOLLOWUP: Number(parsed.FOLLOWUP) > 0 ? Number(parsed.FOLLOWUP) : DEFAULT_FEE_MASTER.FOLLOWUP,
+      ONLINE: Number(parsed.ONLINE) > 0 ? Number(parsed.ONLINE) : DEFAULT_FEE_MASTER.ONLINE,
+    };
+  } catch {
+    return { ...DEFAULT_FEE_MASTER };
+  }
+}
+
+export async function saveFeeMaster(fees: FeeMaster) {
+  await upsertSetting("fee_master", JSON.stringify(fees));
+}
+
+/**
+ * Which fee bucket a visit falls into.
+ * ONLINE wins over everything (it's a different service, priced separately),
+ * otherwise the patient's very first visit is a new case and the rest are
+ * follow-ups. lifetime_visits is set to 1 at registration and bumped on each
+ * check-in, so <= 1 means "this is their first".
+ */
+export function feeKindForVisit(visit: { visit_type?: string | null; patient?: { lifetime_visits?: number | null } | null }): keyof FeeMaster {
+  if ((visit.visit_type ?? "").toUpperCase() === "ONLINE") return "ONLINE";
+  return Number(visit.patient?.lifetime_visits ?? 1) <= 1 ? "NEW" : "FOLLOWUP";
+}
+
 
 // ---------- Bulk Import (Leads / Patients / Visit-Revenue History) ----------
 // Design principles (matching the safety rules this project runs on):

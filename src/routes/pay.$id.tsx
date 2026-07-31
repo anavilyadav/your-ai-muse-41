@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +55,28 @@ function PayPage() {
     enabled: !!visit?.patient_id,
   });
   const credit = availableCredit ?? 0;
+
+  // TASK 4 — Fee Master. Reception was starting every payment from a blank
+  // 0 and typing the consultation fee from memory, which is where the wrong
+  // amounts came from. Prefill the standard fee for this visit's kind
+  // (new case / follow-up / online) and keep the field fully editable for
+  // concessions.
+  const { data: feeMaster } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
+  const fees = feeMaster ?? DEFAULT_FEE_MASTER;
+  const feeKind = visit ? feeKindForVisit(visit) : null;
+  const standardFee = feeKind ? fees[feeKind] : 0;
+
+  // Prefill exactly once per visit, and never over something already typed.
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visit || !standardFee) return;
+    if (prefilledFor === visit.id) return;
+    setPrefilledFor(visit.id);
+    if (charged === 0 && received === 0) {
+      setCharged(standardFee);
+      setReceived(standardFee);
+    }
+  }, [visit, standardFee, prefilledFor, charged, received]);
 
   if (isLoading) return <MobileShell title="Collect Payment" showBack><LoadingBlock /></MobileShell>;
   // Was a single "Visit nahi mila" for both a genuine not-found AND a
@@ -153,6 +175,22 @@ function PayPage() {
         </button>
       )}
 
+
+      {feeKind && (
+        <div className="mt-3 rounded-xl bg-surface border border-border p-3 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Standard fee</div>
+            <div className="text-xs font-semibold text-primary">{FEE_LABELS[feeKind]}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setCharged(standardFee); setReceived(standardFee); }}
+            className="rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-xs font-bold"
+          >
+            ₹{standardFee.toLocaleString("en-IN")}
+          </button>
+        </div>
+      )}
 
       <div className="mt-4">
         <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Quick fill</div>

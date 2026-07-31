@@ -16,6 +16,7 @@ import {
 import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
   head: () => ({ meta: [{ title: "Write Rx — Doctor" }, { name: "robots", content: "noindex" }] }),
@@ -73,10 +74,29 @@ function RxWrite() {
   const [notes, setNotes] = useState("");
   const [nextVisit, setNextVisit] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     if (visit?.doctor_notes) setNotes(visit.doctor_notes);
   }, [visit?.doctor_notes]);
+
+  // TASK 3 — warn before an in-progress Rx is thrown away by a back-swipe,
+  // bottom-nav tap or tab close. "Dirty" = anything actually typed: a
+  // medicine name, notes the doctor changed, or a next-visit date. Cleared
+  // once the Rx is submitted so the post-save redirect doesn't prompt.
+  const isDirty =
+    !submitted &&
+    (rows.some((r) => r.medicine_name.trim().length > 0) ||
+      notes.trim() !== (visit?.doctor_notes ?? "").trim() ||
+      nextVisit !== "");
+  useUnsavedChanges(isDirty, "Prescription abhi save nahi hui. Bahar jaana hai?");
+
+  useEffect(() => {
+    if (submitted) navigate({ to: "/doctor/rx" });
+  }, [submitted, navigate]);
+
+
+
 
   const setNextInDays = (d: number) => {
     const n = new Date();
@@ -147,8 +167,12 @@ function RxWrite() {
         next_visit_date: nextVisit || null,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      // Drop the unsaved-changes guard BEFORE navigating away, otherwise a
+      // successful save would still pop the "leave page?" confirm. The
+      // navigation itself runs from an effect once `submitted` has actually
+      // rendered, so the blocker is genuinely disabled by then.
+      setSubmitted(true);
       toast.success("Rx saved — pharmacy queue update ho gayi");
-      navigate({ to: "/doctor/rx" });
     } catch (e: any) {
       toast.error(e?.message || "Rx save fail hua");
     } finally {
@@ -161,7 +185,12 @@ function RxWrite() {
 
   return (
     <MobileShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
-      <div className="md:grid md:grid-cols-2 md:gap-4">
+      {/* Single column on purpose. DoctorShell caps content at a fixed
+          430px phone width, so the old `md:grid md:grid-cols-2` never got
+          the room it needed — it just crushed both columns to ~200px and
+          broke the Rx rows. */}
+      <div>
+
         {/* LEFT: patient summary */}
         <section className="space-y-3">
           <div className="rounded-2xl bg-primary text-primary-foreground p-4">
@@ -203,7 +232,7 @@ function RxWrite() {
         </section>
 
         {/* RIGHT: write rx */}
-        <section className="mt-4 md:mt-0 space-y-3">
+        <section className="mt-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-xs font-bold uppercase text-primary">Prescription</div>
             <label className="flex items-center gap-2 text-xs">

@@ -4,7 +4,7 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -89,6 +89,9 @@ function RegisterPage() {
     consent: true,
     // Online-case tracking (Dr. Yadav, 29 Jul 2026)
     caseChannel: "WALK_IN" as "WALK_IN" | "ONLINE",
+    // TASK 5 — where this patient came from, so the Owner can see which
+    // sources actually turn into paying patients (not just enquiries).
+    leadSource: "Walk-in" as string,
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
 
@@ -195,6 +198,7 @@ function RegisterPage() {
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
         case_channel: f.caseChannel,
+        lead_source: f.leadSource,
       });
       setSaved({
         token: visit.token_number ?? "T-01",
@@ -283,7 +287,7 @@ function RegisterPage() {
                   age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "",
                   dob: "", anniversary: "", profession: "", annualIncome: "",
-                  branch: "", consent: true, caseChannel: "WALK_IN",
+                  branch: "", consent: true, caseChannel: "WALK_IN", leadSource: "Walk-in",
                 });
                 setDupWarn(false);
                 setExistingPatient(null);
@@ -505,6 +509,26 @@ function RegisterPage() {
               Online (Courier)
               <div className="text-[10px] font-normal opacity-80 mt-0.5">₹3700 upfront</div>
             </button>
+          </div>
+        </Section>
+
+        <Section label="Kaha se aaye? (Source)" hint="Isse pata chalta hai kaunsa source asli patients de raha hai.">
+          <div className="flex flex-wrap gap-2">
+            {LEAD_SOURCES.map((src) => (
+              <button
+                key={src}
+                type="button"
+                onClick={() => set("leadSource", src)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition",
+                  f.leadSource === src
+                    ? "bg-accent text-accent-foreground border-accent"
+                    : "bg-surface text-foreground border-border",
+                )}
+              >
+                {src}
+              </button>
+            ))}
           </div>
         </Section>
 

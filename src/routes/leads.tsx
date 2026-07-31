@@ -6,7 +6,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
-import { fetchLeads, fetchLeadStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, createLead, type LeadStatus } from "@/lib/db";
+import { fetchLeads, fetchLeadStats, fetchLeadSourceStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, createLead, LEAD_SOURCES, type LeadStatus } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -86,6 +86,12 @@ function LeadsPage() {
   const statsQ = useQuery({ queryKey: ["lead-stats"], queryFn: fetchLeadStats });
   const stats = statsQ.data ?? { total: 0, hot: 0, converted: 0, newToday: 0 };
 
+  // TASK 5 — source analytics. Also COUNT-based, so it stays correct past
+  // the 500-row display cap.
+  const sourceQ = useQuery({ queryKey: ["lead-source-stats"], queryFn: fetchLeadSourceStats });
+  const sourceRows = sourceQ.data ?? [];
+  const [showSources, setShowSources] = useState(false);
+
   const doUpdate = async (id: string, s: LeadStatus) => {
     try {
       await updateLeadStatus(id, s);
@@ -125,7 +131,11 @@ function LeadsPage() {
       {showAddLead && (
         <AddLeadModal
           onClose={() => setShowAddLead(false)}
-          onAdded={() => qc.invalidateQueries({ queryKey: ["leads"] })}
+          onAdded={() => {
+            qc.invalidateQueries({ queryKey: ["leads"] });
+            qc.invalidateQueries({ queryKey: ["lead-stats"] });
+            qc.invalidateQueries({ queryKey: ["lead-source-stats"] });
+          }}
         />
       )}
       <div className="grid grid-cols-3 gap-2">
@@ -133,6 +143,47 @@ function LeadsPage() {
         <StatCard label="HOT" value={stats.hot} tone="destructive" />
         <StatCard label="Converted" value={stats.converted} tone="success" />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowSources((v) => !v)}
+        className="mt-2 w-full rounded-xl border border-border bg-surface px-3 py-2 text-[11px] font-semibold text-primary text-left"
+      >
+        {showSources ? "▾" : "▸"} Source-wise performance
+      </button>
+      {showSources && (
+        <div className="mt-2 rounded-xl border border-border bg-surface p-3">
+          {sourceQ.isLoading ? (
+            <div className="text-[11px] text-muted-foreground">Loading…</div>
+          ) : sourceRows.length === 0 ? (
+            <div className="text-[11px] text-muted-foreground">Abhi koi source data nahi hai.</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span>Source</span>
+                <span className="text-right">Leads</span>
+                <span className="text-right">Converted</span>
+                <span className="text-right">Conv %</span>
+              </div>
+              <ul className="mt-1.5 space-y-1.5">
+                {sourceRows.map((r) => (
+                  <li key={r.source} className="grid grid-cols-4 gap-2 text-xs items-center">
+                    <span className="font-semibold truncate">{r.source}</span>
+                    <span className="text-right tabular-nums">{r.leads}</span>
+                    <span className="text-right tabular-nums text-success font-semibold">{r.converted}</span>
+                    <span className="text-right tabular-nums">
+                      {r.leads > 0 ? `${Math.round((r.converted / r.leads) * 100)}%` : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 text-[10px] text-muted-foreground">
+                Registered patients by source: {sourceRows.map((r) => `${r.source} ${r.patients}`).join(" • ")}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="relative mt-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -308,7 +359,7 @@ function StatCard({
 function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
-  const [source, setSource] = useState("");
+  const [source, setSource] = useState<string>("Walk-in");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -354,13 +405,19 @@ function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
             />
           </div>
           <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Source (optional)</label>
-            <input
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Source</label>
+            {/* Fixed list on purpose — free text used to splinter into
+                "jd" / "Just Dial" / "justdial ", which made source-wise
+                reporting meaningless. */}
+            <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              placeholder="e.g. Walk-in, Referral, Phone call"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
-            />
+            >
+              {LEAD_SOURCES.map((src) => (
+                <option key={src} value={src}>{src}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Note (optional)</label>

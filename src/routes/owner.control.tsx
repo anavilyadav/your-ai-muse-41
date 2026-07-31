@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -245,6 +245,69 @@ function JustDialToggle({ settings }: { settings: any[] }) {
 // yet (Online Booking, Home Visits, Marketing/GIOS) — those are listed
 // under "Planned", clearly separate from working links, no toggle switch.
 
+// TASK 4 — Fee Master. Reception's Payment screen prefills from these, so
+// a fee change is one edit here instead of retraining staff.
+function FeeMasterCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
+  const fees = data ?? DEFAULT_FEE_MASTER;
+  const [draft, setDraft] = useState<FeeMaster | null>(null);
+  const [saving, setSaving] = useState(false);
+  const current = draft ?? fees;
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await saveFeeMaster(draft);
+      qc.invalidateQueries({ queryKey: ["fee-master"] });
+      setDraft(null);
+      toast.success("Fees update ho gayi");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Fee Master — Payment screen ka default amount
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2.5">
+        {(Object.keys(FEE_LABELS) as (keyof FeeMaster)[]).map((k) => (
+          <div key={k} className="flex items-center justify-between gap-3">
+            <span className="text-[13px] font-semibold text-primary">{FEE_LABELS[k]}</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-muted-foreground">₹</span>
+              <input
+                inputMode="numeric"
+                value={current[k] || ""}
+                onChange={(e) =>
+                  setDraft({ ...current, [k]: Number(e.target.value.replace(/\D/g, "")) || 0 })
+                }
+                className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-right"
+              />
+            </div>
+          </div>
+        ))}
+        {draft && (
+          <button
+            onClick={save}
+            disabled={saving || Object.values(draft).some((v) => !v || v <= 0)}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Fees"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Reception yahi amount prefill dekhegi — concession dena ho to wahi edit kar sakti hai.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
     { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
@@ -363,6 +426,7 @@ function ControlPage() {
               <span className={cn("h-3 w-3 rounded-full shrink-0", backupIsOn ? "bg-success" : "bg-border")} />
             </button>
           </div>
+          <FeeMasterCard />
           <OtherModules />
           <PlannedModules />
         </div>
