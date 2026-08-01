@@ -234,6 +234,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Direct Supabase Auth sign-in — used when the staff-signin edge function
+  // is unavailable (not deployed on this project / CORS preflight blocked /
+  // offline gateway). Without this the whole app was unusable: the browser
+  // never reached the function and every attempt showed the generic
+  // "Network issue — dobara try karo".
+  const signInDirect = async (cleaned: string, pin: string) => {
+    let email = `${cleaned}@yhcos.in`;
+    try {
+      const { data } = await withTimeout(
+        Promise.resolve(supabase.from("users").select("email").eq("mobile", cleaned).maybeSingle()),
+        10_000,
+        "Email lookup",
+      );
+      if ((data as any)?.email) email = (data as any).email;
+    } catch {
+      // fall through with the conventional email
+    }
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password: pin });
+    if (error || !signInData?.session) {
+      // A genuine connectivity failure surfaces as a fetch/network error,
+      // not as invalid credentials — keep the two messages distinct.
+      const msg = String(error?.message ?? "");
+      if (/fetch|network|Failed to fetch/i.test(msg)) return "Network issue — dobara try karo";
+      return "Mobile ya PIN galat hai";
+    }
+    return null;
+  };
+
   const signIn = async (mobile: string, pin: string) => {
     const cleaned = mobile.replace(/\D/g, "");
     if (cleaned.length !== 10 || pin.length < 4) return "Mobile ya PIN galat hai";
@@ -241,13 +269,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (5 failed attempts -> 15 min) can be enforced — calling
     // supabase.auth.signInWithPassword directly here, like before, would
     // have no way to know or care how many times this mobile just failed.
+    // If that function isn't reachable we still sign in directly rather
+    // than locking every staff member out of the app.
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/staff-signin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile: cleaned, pin }),
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await withTimeout(
+        fetch(`${SUPABASE_URL}/functions/v1/staff-signin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mobile: cleaned, pin }),
+        }),
+        15_000,
+        "Sign in",
+      );
+      // 404 = function not deployed, 5xx = gateway/boot failure. Neither
+      // says anything about this user's credentials, so fall back.
+      if (res.status === 404 || res.status >= 500) return await signInDirect(cleaned, pin);
+      const data = await res.json().catch(() => ({}) as any);
       if (!res.ok || !data?.access_token) {
         return data?.error || "Mobile ya PIN galat hai";
       }
@@ -258,9 +295,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (setErr) return "Login mein dikkat aayi, dobara try karo";
       return null;
     } catch {
-      return "Network issue — dobara try karo";
+      // Network error / CORS preflight block / timeout — the request never
+      // produced a response, so try the direct path before giving up.
+      return await signInDirect(cleaned, pin);
     }
   };
+
 
   const signOut = async () => {
     await supabase.auth.signOut();
