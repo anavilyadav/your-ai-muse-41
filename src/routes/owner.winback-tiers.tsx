@@ -83,7 +83,7 @@ function WinbackTiersPage() {
   };
 
   return (
-    <RoleShell title="Win-back Tiers" subtitle="Lapsed patients ko wapas laane ka schedule" showBack>
+    <RoleShell wide title="Win-back Tiers" subtitle="Lapsed patients ko wapas laane ka schedule" showBack>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-muted-foreground">Jitne bhi tiers, utni baar alag message jayega — 60 se rukna zaroori nahi.</p>
         <button

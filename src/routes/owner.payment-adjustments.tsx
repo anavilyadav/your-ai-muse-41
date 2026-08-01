@@ -39,7 +39,7 @@ function PaymentAdjustmentsPage() {
   };
 
   return (
-    <RoleShell title="Payment Adjustments" subtitle="Overpayment — refund ya credit note" showBack>
+    <RoleShell wide title="Payment Adjustments" subtitle="Overpayment — refund ya credit note" showBack>
       <p className="text-xs text-muted-foreground mb-3">
         Jab bhi charge se zyada paisa collect hota hai, wo yahan pending mein aata hai — khud detect hota hai, koi
         miss nahi hoga. Har ek pe decide karo: cash refund ya credit note (credit note agli visit ke bill mein khud

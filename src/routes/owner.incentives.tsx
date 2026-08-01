@@ -189,7 +189,7 @@ function IncentivesPage() {
   };
 
   return (
-    <RoleShell title="Staff Incentives" subtitle={`${poolPercent}% of revenue above baseline`} showBack>
+    <RoleShell wide title="Staff Incentives" subtitle={`${poolPercent}% of revenue above baseline`} showBack>
       {showSplit && (
         <SplitModal
           staff={staff}

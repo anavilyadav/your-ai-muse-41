@@ -45,7 +45,7 @@ function HealthPage() {
   const failCount = (results?.length ?? 0) - okCount;
 
   return (
-    <RoleShell title="System Health" subtitle="Live Supabase checks" showBack>
+    <RoleShell wide title="System Health" subtitle="Live Supabase checks" showBack>
       {alerts.data && alerts.data.length > 0 && (
         <div className="mb-4">
           <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-2 text-[11px] text-destructive font-semibold">

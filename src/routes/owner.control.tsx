@@ -374,7 +374,7 @@ function ControlPage() {
   const backupIsOn = !!backupCfg?.enabled;
 
   return (
-    <RoleShell
+    <RoleShell wide
       title="Owner Control Centre"
       subtitle="Master switches"
       nav={OWNER_NAV}

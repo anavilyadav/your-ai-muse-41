@@ -40,7 +40,7 @@ function OwnerDashboard() {
   const activeStaff = (staff.data ?? []).filter((u: any) => (u.status ?? "Active") === "Active").length;
 
   return (
-    <RoleShell
+    <RoleShell wide
       title="Owner Dashboard"
       subtitle="Yadav Homeo Clinic • Both Branches"
       nav={OWNER_NAV}

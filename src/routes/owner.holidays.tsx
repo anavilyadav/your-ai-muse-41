@@ -84,7 +84,7 @@ function HolidaysPage() {
   };
 
   return (
-    <RoleShell title="Holiday Greetings" subtitle="Sabhi consented patients ko broadcast" showBack>
+    <RoleShell wide title="Holiday Greetings" subtitle="Sabhi consented patients ko broadcast" showBack>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-muted-foreground">Is date pe sabko automatic greeting jayegi.</p>
         <button

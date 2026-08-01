@@ -228,7 +228,7 @@ function StaffPage() {
   const leave = staff.length - active;
 
   return (
-    <RoleShell
+    <RoleShell wide
       title="Staff Management"
       subtitle={`${staff.length} roles`}
       nav={OWNER_NAV}

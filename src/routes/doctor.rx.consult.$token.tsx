@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
-import { MobileShell } from "@/components/yhc/MobileShell";
+import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import {
   fetchVisit,
@@ -180,16 +180,18 @@ function RxWrite() {
     }
   };
 
-  if (isLoading) return <MobileShell title="Write Rx" showBack><LoadingBlock /></MobileShell>;
-  if (!visit) return <MobileShell title="Write Rx" showBack><div className="py-10 text-center text-sm text-muted-foreground">Visit nahi mila.</div></MobileShell>;
+  if (isLoading) return <DoctorShell title="Write Rx" showBack><LoadingBlock /></DoctorShell>;
+  if (!visit) return <DoctorShell title="Write Rx" showBack><div className="py-10 text-center text-sm text-muted-foreground">Visit nahi mila.</div></DoctorShell>;
 
   return (
-    <MobileShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
-      {/* Single column on purpose. DoctorShell caps content at a fixed
-          430px phone width, so the old `md:grid md:grid-cols-2` never got
-          the room it needed — it just crushed both columns to ~200px and
-          broke the Rx rows. */}
-      <div>
+    <DoctorShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
+      {/* Single column below lg (Task 1 fix — the old `md:grid` broke here
+          because DoctorShell capped content at 430px regardless of the
+          actual browser width, crushing both columns to ~200px). Now that
+          DoctorShell drops that cap at lg+, this becomes a real 2-column
+          desktop layout: patient summary pinned left, Rx form on the
+          right, exactly as it should have worked originally. */}
+      <div className="lg:grid lg:grid-cols-[360px_1fr] lg:items-start lg:gap-6">
 
         {/* LEFT: patient summary */}
         <section className="space-y-3">
@@ -232,7 +234,7 @@ function RxWrite() {
         </section>
 
         {/* RIGHT: write rx */}
-        <section className="mt-4 space-y-3">
+        <section className="mt-4 space-y-3 lg:mt-0">
           <div className="flex items-center justify-between">
             <div className="text-xs font-bold uppercase text-primary">Prescription</div>
             <label className="flex items-center gap-2 text-xs">
@@ -319,7 +321,7 @@ function RxWrite() {
           </button>
         </section>
       </div>
-    </MobileShell>
+    </DoctorShell>
   );
 }
 

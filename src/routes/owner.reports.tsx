@@ -94,7 +94,7 @@ function ReportsPage() {
   });
 
   return (
-    <RoleShell title="Reports & Analytics" nav={OWNER_NAV}>
+    <RoleShell wide title="Reports & Analytics" nav={OWNER_NAV}>
       {showCompare && <BranchCompareModal period={period} onClose={() => setShowCompare(false)} />}
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         {PERIODS.map((p) => (

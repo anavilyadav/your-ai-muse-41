@@ -52,7 +52,7 @@ function CaseTrackingPage() {
   const walkInList = list.filter((v) => v.visit_type !== "ONLINE");
 
   return (
-    <RoleShell title="Case Tracking" subtitle="Registered vs discussed — koi bhi case gayab nahi hoga" showBack>
+    <RoleShell wide title="Case Tracking" subtitle="Registered vs discussed — koi bhi case gayab nahi hoga" showBack>
       {statsLoading ? (
         <LoadingBlock />
       ) : stats ? (
