@@ -14,15 +14,33 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
 
+// Browsers send a preflight for the JSON POST below; without these headers
+// the request never reaches this function and the app just sees "Failed to
+// fetch" (which the login screen showed as "Network issue").
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-client-info",
+  "Access-Control-Max-Age": "86400",
+};
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
+    return json({ error: "POST only" }, 405);
   }
   try {
     const { mobile, pin } = await req.json();
     const cleaned = String(mobile ?? "").replace(/\D/g, "");
     if (cleaned.length !== 10 || !pin || String(pin).length < 4) {
-      return new Response(JSON.stringify({ error: "Mobile ya PIN galat hai" }), { status: 400 });
+      return json({ error: "Mobile ya PIN galat hai" }, 400);
     }
 
     const supabaseAdmin = createClient(
@@ -40,10 +58,7 @@ Deno.serve(async (req) => {
 
     if (attemptRow?.locked_until && new Date(attemptRow.locked_until).getTime() > Date.now()) {
       const retryAfterSeconds = Math.ceil((new Date(attemptRow.locked_until).getTime() - Date.now()) / 1000);
-      return new Response(
-        JSON.stringify({ error: "Bahut zyada galat attempts — thodi der baad try karo", locked: true, retryAfterSeconds }),
-        { status: 429 },
-      );
+      return json({ error: "Bahut zyada galat attempts — thodi der baad try karo", locked: true, retryAfterSeconds }, 429);
     }
 
     // ---- Look up the real email for this mobile (same logic the client used to do) ----
@@ -72,12 +87,9 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       });
       if (lockingNow) {
-        return new Response(
-          JSON.stringify({ error: `${MAX_ATTEMPTS} galat attempts — ${LOCKOUT_MINUTES} minute ke liye lock ho gaya`, locked: true, retryAfterSeconds: LOCKOUT_MINUTES * 60 }),
-          { status: 429 },
-        );
+        return json({ error: `${MAX_ATTEMPTS} galat attempts — ${LOCKOUT_MINUTES} minute ke liye lock ho gaya`, locked: true, retryAfterSeconds: LOCKOUT_MINUTES * 60 }, 429);
       }
-      return new Response(JSON.stringify({ error: "Mobile ya PIN galat hai" }), { status: 401 });
+      return json({ error: "Mobile ya PIN galat hai" }, 401);
     }
 
     // ---- Success: clear any attempt history for this mobile ----
@@ -85,14 +97,11 @@ Deno.serve(async (req) => {
       await supabaseAdmin.from("login_attempts").delete().eq("mobile", cleaned);
     }
 
-    return new Response(
-      JSON.stringify({
-        access_token: signInData.session.access_token,
-        refresh_token: signInData.session.refresh_token,
-      }),
-      { headers: { "Content-Type": "application/json" } },
-    );
+    return json({
+      access_token: signInData.session.access_token,
+      refresh_token: signInData.session.refresh_token,
+    });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return json({ error: String(e) }, 500);
   }
 });
