@@ -3090,3 +3090,105 @@ export function maskMobile(m: string | null | undefined): string {
   return s.slice(0, 2) + "XXXX" + s.slice(-4);
 }
 
+
+// ─── WhatsApp Delivery Dashboard (Phase 3 #26, 01 Aug 2026) ────────────────
+// Reads whatsapp_log / wa_consent_log — see migration 0019. Both tables are
+// written server-side only (edge functions + the wa_consent trigger), never
+// from the frontend, so there is no corresponding write function here.
+
+export interface WhatsAppLogEntry {
+  id: string;
+  patient_id: string | null;
+  campaign_name: string;
+  destination: string | null;
+  status: "sent" | "failed" | "skipped_consent";
+  error_message: string | null;
+  created_at: string;
+  patient?: { name: string; patient_code?: string | null } | null;
+}
+
+export async function fetchWhatsAppLog(opts?: {
+  status?: "sent" | "failed" | "skipped_consent";
+  campaign?: string;
+  limit?: number;
+}): Promise<WhatsAppLogEntry[]> {
+  let q = supabase
+    .from("whatsapp_log")
+    .select("id, patient_id, campaign_name, destination, status, error_message, created_at, patients(name, patient_code)")
+    .order("created_at", { ascending: false })
+    .limit(opts?.limit ?? 100);
+  if (opts?.status) q = q.eq("status", opts.status);
+  if (opts?.campaign) q = q.eq("campaign_name", opts.campaign);
+  const { data, error } = await q;
+  if (error) return [];
+  return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
+}
+
+export interface WhatsAppStats {
+  sentToday: number;
+  failedToday: number;
+  skippedToday: number;
+  sentWeek: number;
+  failedWeek: number;
+  skippedWeek: number;
+  byCampaign: { campaign_name: string; sent: number; failed: number }[];
+}
+
+export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
+  const empty: WhatsAppStats = { sentToday: 0, failedToday: 0, skippedToday: 0, sentWeek: 0, failedWeek: 0, skippedWeek: 0, byCampaign: [] };
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const { data, error } = await supabase
+    .from("whatsapp_log")
+    .select("status, campaign_name, created_at")
+    .gte("created_at", weekStart.toISOString());
+  if (error || !data) return empty;
+
+  const todayISO = todayStart.toISOString();
+  const stats = { ...empty };
+  const campaignMap = new Map<string, { sent: number; failed: number }>();
+
+  for (const row of data as any[]) {
+    const isToday = row.created_at >= todayISO;
+    if (row.status === "sent") {
+      stats.sentWeek++;
+      if (isToday) stats.sentToday++;
+    } else if (row.status === "failed") {
+      stats.failedWeek++;
+      if (isToday) stats.failedToday++;
+    } else if (row.status === "skipped_consent") {
+      stats.skippedWeek++;
+      if (isToday) stats.skippedToday++;
+    }
+    const c = campaignMap.get(row.campaign_name) ?? { sent: 0, failed: 0 };
+    if (row.status === "sent") c.sent++;
+    if (row.status === "failed") c.failed++;
+    campaignMap.set(row.campaign_name, c);
+  }
+
+  stats.byCampaign = Array.from(campaignMap.entries())
+    .map(([campaign_name, v]) => ({ campaign_name, ...v }))
+    .sort((a, b) => b.sent + b.failed - (a.sent + a.failed));
+  return stats;
+}
+
+export interface ConsentChange {
+  id: string;
+  patient_id: string;
+  old_value: boolean | null;
+  new_value: boolean;
+  changed_at: string;
+  patient?: { name: string } | null;
+}
+
+export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChange[]> {
+  const { data, error } = await supabase
+    .from("wa_consent_log")
+    .select("id, patient_id, old_value, new_value, changed_at, patients(name)")
+    .order("changed_at", { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
+}

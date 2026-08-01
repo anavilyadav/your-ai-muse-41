@@ -32,6 +32,7 @@ import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
 import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.payment-adjustments'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
 import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
+import { Route as OwnerWhatsappRouteImport } from './routes/owner.whatsapp'
 import { Route as OwnerWinbackTiersRouteImport } from './routes/owner.winback-tiers'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
 import { Route as PayIdRouteImport } from './routes/pay.$id'
@@ -162,6 +163,11 @@ const OwnerStaffRoute = OwnerStaffRouteImport.update({
   path: '/owner/staff',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerWhatsappRoute = OwnerWhatsappRouteImport.update({
+  id: '/owner/whatsapp',
+  path: '/owner/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OwnerWinbackTiersRoute = OwnerWinbackTiersRouteImport.update({
   id: '/owner/winback-tiers',
   path: '/owner/winback-tiers',
@@ -255,6 +261,7 @@ export interface FileRoutesByFullPath {
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -294,6 +301,7 @@ export interface FileRoutesByTo {
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -334,6 +342,7 @@ export interface FileRoutesById {
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
   '/pay/$id': typeof PayIdRoute
@@ -375,6 +384,7 @@ export interface FileRouteTypes {
     | '/owner/payment-adjustments'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
@@ -414,6 +424,7 @@ export interface FileRouteTypes {
     | '/owner/payment-adjustments'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
@@ -453,6 +464,7 @@ export interface FileRouteTypes {
     | '/owner/payment-adjustments'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
     | '/pay/$id'
@@ -493,6 +505,7 @@ export interface RootRouteChildren {
   OwnerPaymentAdjustmentsRoute: typeof OwnerPaymentAdjustmentsRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
   OwnerStaffRoute: typeof OwnerStaffRoute
+  OwnerWhatsappRoute: typeof OwnerWhatsappRoute
   OwnerWinbackTiersRoute: typeof OwnerWinbackTiersRoute
   PatientIdRoute: typeof PatientIdRoute
   PayIdRoute: typeof PayIdRoute
@@ -674,6 +687,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerStaffRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/whatsapp': {
+      id: '/owner/whatsapp'
+      path: '/owner/whatsapp'
+      fullPath: '/owner/whatsapp'
+      preLoaderRoute: typeof OwnerWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/owner/winback-tiers': {
       id: '/owner/winback-tiers'
       path: '/owner/winback-tiers'
@@ -797,6 +817,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerPaymentAdjustmentsRoute: OwnerPaymentAdjustmentsRoute,
   OwnerReportsRoute: OwnerReportsRoute,
   OwnerStaffRoute: OwnerStaffRoute,
+  OwnerWhatsappRoute: OwnerWhatsappRoute,
   OwnerWinbackTiersRoute: OwnerWinbackTiersRoute,
   PatientIdRoute: PatientIdRoute,
   PayIdRoute: PayIdRoute,

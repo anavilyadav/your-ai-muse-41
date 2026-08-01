@@ -24,6 +24,13 @@
 //     yet), the caller must explicitly pass consentConfirmed: true. Missing
 //     patientId AND missing consentConfirmed is refused, not defaulted to
 //     "send anyway".
+//
+// DELIVERY LOGGING (Phase 3 #26, WhatsApp Delivery Dashboard, 01 Aug 2026):
+// this function used to log nothing at all -- success or failure. Every
+// real send attempt (sent / failed / skipped for no consent) now writes
+// one row to whatsapp_log so the Owner dashboard has something to show.
+// Pure validation errors (missing campaignName, missing destination) are
+// caller/integration bugs, not delivery attempts, so they are NOT logged.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -45,6 +52,17 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
+async function logWhatsApp(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  row: { patient_id: string | null; campaign_name: string; destination: string | null; status: "sent" | "failed" | "skipped_consent"; error_message?: string | null },
+) {
+  try {
+    await supabaseAdmin.from("whatsapp_log").insert(row);
+  } catch {
+    // Logging must never break the actual send/skip response.
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
@@ -55,13 +73,14 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "campaignName required" }), { status: 400 });
     }
 
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
     let finalDestination = destination;
 
     if (patientId) {
-      const supabaseAdmin = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      );
       const { data: patient, error: pErr } = await supabaseAdmin
         .from("patients")
         .select("mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent")
@@ -74,9 +93,15 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ error: "Patient not found" }), { status: 404 });
       }
       if (!patient.wa_consent) {
+        await logWhatsApp(supabaseAdmin, {
+          patient_id: patientId,
+          campaign_name: campaignName,
+          destination: patientWhatsAppTarget(patient as any),
+          status: "skipped_consent",
+        });
         return new Response(JSON.stringify({ success: false, skipped: true, error: "No WhatsApp consent on file for this patient" }), { status: 200 });
       }
-      finalDestination = patientWhatsAppTarget(patient);
+      finalDestination = patientWhatsAppTarget(patient as any);
     } else if (!consentConfirmed) {
       return new Response(
         JSON.stringify({ error: "Either patientId (server-checks consent) or consentConfirmed:true (caller asserts consent) is required" }),
@@ -109,8 +134,22 @@ Deno.serve(async (req) => {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      await logWhatsApp(supabaseAdmin, {
+        patient_id: patientId ?? null,
+        campaign_name: campaignName,
+        destination: finalDestination,
+        status: "failed",
+        error_message: data?.message ?? "AiSensy send failed",
+      });
       return new Response(JSON.stringify({ error: data?.message ?? "AiSensy send failed" }), { status: 400 });
     }
+
+    await logWhatsApp(supabaseAdmin, {
+      patient_id: patientId ?? null,
+      campaign_name: campaignName,
+      destination: finalDestination,
+      status: "sent",
+    });
     return new Response(JSON.stringify({ success: true, data }), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });

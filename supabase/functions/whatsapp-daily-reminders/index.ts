@@ -6,6 +6,13 @@
 // then marks them as sent so they're never messaged twice.
 //
 // Needs an approved AiSensy API Campaign named exactly "FOLLOWUP_REMINDER".
+//
+// DELIVERY LOGGING (Phase 3 #26, 01 Aug 2026): previously only successful
+// sends were recorded, into the generic `interactions` table (no status/
+// campaign columns, so a real dashboard couldn't be built off it) —
+// failures and no-consent skips were counted in-memory and lost. Every
+// outcome now also writes a row to whatsapp_log. The `interactions` write
+// is kept as-is (patient timeline / InteractionHistoryModal still reads it).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -56,7 +63,16 @@ Deno.serve(async () => {
     let sent = 0, skipped = 0, failed = 0;
     for (const f of due ?? []) {
       const patient = (f as any).patients;
-      if (!patient?.mobile || !patient?.wa_consent) { skipped++; continue; }
+      if (!patient?.mobile || !patient?.wa_consent) {
+        skipped++;
+        await supabaseAdmin.from("whatsapp_log").insert({
+          patient_id: f.patient_id,
+          campaign_name: "FOLLOWUP_REMINDER",
+          destination: patient?.mobile ?? null,
+          status: "skipped_consent",
+        });
+        continue;
+      }
       try {
         const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
           method: "POST",
@@ -77,11 +93,32 @@ Deno.serve(async () => {
             type: "whatsapp",
             summary: "FOLLOWUP_REMINDER sent",
           });
+          await supabaseAdmin.from("whatsapp_log").insert({
+            patient_id: f.patient_id,
+            campaign_name: "FOLLOWUP_REMINDER",
+            destination: patientWhatsAppTarget(patient),
+            status: "sent",
+          });
           sent++;
         } else {
+          const errData = await res.json().catch(() => ({}));
+          await supabaseAdmin.from("whatsapp_log").insert({
+            patient_id: f.patient_id,
+            campaign_name: "FOLLOWUP_REMINDER",
+            destination: patientWhatsAppTarget(patient),
+            status: "failed",
+            error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+          });
           failed++;
         }
-      } catch {
+      } catch (e) {
+        await supabaseAdmin.from("whatsapp_log").insert({
+          patient_id: f.patient_id,
+          campaign_name: "FOLLOWUP_REMINDER",
+          destination: patientWhatsAppTarget(patient),
+          status: "failed",
+          error_message: String(e),
+        });
         failed++;
       }
     }

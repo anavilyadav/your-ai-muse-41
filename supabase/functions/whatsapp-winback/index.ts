@@ -8,6 +8,10 @@
 // never sent twice to the same patient.
 //
 // Needs an approved AiSensy API Campaign named exactly "WINBACK".
+//
+// DELIVERY LOGGING (Phase 3 #26, 01 Aug 2026): every send attempt (sent or
+// failed) now also writes a row to whatsapp_log for the Owner dashboard.
+// The `winback_log` dedup table and `interactions` write are unchanged.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -115,11 +119,32 @@ Deno.serve(async () => {
               type: "whatsapp",
               summary: `WINBACK sent (${tier.label ?? tier.days_lapsed + "d"})`,
             });
+            await supabaseAdmin.from("whatsapp_log").insert({
+              patient_id: patient.id,
+              campaign_name: "WINBACK",
+              destination: patientWhatsAppTarget(patient),
+              status: "sent",
+            });
             sent++;
           } else {
+            const errData = await res.json().catch(() => ({}));
+            await supabaseAdmin.from("whatsapp_log").insert({
+              patient_id: patient.id,
+              campaign_name: "WINBACK",
+              destination: patientWhatsAppTarget(patient),
+              status: "failed",
+              error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+            });
             failed++;
           }
-        } catch {
+        } catch (e) {
+          await supabaseAdmin.from("whatsapp_log").insert({
+            patient_id: patient.id,
+            campaign_name: "WINBACK",
+            destination: patientWhatsAppTarget(patient),
+            status: "failed",
+            error_message: String(e),
+          });
           failed++;
         }
       }

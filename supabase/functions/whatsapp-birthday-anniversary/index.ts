@@ -6,6 +6,11 @@
 //
 // Needs two approved AiSensy API Campaigns: "BIRTHDAY_WISH" and
 // "ANNIVERSARY_WISH".
+//
+// DELIVERY LOGGING (Phase 3 #26, 01 Aug 2026): every send attempt (sent or
+// failed) now also writes a row to whatsapp_log for the Owner dashboard.
+// The birthday/anniversary dedup tables and `interactions` write are
+// unchanged.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -68,6 +73,7 @@ async function sendWish(
   logTable: "birthday_greeting_log" | "anniversary_greeting_log",
   year: number,
 ): Promise<"sent" | "failed"> {
+  const destination = patientWhatsAppTarget(patient);
   try {
     const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
       method: "POST",
@@ -75,21 +81,44 @@ async function sendWish(
       body: JSON.stringify({
         apiKey,
         campaignName,
-        destination: patientWhatsAppTarget(patient),
+        destination,
         userName: patient.name,
         source: "YHC-OS",
         templateParams: [patient.name],
       }),
     });
-    if (!res.ok) return "failed";
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      await supabaseAdmin.from("whatsapp_log").insert({
+        patient_id: patient.id,
+        campaign_name: campaignName,
+        destination,
+        status: "failed",
+        error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+      });
+      return "failed";
+    }
     await supabaseAdmin.from(logTable).insert({ patient_id: patient.id, year });
     await supabaseAdmin.from("interactions").insert({
       patient_id: patient.id,
       type: "whatsapp",
       summary: `${campaignName} sent`,
     });
+    await supabaseAdmin.from("whatsapp_log").insert({
+      patient_id: patient.id,
+      campaign_name: campaignName,
+      destination,
+      status: "sent",
+    });
     return "sent";
-  } catch {
+  } catch (e) {
+    await supabaseAdmin.from("whatsapp_log").insert({
+      patient_id: patient.id,
+      campaign_name: campaignName,
+      destination,
+      status: "failed",
+      error_message: String(e),
+    });
     return "failed";
   }
 }
