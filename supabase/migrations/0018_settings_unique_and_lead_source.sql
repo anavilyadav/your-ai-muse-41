@@ -41,4 +41,13 @@ end $$;
 alter table public.patients add column if not exists lead_source text;
 
 create index if not exists patients_lead_source_idx on public.patients (lead_source);
-create index if not exists leads_source_idx on public.leads (source);
+
+-- NOTE (01 Aug 2026): the matching index on public.leads was removed from
+-- here — `leads.source` doesn't exist under that exact name on the live
+-- DB (confirmed via a failed run: 42703 column "source" does not exist).
+-- fetchLeadSourceStats(), createLead(), and commitLeadsImport() in db.ts
+-- all still assume `leads.source` exists, so that part of Task 5 (lead
+-- stats for the Leads table specifically) stays broken until the real
+-- column name is confirmed via:
+--   select column_name from information_schema.columns where table_name='leads';
+-- See 0019 once that's known.
