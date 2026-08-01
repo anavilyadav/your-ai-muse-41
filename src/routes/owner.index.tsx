@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, Wallet, ClipboardList, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, Wallet, ClipboardList, MessageCircle, ShieldCheck } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -134,6 +134,11 @@ function OwnerDashboard() {
               <MessageCircle className="h-5 w-5 text-success" />
               <div className="font-bold text-primary text-sm mt-1">WhatsApp Delivery</div>
               <div className="text-[11px] text-muted-foreground">Sent / failed / opt-out</div>
+            </Link>
+            <Link to="/owner/audit-log" className="rounded-2xl bg-surface border border-border p-3.5">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
+              <div className="text-[11px] text-muted-foreground">Har change ka record</div>
             </Link>
           </div>
         </>

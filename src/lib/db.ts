@@ -3192,3 +3192,85 @@ export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChan
   if (error) return [];
   return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
 }
+
+// ─── Full Audit Log (Phase 3 #23, 01 Aug 2026) ──────────────────────────────
+// Reads the (extended) audit_log table — see migration 0020. Rows are
+// written server-side only, by the generic DB trigger (plus the older,
+// unrelated STOCK_ISSUE hand-written insert in reportStockIssue() above,
+// which still uses the original action/table_name/record_id/new_value
+// columns and is untouched). Owner-only — gated at the route level via
+// AuthGate, same pattern as every other Owner-only screen (RLS is still
+// off project-wide, a known deferred gap, not new to this feature).
+
+export const AUDIT_TABLES = [
+  "patients", "visits", "prescriptions", "payments", "settings",
+  "users", "deliveries", "appointments", "leads", "followups", "inventory",
+] as const;
+
+export interface AuditLogEntry {
+  id: string;
+  table_name: string;
+  record_id: string | null;
+  action: string; // INSERT | UPDATE | DELETE | STOCK_ISSUE (legacy)
+  actor_id: string | null;
+  actor_role: string | null;
+  old_data: Record<string, any> | null;
+  new_data: Record<string, any> | null;
+  new_value: string | null; // legacy STOCK_ISSUE note — unrelated to old_data/new_data
+  created_at: string;
+  users?: { name: string; role: string } | null;
+}
+
+export async function fetchAuditLog(opts?: {
+  table?: string;
+  action?: string;
+  recordId?: string;
+  limit?: number;
+}): Promise<AuditLogEntry[]> {
+  let q = supabase
+    .from("audit_log")
+    .select("*, users(name, role)")
+    .order("created_at", { ascending: false })
+    .limit(opts?.limit ?? 150);
+  if (opts?.table) q = q.eq("table_name", opts.table);
+  if (opts?.action) q = q.eq("action", opts.action);
+  if (opts?.recordId) q = q.eq("record_id", opts.recordId);
+  const { data, error } = await q;
+  if (error) return [];
+  return (data ?? []) as unknown as AuditLogEntry[];
+}
+
+export interface AuditFieldDiff {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+// UPDATE rows store the FULL old/new row (the decision was "full detail",
+// not just a diff) — this just makes the dashboard readable by surfacing
+// only the fields that actually changed, instead of dumping every column
+// on every row (most columns don't change on a typical update).
+export function diffAuditFields(entry: AuditLogEntry): AuditFieldDiff[] {
+  if (!entry.old_data || !entry.new_data) return [];
+  const keys = new Set([...Object.keys(entry.old_data), ...Object.keys(entry.new_data)]);
+  const diffs: AuditFieldDiff[] = [];
+  keys.forEach((k) => {
+    const before = entry.old_data![k];
+    const after = entry.new_data![k];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      diffs.push({ field: k, before, after });
+    }
+  });
+  return diffs;
+}
+
+// Best-effort human label for a row, since different audited tables have
+// completely different shapes (a patient has a name, a payment doesn't).
+export function auditRowLabel(entry: AuditLogEntry): string {
+  const row = entry.new_data ?? entry.old_data ?? {};
+  return (
+    row.name ?? row.patient_code ?? row.key ?? row.token_number ??
+    row.campaign_name ?? row.title ?? (row.amount != null ? `₹${row.amount}` : null) ??
+    entry.record_id ?? "—"
+  );
+}
