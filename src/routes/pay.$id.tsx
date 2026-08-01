@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, RECASE_SURCHARGE } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -64,19 +64,34 @@ function PayPage() {
   const { data: feeMaster } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
   const fees = feeMaster ?? DEFAULT_FEE_MASTER;
   const feeKind = visit ? feeKindForVisit(visit) : null;
-  const standardFee = feeKind ? fees[feeKind] : 0;
+
+  // Re-case surcharge (Phase 3 decision #24) — needs the visit BEFORE this
+  // one, not patient.last_visit_date (already stamped to today by the time
+  // payment happens). See fetchPreviousVisitDate for why.
+  const { data: previousVisitDate } = useQuery({
+    queryKey: ["previous-visit-date", visit?.patient_id, visit?.id],
+    queryFn: () => fetchPreviousVisitDate(visit!.patient_id, visit!.id),
+    enabled: !!visit?.patient_id && !!visit?.id,
+  });
+  const recaseApplies = needsRecaseSurcharge(visit?.patient?.lifetime_visits, previousVisitDate ?? null);
+  const standardFee = feeKind ? fees[feeKind] + (recaseApplies ? RECASE_SURCHARGE : 0) : 0;
 
   // Prefill exactly once per visit, and never over something already typed.
+  // Gated on previousVisitDate query having settled (not `isLoading`, since
+  // `undefined` vs `null` both mean "resolved, no surcharge") so the re-case
+  // surcharge — when it applies — is never missed by a prefill that fired
+  // before the check finished.
   const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
   useEffect(() => {
     if (!visit || !standardFee) return;
+    if (previousVisitDate === undefined) return; // still loading
     if (prefilledFor === visit.id) return;
     setPrefilledFor(visit.id);
     if (charged === 0 && received === 0) {
       setCharged(standardFee);
       setReceived(standardFee);
     }
-  }, [visit, standardFee, prefilledFor, charged, received]);
+  }, [visit, standardFee, prefilledFor, charged, received, previousVisitDate]);
 
   if (isLoading) return <MobileShell title="Collect Payment" showBack><LoadingBlock /></MobileShell>;
   // Was a single "Visit nahi mila" for both a genuine not-found AND a
@@ -180,7 +195,13 @@ function PayPage() {
         <div className="mt-3 rounded-xl bg-surface border border-border p-3 flex items-center justify-between">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Standard fee</div>
-            <div className="text-xs font-semibold text-primary">{FEE_LABELS[feeKind]}</div>
+            <div className="text-xs font-semibold text-primary">
+              {FEE_LABELS[feeKind]}
+              {recaseApplies && <span className="text-warning"> + re-case ₹{RECASE_SURCHARGE.toLocaleString("en-IN")}</span>}
+            </div>
+            {recaseApplies && (
+              <div className="text-[10px] text-muted-foreground mt-0.5">1 saal se follow-up nahi aaya — re-case charge lagega</div>
+            )}
           </div>
           <button
             type="button"

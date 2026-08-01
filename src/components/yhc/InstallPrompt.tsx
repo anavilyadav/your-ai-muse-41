@@ -10,6 +10,15 @@ export function InstallPrompt() {
     if (typeof window === "undefined") return;
 
     if ("serviceWorker" in navigator) {
+      // `controller` is only truthy if a service worker was ALREADY
+      // controlling this tab before we registered. On a first-ever visit
+      // (or a fresh/incognito tab, or right after a cache-clear) there is
+      // no prior controller — register() installs one for the first time,
+      // which also fires `controllerchange`, but that is not an "update",
+      // it's just the very first activation. Capturing this flag before
+      // register() runs is what lets us tell the two apart below.
+      const hadControllerBeforeRegister = !!navigator.serviceWorker.controller;
+
       navigator.serviceWorker.register("/sw.js").catch(() => {});
 
       // sw.js calls self.skipWaiting() + self.clients.claim() immediately
@@ -26,12 +35,21 @@ export function InstallPrompt() {
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (refreshed) return; // controllerchange can fire more than once
         refreshed = true;
+        if (!hadControllerBeforeRegister) return; // first-ever activation, not a real update — stay silent
         toast("Naya version available hai", {
           description: "Reload karo latest fixes ke liye",
           duration: Infinity,
           action: {
             label: "Reload",
             onClick: () => window.location.reload(),
+          },
+          // Without this the toast had no way to go away on its own — on
+          // top-center it would sit over the header/logo until the person
+          // reloaded, which then re-claimed and could show it again (loop).
+          // A real dismiss lets someone finish what they're doing first.
+          cancel: {
+            label: "Baad mein",
+            onClick: () => {},
           },
         });
       });

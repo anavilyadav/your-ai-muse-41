@@ -1,7 +1,6 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
-import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -18,7 +17,13 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
   }
 });
 
+// attachSupabaseAuth (Lovable's auto-generated Supabase-Cloud middleware) is
+// deliberately NOT wired here. It targets a different, unused Supabase
+// project via VITE_SUPABASE_URL/SUPABASE_URL, and only matters for
+// createServerFn RPCs — this codebase has none. Wiring it back in without
+// first fixing those env vars would re-open the "second auth session"
+// exposure flagged in the 30 Jul audit.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [attachSupabaseAuth],
+  functionMiddleware: [],
   requestMiddleware: [errorMiddleware],
 }));

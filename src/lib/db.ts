@@ -2345,6 +2345,46 @@ export function feeKindForVisit(visit: { visit_type?: string | null; patient?: {
   return Number(visit.patient?.lifetime_visits ?? 1) <= 1 ? "NEW" : "FOLLOWUP";
 }
 
+// ---------- Re-case surcharge (Phase 3 decision #24) ----------
+// Phase 3 decision: "Re-case-taking = ₹1000 extra, only if the patient
+// hasn't had a single follow-up in the last 1 year."
+//
+// Deliberately NOT using patient.last_visit_date for the gap check: by the
+// time a visit reaches the Payment screen, submitPrescription() has already
+// stamped last_visit_date = today() for THIS SAME visit (see above), so the
+// gap would always read as zero. What we actually need is the date of the
+// visit BEFORE this one, which means asking the visits table directly.
+export const RECASE_SURCHARGE = 1000;
+const RECASE_GAP_DAYS = 365;
+
+export async function fetchPreviousVisitDate(patientId: string, excludeVisitId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("visit_date")
+    .eq("patient_id", patientId)
+    .neq("id", excludeVisitId)
+    .order("visit_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("fetchPreviousVisitDate failed:", error.message);
+    return null;
+  }
+  return data?.visit_date ?? null;
+}
+
+/**
+ * lifetimeVisits <= 1 means there's no prior visit at all — that's a NEW
+ * case, not a "re"-case, so no surcharge regardless of dates. A missing
+ * previousVisitDate (data gap) also means "don't guess" — no surcharge.
+ */
+export function needsRecaseSurcharge(lifetimeVisits: number | null | undefined, previousVisitDate: string | null): boolean {
+  if (Number(lifetimeVisits ?? 0) <= 1) return false;
+  if (!previousVisitDate) return false;
+  const daysSince = (Date.now() - new Date(previousVisitDate).getTime()) / 86_400_000;
+  return daysSince > RECASE_GAP_DAYS;
+}
+
 
 // ---------- Bulk Import (Leads / Patients / Visit-Revenue History) ----------
 // Design principles (matching the safety rules this project runs on):
