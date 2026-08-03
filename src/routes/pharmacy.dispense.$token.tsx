@@ -132,7 +132,11 @@ function DispensePage() {
                     <div className="text-[12px] text-muted-foreground">
                       {r.dose ?? "—"} • {r.frequency ?? "—"}
                       {r.duration_days ? ` • ${r.duration_days}d` : ""}
+                      {r.start_offset_days ? ` • Day ${r.start_offset_days + 1} se` : ""}
                     </div>
+                    {r.remarks && (
+                      <div className="text-[11px] text-muted-foreground italic">{r.remarks}</div>
+                    )}
                     <div className="text-[12px] font-semibold text-accent-foreground mt-0.5">
                       {dispenseQuantityLabel(r.is_slx)}
                     </div>

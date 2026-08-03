@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -441,6 +441,156 @@ function FeeRulesCard() {
   );
 }
 
+// ---------- Next Visit Options (Rx improvements item F, 03 Aug 2026) ----------
+// Was 3 hardcoded quick-buttons (30/60/90 days) baked into the Rx screen —
+// same add/remove pattern as Extra Fee Rules above.
+function NextVisitOptionsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["next-visit-options"], queryFn: fetchNextVisitOptions });
+  const saved = data ?? DEFAULT_NEXT_VISIT_OPTIONS;
+  const [draft, setDraft] = useState<NextVisitOption[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const options = draft ?? saved;
+
+  const update = (id: string, patch: Partial<NextVisitOption>) => {
+    setDraft(options.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  };
+
+  const addOption = () => {
+    setDraft([...options, { id: crypto.randomUUID(), label: "", days: 30 }]);
+  };
+
+  const removeOption = (id: string) => {
+    setDraft(options.filter((o) => o.id !== id));
+  };
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await saveNextVisitOptions(draft);
+      qc.invalidateQueries({ queryKey: ["next-visit-options"] });
+      setDraft(null);
+      toast.success("Next visit options update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Next Visit Options — Rx screen ke quick-buttons
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+        {options.length === 0 && (
+          <p className="text-[12px] text-muted-foreground">Koi option nahi hai. Neeche se add karo.</p>
+        )}
+        {options.map((o) => (
+          <div key={o.id} className="flex items-center gap-2">
+            <input
+              placeholder="Label (jaise: 1 Month)"
+              value={o.label}
+              onChange={(e) => update(o.id, { label: e.target.value })}
+              className="flex-1 min-w-0 rounded-lg border border-border bg-background px-2.5 py-2 text-[13px]"
+            />
+            <input
+              inputMode="numeric"
+              placeholder="Din"
+              value={o.days || ""}
+              onChange={(e) => update(o.id, { days: Number(e.target.value.replace(/\D/g, "")) || 0 })}
+              className="w-16 rounded-lg border border-border bg-background px-2 py-2 text-[13px] text-right"
+            />
+            <span className="text-[11px] text-muted-foreground shrink-0">din</span>
+            <button
+              type="button"
+              onClick={() => removeOption(o.id)}
+              className="shrink-0 h-8 w-8 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+              aria-label="Option hatao"
+              title="Option hatao"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addOption}
+          className="w-full rounded-full border-2 border-dashed border-accent text-accent-foreground font-semibold py-2 text-[13px]"
+        >
+          + Naya option add karo
+        </button>
+        {draft && (
+          <button
+            onClick={save}
+            disabled={saving || options.some((o) => !o.label.trim() || o.days <= 0)}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Options"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Ye buttons Rx screen pe "Next visit" ke neeche dikhte hain — doctor tap karke seedha date set kar sakta hai.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- SLX Instructions (Rx improvements item E, 03 Aug 2026) ----------
+function SlxInstructionsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["slx-instructions"], queryFn: fetchSlxInstructions });
+  const saved = data ?? DEFAULT_SLX_INSTRUCTIONS;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const value = draft ?? saved;
+
+  const save = async () => {
+    if (draft === null) return;
+    setSaving(true);
+    try {
+      await saveSlxInstructions(draft);
+      qc.invalidateQueries({ queryKey: ["slx-instructions"] });
+      setDraft(null);
+      toast.success("SLX instructions update ho gayi");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        SLX Instructions — "lene ka tarika"
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2.5">
+        <textarea
+          rows={3}
+          value={value}
+          onChange={(e) => setDraft(e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          placeholder="SLX kaise leni hai — Rx PDF aur consult screen dono par yahi text dikhega"
+        />
+        {draft !== null && draft !== saved && (
+          <button
+            onClick={save}
+            disabled={saving || !draft.trim()}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Instructions"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Jab SLX toggle Rx screen pe ON ho, ye text doctor ko dikhega aur Rx PDF par bhi print hoga.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
     { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
@@ -561,6 +711,8 @@ function ControlPage() {
           </div>
           <FeeMasterCard />
           <FeeRulesCard />
+          <NextVisitOptionsCard />
+          <SlxInstructionsCard />
           <OtherModules />
           <PlannedModules />
         </div>

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
@@ -12,7 +12,15 @@ import {
   submitPrescription,
   branchLabel,
   resolveDocUrl,
+  saveRxDraft,
+  fetchNextVisitOptions,
+  DEFAULT_NEXT_VISIT_OPTIONS,
+  fetchSlxInstructions,
+  DEFAULT_SLX_INSTRUCTIONS,
+  addStockEntry,
   type RxRow,
+  type RxDraft,
+  type NextVisitOption,
 } from "@/lib/db";
 import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
@@ -88,14 +96,49 @@ function RxWrite() {
 
   const [rows, setRows] = useState<EditableRow[]>([emptyRow()]);
   const [slxOn, setSlxOn] = useState(true);
+  // Sequenced/staggered dosing (item D) -- OFF by default so nothing
+  // changes for anyone who doesn't touch this: all medicines still start
+  // the same day, exactly like before.
+  const [sequenced, setSequenced] = useState(false);
   const [notes, setNotes] = useState("");
   const [nextVisit, setNextVisit] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const draftHydrated = useRef(false);
+
+  const { data: nextVisitOptions } = useQuery({
+    queryKey: ["next-visit-options"],
+    queryFn: fetchNextVisitOptions,
+  });
+  const { data: slxInstructions } = useQuery({
+    queryKey: ["slx-instructions"],
+    queryFn: fetchSlxInstructions,
+  });
 
   useEffect(() => {
     if (visit?.doctor_notes) setNotes(visit.doctor_notes);
   }, [visit?.doctor_notes]);
+
+  // Rx Autosave (item B) — restore a draft exactly once, the first time
+  // this visit's data arrives, and only if the doctor hasn't already
+  // started typing (rows still the pristine single empty row). Guards
+  // against clobbering fresh input if this effect somehow re-fires.
+  useEffect(() => {
+    if (draftHydrated.current || !visit) return;
+    draftHydrated.current = true;
+    const draft = visit.rx_draft;
+    if (!draft || !draft.rows) return;
+    const untouched = rows.length === 1 && !rows[0].medicine_name.trim() && nextVisit === "";
+    if (!untouched) return;
+    setRows(draft.rows.length ? draft.rows.map((r) => ({ ...r })) : [emptyRow()]);
+    setSlxOn(draft.slxOn);
+    setSequenced(!!draft.sequenced);
+    setNextVisit(draft.nextVisit || "");
+    if (draft.notes) setNotes(draft.notes);
+    toast.info("Pichla draft wapas load ho gaya");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visit]);
 
   // TASK 3 — warn before an in-progress Rx is thrown away by a back-swipe,
   // bottom-nav tap or tab close. "Dirty" = anything actually typed: a
@@ -112,8 +155,36 @@ function RxWrite() {
     if (submitted) navigate({ to: "/doctor/rx" });
   }, [submitted, navigate]);
 
-
-
+  // Rx Autosave (item B) — write the draft back a moment after typing
+  // stops, so a dropped connection mid-consultation never wipes 10
+  // minutes of prescription work. Debounced (not on every keystroke) to
+  // avoid hammering the DB; skipped until hydration has run once and
+  // while there's nothing worth saving yet (isDirty).
+  const draftKey = JSON.stringify({ rows, slxOn, sequenced, notes, nextVisit });
+  const debouncedDraftKey = useDebouncedValue(draftKey, 1500);
+  useEffect(() => {
+    if (!visit || !draftHydrated.current || submitted || !isDirty) return;
+    const savedAt = new Date().toISOString();
+    const draft: RxDraft = {
+      rows: rows.map((r) => ({
+        medicine_name: r.medicine_name,
+        potency: r.potency,
+        dose: r.dose,
+        frequency: r.frequency,
+        duration_num: r.duration_num,
+        duration_unit: r.duration_unit,
+      })),
+      slxOn,
+      sequenced,
+      notes,
+      nextVisit,
+      savedAt,
+    };
+    saveRxDraft(visit.id, draft).then((ok) => {
+      if (ok) setDraftSavedAt(savedAt);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedDraftKey]);
 
   const setNextInDays = (d: number) => {
     const n = new Date();
@@ -124,28 +195,54 @@ function RxWrite() {
   const updateRow = (i: number, patch: Partial<EditableRow>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
+  // Mirrors buildFinalRows' cumulative logic below, just keyed to display
+  // index instead of collapsed into the final submit payload — so the
+  // "Day X se" label on each card always matches what actually gets saved.
+  const rowOffsets = (() => {
+    let cursor = 0;
+    return rows.map((r) => {
+      const off = cursor;
+      if (r.medicine_name.trim()) cursor += toDays(r.duration_num, r.duration_unit);
+      return off;
+    });
+  })();
+
   const buildFinalRows = (): RxRow[] => {
     const valid = rows.filter((r) => r.medicine_name.trim());
     const finalRows: RxRow[] = [];
+    // Sequenced dosing (item D) — when ON, each medicine starts the day
+    // after the previous one's duration ends (cumulative offset). When
+    // OFF (default), every row starts day 0, exactly like before.
+    let cursor = 0;
     for (const r of valid) {
+      const days = toDays(r.duration_num, r.duration_unit);
+      const offset = sequenced ? cursor : 0;
       finalRows.push({
         medicine_name: r.medicine_name.trim(),
         potency: r.potency,
         dose: `${r.dose} Globule`,
         frequency: r.frequency,
-        duration_days: toDays(r.duration_num, r.duration_unit),
+        duration_days: days,
         is_slx: false,
+        start_offset_days: offset,
       });
       if (slxOn) {
+        // SLX shows as just "SLX" now (item E) — which real medicine it
+        // pairs with goes in remarks instead of being stuffed into the
+        // name, so it no longer reads like a second fake medicine on the
+        // pharmacy/patient-history screens.
         finalRows.push({
-          medicine_name: `SLX (${r.medicine_name.trim()})`,
+          medicine_name: "SLX",
           potency: "—",
           dose: "1 Globule",
           frequency: "TDS",
-          duration_days: toDays(r.duration_num, r.duration_unit),
+          duration_days: days,
           is_slx: true,
+          start_offset_days: offset,
+          remarks: `For ${r.medicine_name.trim()}`,
         });
       }
+      if (sequenced) cursor += days;
     }
     return finalRows;
   };
@@ -163,6 +260,7 @@ function RxWrite() {
       chiefComplaint: visit!.chief_complaint,
       doctorNotes: notes,
       nextVisitDate: nextVisit || null,
+      slxInstructions: slxInstructions || DEFAULT_SLX_INSTRUCTIONS,
       rows: finalRows,
     });
   };
@@ -272,8 +370,16 @@ function RxWrite() {
 
         {/* RIGHT: write rx */}
         <section className="mt-4 space-y-3 lg:mt-0">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-bold uppercase text-primary">Prescription</div>
+            {draftSavedAt && !submitted && (
+              <span className="text-[10px] text-muted-foreground">
+                Draft saved {new Date(draftSavedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label className="flex items-center gap-2 text-xs">
               <span>SLX auto-add</span>
               <button
@@ -287,7 +393,28 @@ function RxWrite() {
                 <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", slxOn ? "left-[22px]" : "left-0.5")} />
               </button>
             </label>
+            <label className="flex items-center gap-2 text-xs">
+              <span>Sequence dawaiyan</span>
+              <button
+                type="button"
+                onClick={() => setSequenced((v) => !v)}
+                className={cn(
+                  "h-6 w-11 rounded-full border relative transition",
+                  sequenced ? "bg-success border-success" : "bg-muted border-border",
+                )}
+              >
+                <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", sequenced ? "left-[22px]" : "left-0.5")} />
+              </button>
+            </label>
           </div>
+          {slxOn && (
+            <p className="text-[11px] text-muted-foreground -mt-1">{slxInstructions || DEFAULT_SLX_INSTRUCTIONS}</p>
+          )}
+          {sequenced && (
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Ek medicine khatam hone ke baad agli shuru hogi — har card pe start day dikh raha hai.
+            </p>
+          )}
 
           <ul className="space-y-3">
             {rows.map((r, i) => (
@@ -295,6 +422,7 @@ function RxWrite() {
                 key={i}
                 row={r}
                 branch={visit.branch}
+                startOffsetDays={sequenced ? rowOffsets[i] : undefined}
                 onChange={(p) => updateRow(i, p)}
                 onDelete={rows.length > 1 ? () => setRows((rs) => rs.filter((_, idx) => idx !== i)) : undefined}
               />
@@ -321,22 +449,22 @@ function RxWrite() {
 
           <div>
             <label className="text-xs font-bold uppercase text-primary">Next visit</label>
-            <div className="mt-1 flex gap-2 items-center">
-              {[30, 60, 90].map((d) => (
+            <div className="mt-1 flex flex-wrap gap-2 items-center">
+              {(nextVisitOptions ?? DEFAULT_NEXT_VISIT_OPTIONS).map((o) => (
                 <button
-                  key={d}
+                  key={o.id}
                   type="button"
-                  onClick={() => setNextInDays(d)}
+                  onClick={() => setNextInDays(o.days)}
                   className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold"
                 >
-                  {d}d
+                  {o.label}
                 </button>
               ))}
               <input
                 type="date"
                 value={nextVisit}
                 onChange={(e) => setNextVisit(e.target.value)}
-                className="flex-1 rounded-lg bg-surface border border-input px-2 py-1.5 text-xs"
+                className="flex-1 min-w-[140px] rounded-lg bg-surface border border-input px-2 py-1.5 text-xs"
               />
             </div>
           </div>
@@ -365,24 +493,52 @@ function RxWrite() {
 function RxRowEditor({
   row,
   branch,
+  startOffsetDays,
   onChange,
   onDelete,
 }: {
   row: EditableRow;
   branch: string;
+  startOffsetDays?: number;
   onChange: (p: Partial<EditableRow>) => void;
   onDelete?: () => void;
 }) {
+  const qc = useQueryClient();
   const [term, setTerm] = useState(row.medicine_name);
   const debouncedTerm = useDebouncedValue(term, 300);
   const [open, setOpen] = useState(false);
-  const { data: inv } = useQuery({
+  const [addingNew, setAddingNew] = useState(false);
+  const { data: inv, isFetching: invLoading } = useQuery({
     queryKey: ["inv-search", debouncedTerm, branch],
     queryFn: () => fetchInventorySearch(debouncedTerm, branch),
     enabled: open && debouncedTerm.length > 0,
   });
 
   useEffect(() => setTerm(row.medicine_name), [row.medicine_name]);
+
+  // "Medicine list mein nahi mila to add karo" (item C) — autosuggest
+  // already existed; this was the missing half. Shows only once a search
+  // has actually completed and genuinely found nothing, so it never
+  // flashes while results are still loading or before typing starts.
+  const showAddNew =
+    open && debouncedTerm.trim().length > 1 && !invLoading && (!inv || inv.length === 0);
+
+  const addAsNewMedicine = async () => {
+    const name = debouncedTerm.trim();
+    if (!name || addingNew) return;
+    setAddingNew(true);
+    const res = await addStockEntry({ medicine_name: name, potency: row.potency, branch, quantity: 0 });
+    setAddingNew(false);
+    if (!res.success) {
+      toast.error(res.error || "Medicine add nahi ho paya");
+      return;
+    }
+    onChange({ medicine_name: name });
+    setTerm(name);
+    setOpen(false);
+    qc.invalidateQueries({ queryKey: ["inv-search"] });
+    toast.success(`"${name}" master mein add ho gaya (stock 0 — Pharmacy se restock karna hoga)`);
+  };
 
   return (
     <li className="rounded-xl border border-border bg-surface p-3 space-y-2">
@@ -411,6 +567,18 @@ function RxRowEditor({
               ))}
             </ul>
           )}
+          {showAddNew && (
+            <div className="absolute z-10 mt-1 w-full rounded-lg bg-surface border border-dashed border-accent shadow-lg">
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); addAsNewMedicine(); }}
+                disabled={addingNew}
+                className="w-full text-left px-3 py-2 text-sm text-accent-foreground font-semibold disabled:opacity-60"
+              >
+                {addingNew ? "Add ho raha hai…" : `+ "${debouncedTerm.trim()}" ko naya medicine add karo`}
+              </button>
+            </div>
+          )}
         </div>
         {onDelete && (
           <button onClick={onDelete} className="h-9 w-9 grid place-items-center rounded-lg border border-border text-destructive">
@@ -418,6 +586,12 @@ function RxRowEditor({
           </button>
         )}
       </div>
+
+      {typeof startOffsetDays === "number" && (
+        <div className="text-[11px] font-semibold text-accent-foreground">
+          {startOffsetDays === 0 ? "Day 1 se shuru" : `Day ${startOffsetDays + 1} se shuru`}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <select

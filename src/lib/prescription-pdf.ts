@@ -13,6 +13,10 @@ export interface PrescriptionPdfInput {
   chiefComplaint?: string | null;
   doctorNotes?: string | null;
   nextVisitDate?: string | null;
+  // Owner-editable "SLX kaise lena hai" text (Rx improvements item E) --
+  // falls back to the old hardcoded line if not supplied, so existing
+  // callers that don't pass this yet don't lose the SLX note entirely.
+  slxInstructions?: string | null;
   rows: {
     medicine_name: string;
     potency: string;
@@ -20,6 +24,9 @@ export interface PrescriptionPdfInput {
     frequency: string;
     duration_days: number;
     is_slx?: boolean;
+    // Sequenced dosing (item D) -- days after the Rx date this medicine
+    // actually starts. 0/undefined = starts same day as always.
+    start_offset_days?: number;
   }[];
 }
 
@@ -95,7 +102,8 @@ export function downloadPrescriptionPdf(input: PrescriptionPdfInput) {
     doc.text(`${i + 1}. ${r.medicine_name} ${r.potency}`, margin, y);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(`${r.dose} — ${r.frequency} — ${r.duration_days} din`, margin + 16, y + 14);
+    const startNote = r.start_offset_days ? ` — Day ${r.start_offset_days + 1} se shuru` : "";
+    doc.text(`${r.dose} — ${r.frequency} — ${r.duration_days} din${startNote}`, margin + 16, y + 14);
   });
 
   const hasSlx = input.rows.some((r) => r.is_slx);
@@ -104,7 +112,9 @@ export function downloadPrescriptionPdf(input: PrescriptionPdfInput) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
     doc.setTextColor(120, 120, 120);
-    doc.text("+ Placebo (SLX) globules as instructed", margin, y);
+    const slxLines = doc.splitTextToSize(input.slxInstructions || "+ Placebo (SLX) globules as instructed", pageWidth - margin * 2);
+    doc.text(slxLines, margin, y);
+    y += (slxLines.length - 1) * 11;
     doc.setTextColor(NAVY);
   }
 

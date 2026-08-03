@@ -42,3 +42,4 @@ session it was run. Number new files sequentially (`0008_...`, `0009_...`).
 | `0009_atomic_stock_increment.sql` | `increment_stock()` — atomic stock-add, fixes read-modify-write race (re-audit finding) |
 | `0010_case_discussion_tracking.sql` | `case_discussed_at` column + backfill, `submit_prescription_atomic()` (also fixes long-standing Rx non-atomicity), `case_funnel_stats()` — online-case pending-discussion tracking (Dr. Yadav, 29 Jul 2026) |
 | `0011_system_alerts.sql` | `system_alerts` table — degraded-mode alerting, shown on Owner Health page whenever a fallback path triggers (re-audit C-4) |
+| `0022_rx_improvements.sql` | `visits.rx_draft` (Rx autosave) + `prescriptions.start_offset_days` (sequenced dosing) + updated `submit_prescription_atomic()` (03 Aug 2026 Rx-improvements backlog) |

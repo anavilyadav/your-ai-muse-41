@@ -52,6 +52,12 @@ export interface DBVisit {
   case_photo_url?: string | null;
   tongue_photo_url?: string | null;
   reports_photo_url?: string | null;
+  // Rx Autosave (03 Aug 2026 backlog item B) -- migration 0022. Whole draft
+  // written as one JSON blob (rows/notes/next-visit/etc), cleared to null
+  // by submit_prescription_atomic() the moment the Rx is actually submitted.
+  // Undefined-safe: on a pre-migration DB this key just won't be present
+  // in the row and every read below already treats that as "no draft".
+  rx_draft?: RxDraft | null;
 }
 
 export interface DBPrescription {
@@ -64,6 +70,7 @@ export interface DBPrescription {
   frequency: string | null;
   duration_days: number | null;
   is_slx: boolean;
+  start_offset_days?: number | null;
   remarks: string | null;
   created_at: string;
 }
@@ -808,6 +815,55 @@ export interface RxRow {
   frequency: string;
   duration_days: number;
   is_slx: boolean;
+  // Sequenced/staggered dosing (03 Aug 2026 backlog item D) -- how many
+  // days after the Rx date this specific row actually starts. 0 = starts
+  // same day (the old, only, behaviour). Only meaningful when the doctor
+  // has turned "sequence" on for this Rx; otherwise every row stays 0.
+  start_offset_days?: number;
+  // SLX display fix (item E) -- previously an SLX row's medicine_name was
+  // literally "SLX (Sulphur)" so it showed up as a fake medicine on the
+  // pharmacy/patient screens. Now medicine_name is just "SLX" and remarks
+  // carries which real medicine it's paired with, purely for context.
+  remarks?: string | null;
+}
+
+// Rx Autosave (item B) -- exact shape of the draft JSON kept in
+// visits.rx_draft. Mirrors the doctor.rx.consult screen's own local state
+// 1:1 so hydrating a draft back into the form is a straight assignment.
+export interface RxDraft {
+  rows: {
+    medicine_name: string;
+    potency: string;
+    dose: string;
+    frequency: string;
+    duration_num: number;
+    duration_unit: "days" | "weeks" | "months";
+  }[];
+  slxOn: boolean;
+  sequenced: boolean;
+  notes: string;
+  nextVisit: string;
+  savedAt: string; // ISO timestamp, shown to the doctor as "Draft saved ..."
+}
+
+/**
+ * Background write, debounced from the Rx screen -- never throws into the
+ * UI (a failed autosave shouldn't interrupt someone writing a
+ * prescription), just logs. Deliberately NOT run through
+ * submit_prescription_atomic -- this is a lightweight single-column write,
+ * not a state-transition, so it needs no transaction/locking of its own.
+ */
+export async function saveRxDraft(visitId: string, draft: RxDraft): Promise<boolean> {
+  const { error } = await supabase.from("visits").update({ rx_draft: draft }).eq("id", visitId);
+  if (error) {
+    // Missing-column is expected until migration 0022 is run -- fail
+    // silently in that case (no autosave yet, same as before this
+    // feature existed) instead of spamming the console every few seconds.
+    const missingColumn = error.code === "42703" || /column .*rx_draft.* does not exist/i.test(error.message ?? "");
+    if (!missingColumn) console.error("saveRxDraft failed:", error.message);
+    return false;
+  }
+  return true;
 }
 
 export async function submitPrescription(input: {
@@ -838,6 +894,8 @@ export async function submitPrescription(input: {
       frequency: r.frequency,
       duration_days: r.duration_days,
       is_slx: r.is_slx,
+      start_offset_days: r.start_offset_days ?? 0,
+      remarks: r.remarks ?? null,
     })),
     p_doctor_notes: input.doctor_notes,
     p_next_visit_date: input.next_visit_date,
@@ -870,6 +928,8 @@ export async function submitPrescription(input: {
       frequency: r.frequency,
       duration_days: r.duration_days,
       is_slx: r.is_slx,
+      start_offset_days: r.start_offset_days ?? 0,
+      remarks: r.remarks ?? null,
     })),
   );
   if (re) throw re;
@@ -880,6 +940,7 @@ export async function submitPrescription(input: {
       doctor_notes: input.doctor_notes,
       next_visit_date: input.next_visit_date,
       case_discussed_at: new Date().toISOString(),
+      rx_draft: null,
     })
     .eq("id", input.visit_id);
   if (ve) throw ve;
@@ -2415,6 +2476,62 @@ export function activeFeeRulesTotal(
     return true;
   });
   return { total: applied.reduce((sum, r) => sum + (Number(r.amount) || 0), 0), applied };
+}
+
+// ---------- Next Visit Options (Rx improvements item F, 03 Aug 2026) ----------
+// Was 3 hardcoded quick-buttons (30/60/90 days) baked into the Rx screen.
+// Same open-list-in-settings pattern as fee_rules above -- Owner can
+// add/remove/reorder without a redeploy. Always has a hard-coded default
+// so the Rx screen still works even if settings hasn't been touched.
+export interface NextVisitOption {
+  id: string;
+  label: string;
+  days: number;
+}
+
+export const DEFAULT_NEXT_VISIT_OPTIONS: NextVisitOption[] = [
+  { id: "nv-1w", label: "1 Week", days: 7 },
+  { id: "nv-2w", label: "2 Weeks", days: 14 },
+  { id: "nv-1m", label: "1 Month", days: 30 },
+  { id: "nv-6w", label: "6 Weeks", days: 45 },
+  { id: "nv-2m", label: "2 Months", days: 60 },
+  { id: "nv-3m", label: "3 Months", days: 90 },
+  { id: "nv-6m", label: "6 Months", days: 180 },
+];
+
+export async function fetchNextVisitOptions(): Promise<NextVisitOption[]> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "next_visit_options").maybeSingle();
+  if (error) console.error("fetchNextVisitOptions failed:", error.message);
+  if (!data?.value) return [...DEFAULT_NEXT_VISIT_OPTIONS];
+  try {
+    const parsed = JSON.parse(data.value);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_NEXT_VISIT_OPTIONS];
+    return parsed;
+  } catch {
+    return [...DEFAULT_NEXT_VISIT_OPTIONS];
+  }
+}
+
+export async function saveNextVisitOptions(options: NextVisitOption[]) {
+  await upsertSetting("next_visit_options", JSON.stringify(options));
+}
+
+// ---------- SLX Instructions (Rx improvements item E, 03 Aug 2026) ----------
+// The "lene ka tarika" (how-to-take) text for SLX/placebo globules --
+// previously hardcoded into the PDF ("+ Placebo (SLX) globules as
+// instructed") with no screen to change it. One plain-text settings key,
+// same upsertSetting() plumbing as everywhere else.
+export const DEFAULT_SLX_INSTRUCTIONS =
+  "SLX subah-shaam khana khane ke 30 minute baad lein, asal dawai se alag time par.";
+
+export async function fetchSlxInstructions(): Promise<string> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "slx_instructions").maybeSingle();
+  if (error) console.error("fetchSlxInstructions failed:", error.message);
+  return data?.value?.trim() ? data.value : DEFAULT_SLX_INSTRUCTIONS;
+}
+
+export async function saveSlxInstructions(text: string) {
+  await upsertSetting("slx_instructions", text);
 }
 
 
