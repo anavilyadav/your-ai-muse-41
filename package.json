@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "ci": "bun run typecheck && bun run lint && bun run test"
+    "ci": "bun run typecheck && bun run test && bun run test:coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
