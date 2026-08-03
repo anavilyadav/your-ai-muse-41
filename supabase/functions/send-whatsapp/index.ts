@@ -210,8 +210,9 @@ Deno.serve(async (req) => {
       destination: finalDestination,
       status: "sent",
     });
-    return json({ success: true, data }), { headers: { "Content-Type": "application/json" } });
+    return json({ success: true, data });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }, 500);
+    return json({ error: String(e) }, 500);
   }
+
 });
