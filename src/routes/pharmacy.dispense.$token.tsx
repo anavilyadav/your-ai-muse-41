@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel } from "@/lib/db";
+import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel, dispenseQuantityLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
@@ -132,7 +132,9 @@ function DispensePage() {
                     <div className="text-[12px] text-muted-foreground">
                       {r.dose ?? "—"} • {r.frequency ?? "—"}
                       {r.duration_days ? ` • ${r.duration_days}d` : ""}
-                      {r.is_slx ? " • SLX" : ""}
+                    </div>
+                    <div className="text-[12px] font-semibold text-accent-foreground mt-0.5">
+                      {dispenseQuantityLabel(r.is_slx)}
                     </div>
                   </div>
                 </button>

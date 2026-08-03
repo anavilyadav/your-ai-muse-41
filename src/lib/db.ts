@@ -3083,6 +3083,16 @@ export function statusLabel(s: string): string {
   return map[s] ?? s;
 }
 
+// Same convention markDispensed()/dispense_visit_atomic already use to
+// decrement inventory (Dr. Yadav's own words, an earlier session: exact
+// drops aren't fixed, staff already eyeballs the physical bottle — this
+// is approximate by design, not a precise dose). Surfacing it as text on
+// the Pharmacy dispense screen so it's not tribal knowledge for whoever's
+// on shift that day.
+export function dispenseQuantityLabel(isSlx: boolean): string {
+  return isSlx ? "SLX — 4 dram (poori 45ml bottle)" : "Drops — 0.5 dram";
+}
+
 export function maskMobile(m: string | null | undefined): string {
   if (!m) return "";
   const s = String(m);
