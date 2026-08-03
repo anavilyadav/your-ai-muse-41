@@ -1,6 +1,4 @@
-import { SUPABASE_URL } from "./supabase";
-
-const SEND_URL = `${SUPABASE_URL}/functions/v1/send-whatsapp`;
+import { supabase } from "./supabase";
 
 export interface SendWhatsAppInput {
   campaignName: "REGISTRATION_CONFIRM" | "APPOINTMENT_REMINDER" | "FOLLOWUP_REMINDER";
@@ -18,18 +16,26 @@ export interface SendWhatsAppInput {
 /**
  * Fire-and-forget WhatsApp send. Never throws — logs and swallows errors so
  * a WhatsApp hiccup never blocks registration/appointment flows.
+ *
+ * Uses functions.invoke() rather than a bare fetch (Block 2, security
+ * hardening): send-whatsapp now requires a real signed-in staff session,
+ * and invoke() attaches the current session's bearer token and the apikey
+ * header for us. A bare fetch sent neither, so it would now come back 401.
  */
 export async function sendWhatsApp(input: SendWhatsAppInput) {
   try {
-    const res = await fetch(SEND_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+    const { data, error } = await supabase.functions.invoke("send-whatsapp", {
+      body: input,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.warn("WhatsApp send failed:", data?.error);
-      return { success: false, error: data?.error };
+    if (error) {
+      console.warn("WhatsApp send failed:", error.message);
+      return { success: false, error: error.message };
+    }
+    if (data && data.success === false) {
+      // Non-2xx isn't the only failure shape — the function returns 200 with
+      // success:false when a send is skipped for missing consent.
+      console.warn("WhatsApp send not delivered:", data.error);
+      return { success: false, error: data.error };
     }
     return { success: true };
   } catch (e) {
@@ -37,3 +43,4 @@ export async function sendWhatsApp(input: SendWhatsAppInput) {
     return { success: false, error: String(e) };
   }
 }
+
