@@ -44,6 +44,14 @@ export interface DBVisit {
   doctor_notes: string | null;
   next_visit_date: string | null;
   created_at: string;
+  // Set at Case-DR time (doctor.case.form.$token.tsx) -- were already
+  // coming through fetchVisit()'s select("*") at runtime, just not typed
+  // here, which is why the prescribing screen never rendered them (audit
+  // 03 Aug 2026: "photo upload ki thi, doctor prescribing mein nahi
+  // dikh rahi").
+  case_photo_url?: string | null;
+  tongue_photo_url?: string | null;
+  reports_photo_url?: string | null;
 }
 
 export interface DBPrescription {
