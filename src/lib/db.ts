@@ -1868,22 +1868,25 @@ export async function fetchOwnerStats() {
 // totals) — outside clinic hours, but real if anyone logs something late
 // or a clock is off. These explicit-offset literals make Postgres compare
 // correctly regardless of the exact time of day.
-function istDayStart(dateStr: string): string {
+// Exported so the IST boundary suite can assert on them directly — these
+// four decide which calendar day every payment, visit and report row lands
+// in, so they are the highest-value thing in this file to have under test.
+export function istDayStart(dateStr: string): string {
   return `${dateStr}T00:00:00+05:30`;
 }
-function istDayEnd(dateStr: string): string {
+export function istDayEnd(dateStr: string): string {
   return `${dateStr}T23:59:59.999+05:30`;
 }
 // For client-side re-bucketing of already-fetched rows by IST calendar
 // day (used where we can't push the boundary into the SQL query itself).
-function istDateOf(isoTimestamp: string | null | undefined): string {
+export function istDateOf(isoTimestamp: string | null | undefined): string {
   if (!isoTimestamp) return "";
   return new Date(new Date(isoTimestamp).getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 // Reads the weekday out of an IST calendar-date string safely — parsing
 // at UTC noon avoids any boundary edge case near midnight.
-function istWeekday(dateStr: string): number {
+export function istWeekday(dateStr: string): number {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
 }
 
