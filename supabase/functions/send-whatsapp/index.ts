@@ -146,10 +146,10 @@ Deno.serve(async (req) => {
         .eq("id", patientId)
         .maybeSingle();
       if (pErr) {
-        return new Response(JSON.stringify({ error: "Patient lookup failed: " + pErr.message }), { status: 500 });
+        return json({ error: "Patient lookup failed: " + pErr.message }, 500);
       }
       if (!patient) {
-        return new Response(JSON.stringify({ error: "Patient not found" }), { status: 404 });
+        return json({ error: "Patient not found" }, 404);
       }
       if (!patient.wa_consent) {
         await logWhatsApp(supabaseAdmin, {
@@ -158,7 +158,7 @@ Deno.serve(async (req) => {
           destination: patientWhatsAppTarget(patient as any),
           status: "skipped_consent",
         });
-        return new Response(JSON.stringify({ success: false, skipped: true, error: "No WhatsApp consent on file for this patient" }), { status: 200 });
+        return json({ success: false, skipped: true, error: "No WhatsApp consent on file for this patient" }, 200);
       }
       finalDestination = patientWhatsAppTarget(patient as any);
     } else if (!consentConfirmed) {
@@ -169,12 +169,12 @@ Deno.serve(async (req) => {
     }
 
     if (!finalDestination) {
-      return new Response(JSON.stringify({ error: "destination required" }), { status: 400 });
+      return json({ error: "destination required" }, 400);
     }
 
     const apiKey = Deno.env.get("AISENSY_API_KEY");
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "AISENSY_API_KEY not configured as a secret" }), { status: 500 });
+      return json({ error: "AISENSY_API_KEY not configured as a secret" }, 500);
     }
 
     const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
         status: "failed",
         error_message: data?.message ?? "AiSensy send failed",
       });
-      return new Response(JSON.stringify({ error: data?.message ?? "AiSensy send failed" }), { status: 400 });
+      return json({ error: data?.message ?? "AiSensy send failed" }, 400);
     }
 
     await logWhatsApp(supabaseAdmin, {
@@ -209,8 +209,8 @@ Deno.serve(async (req) => {
       destination: finalDestination,
       status: "sent",
     });
-    return new Response(JSON.stringify({ success: true, data }), { headers: { "Content-Type": "application/json" } });
+    return json({ success: true, data }), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(e) }, 500);
   }
 });
