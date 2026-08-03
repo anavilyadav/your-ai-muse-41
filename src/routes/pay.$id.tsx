@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, RECASE_SURCHARGE } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -74,7 +74,18 @@ function PayPage() {
     enabled: !!visit?.patient_id && !!visit?.id,
   });
   const recaseApplies = needsRecaseSurcharge(visit?.patient?.lifetime_visits, previousVisitDate ?? null);
-  const standardFee = feeKind ? fees[feeKind] + (recaseApplies ? RECASE_SURCHARGE : 0) : 0;
+
+  // Owner-managed extra rules (03 Aug 2026 request) — replaces the old
+  // hard-coded RECASE_SURCHARGE constant with a dynamic, owner-editable
+  // list (see Owner Control Centre > Extra Fee Rules). Re-case is still
+  // the only one gated on the 1-year-gap check above; any other rule the
+  // Owner adds applies purely by matching feeKind (or ALL).
+  const { data: feeRules } = useQuery({ queryKey: ["fee-rules"], queryFn: fetchFeeRules });
+  const rules = feeRules ?? DEFAULT_FEE_RULES;
+  const { total: extraTotal, applied: appliedRules } = feeKind
+    ? activeFeeRulesTotal(rules, feeKind, recaseApplies)
+    : { total: 0, applied: [] };
+  const standardFee = feeKind ? fees[feeKind] + extraTotal : 0;
 
   // Prefill exactly once per visit, and never over something already typed.
   // Gated on previousVisitDate query having settled (not `isLoading`, since
@@ -197,9 +208,13 @@ function PayPage() {
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Standard fee</div>
             <div className="text-xs font-semibold text-primary">
               {FEE_LABELS[feeKind]}
-              {recaseApplies && <span className="text-warning"> + re-case ₹{RECASE_SURCHARGE.toLocaleString("en-IN")}</span>}
+              {appliedRules.map((r) => (
+                <span key={r.id} className={r.amount >= 0 ? "text-warning" : "text-success"}>
+                  {" "}+ {r.label} {r.amount >= 0 ? "₹" : "-₹"}{Math.abs(r.amount).toLocaleString("en-IN")}
+                </span>
+              ))}
             </div>
-            {recaseApplies && (
+            {recaseApplies && appliedRules.some((r) => r.key === "RECASE") && (
               <div className="text-[10px] text-muted-foreground mt-0.5">1 saal se follow-up nahi aaya — re-case charge lagega</div>
             )}
           </div>

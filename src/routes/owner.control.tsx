@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -308,6 +308,139 @@ function FeeMasterCard() {
   );
 }
 
+// Request (03 Aug 2026): the 3 fixed amounts above weren't enough — the
+// re-case surcharge was a hidden hard-coded ₹1000 with no screen to see
+// or change it, and there was no way to add a genuinely new rule at all.
+// This is a real list now: Owner can add a rule, pick who it applies to
+// from a dropdown (so the Payment screen can still apply it
+// automatically), and remove any rule including the seeded re-case one.
+const APPLIES_TO_OPTIONS: { value: FeeRuleAppliesTo; label: string }[] = [
+  { value: "NEW", label: "Sirf New Case" },
+  { value: "FOLLOWUP", label: "Sirf Follow-up" },
+  { value: "ONLINE", label: "Sirf Online" },
+  { value: "ALL", label: "Sabhi visit types" },
+];
+
+function FeeRulesCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["fee-rules"], queryFn: fetchFeeRules });
+  const saved = data ?? DEFAULT_FEE_RULES;
+  const [draft, setDraft] = useState<FeeRule[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const rules = draft ?? saved;
+
+  const update = (id: string, patch: Partial<FeeRule>) => {
+    setDraft(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const addRule = () => {
+    setDraft([
+      ...rules,
+      { id: crypto.randomUUID(), key: "CUSTOM", label: "", amount: 0, appliesTo: "ALL" },
+    ]);
+  };
+
+  const removeRule = (id: string) => {
+    setDraft(rules.filter((r) => r.id !== id));
+  };
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await saveFeeRules(draft);
+      qc.invalidateQueries({ queryKey: ["fee-rules"] });
+      setDraft(null);
+      toast.success("Fee rules update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Extra Fee Rules — surcharge ya discount, koi bhi visit type pe
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+        {rules.length === 0 && (
+          <p className="text-[12px] text-muted-foreground">Koi extra rule nahi hai. Neeche se add karo.</p>
+        )}
+        {rules.map((r) => (
+          <div key={r.id} className="rounded-xl bg-background border border-border p-2.5 space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                placeholder="Rule ka naam (jaise: Re-case Surcharge)"
+                value={r.label}
+                onChange={(e) => update(r.id, { label: e.target.value })}
+                className="flex-1 min-w-0 rounded-lg border border-border bg-surface px-2.5 py-2 text-[13px]"
+              />
+              <button
+                type="button"
+                onClick={() => removeRule(r.id)}
+                className="shrink-0 h-8 w-8 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+                aria-label="Rule hatao"
+                title="Rule hatao"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-2">
+                <span className="text-sm text-muted-foreground">₹</span>
+                <input
+                  inputMode="numeric"
+                  placeholder="1000 ya -500 (discount)"
+                  value={r.amount || ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d-]/g, "");
+                    update(r.id, { amount: Number(raw) || 0 });
+                  }}
+                  className="w-full bg-transparent text-[13px] text-right outline-none"
+                />
+              </div>
+              <select
+                value={r.appliesTo}
+                onChange={(e) => update(r.id, { appliesTo: e.target.value as FeeRuleAppliesTo })}
+                className="rounded-lg border border-border bg-surface px-2.5 py-2 text-[13px]"
+              >
+                {APPLIES_TO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            {r.key === "RECASE" && (
+              <p className="text-[10px] text-muted-foreground">
+                Ye rule sirf tabhi lagega jab patient 1 saal se follow-up ke liye nahi aaya (automatic check, extra setting nahi chahiye).
+              </p>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addRule}
+          className="w-full rounded-full border-2 border-dashed border-accent text-accent-foreground font-semibold py-2 text-[13px]"
+        >
+          + Naya rule add karo
+        </button>
+        {draft && (
+          <button
+            onClick={save}
+            disabled={saving || rules.some((r) => !r.label.trim())}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Fee Rules"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Amount negative bhi ho sakta hai (discount). "Applies to" dropdown decide karta hai kaunse visit type pe Payment screen mein ye khud-ba-khud jud jaayega.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
     { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
@@ -427,6 +560,7 @@ function ControlPage() {
             </button>
           </div>
           <FeeMasterCard />
+          <FeeRulesCard />
           <OtherModules />
           <PlannedModules />
         </div>

@@ -2345,7 +2345,71 @@ export function feeKindForVisit(visit: { visit_type?: string | null; patient?: {
   return Number(visit.patient?.lifetime_visits ?? 1) <= 1 ? "NEW" : "FOLLOWUP";
 }
 
-// ---------- Re-case surcharge (Phase 3 decision #24) ----------
+// ---------- Extra Fee Rules (owner-managed, add/remove) ----------
+// Request (03 Aug 2026): Fee Master above only has 3 fixed amounts, no way
+// to see/edit the re-case surcharge (it was a hidden hard-coded constant)
+// or add a genuinely new rule. This is the dynamic list that fixes both --
+// stored as a JSON array in settings (same pattern as incentive_splits
+// below: an open list, not a fixed-shape object), each rule has a
+// dropdown "applies to" (which of the 3 base fee kinds it stacks on top
+// of, or ALL) instead of free-text, so the Payment screen can still apply
+// it automatically instead of it being a label with no behaviour behind
+// it. Amount can be negative -- a discount rule, not just a surcharge.
+export type FeeRuleAppliesTo = "NEW" | "FOLLOWUP" | "ONLINE" | "ALL";
+
+export interface FeeRule {
+  id: string;
+  // "RECASE" is special: it only actually applies when
+  // needsRecaseSurcharge() (the 1-year-gap check) is also true, in
+  // addition to matching appliesTo -- see the filter in pay.$id.tsx.
+  // "CUSTOM" rules apply purely based on appliesTo, no extra condition.
+  key: "RECASE" | "CUSTOM";
+  label: string;
+  amount: number;
+  appliesTo: FeeRuleAppliesTo;
+}
+
+// Seeded on first load (nothing saved yet) so the re-case surcharge that
+// already existed as a hard-coded constant (RECASE_SURCHARGE, still
+// defined below as the historical value this seed matches) shows up
+// pre-populated here instead of the list just starting empty and
+// silently losing it.
+export const DEFAULT_FEE_RULES: FeeRule[] = [
+  { id: "recase-default", key: "RECASE", label: "Re-case Surcharge (1 saal se follow-up nahi)", amount: 1000, appliesTo: "FOLLOWUP" },
+];
+
+export async function fetchFeeRules(): Promise<FeeRule[]> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "fee_rules").maybeSingle();
+  if (error) console.error("fetchFeeRules failed:", error.message);
+  if (!data?.value) return [...DEFAULT_FEE_RULES];
+  try {
+    const parsed = JSON.parse(data.value);
+    if (!Array.isArray(parsed)) return [...DEFAULT_FEE_RULES];
+    return parsed;
+  } catch {
+    return [...DEFAULT_FEE_RULES];
+  }
+}
+
+export async function saveFeeRules(rules: FeeRule[]) {
+  await upsertSetting("fee_rules", JSON.stringify(rules));
+}
+
+/** Sum of every extra rule that's actually active for this visit right now. */
+export function activeFeeRulesTotal(
+  rules: FeeRule[],
+  feeKind: keyof FeeMaster,
+  recaseApplies: boolean,
+): { total: number; applied: FeeRule[] } {
+  const applied = rules.filter((r) => {
+    if (r.appliesTo !== "ALL" && r.appliesTo !== feeKind) return false;
+    if (r.key === "RECASE" && !recaseApplies) return false;
+    return true;
+  });
+  return { total: applied.reduce((sum, r) => sum + (Number(r.amount) || 0), 0), applied };
+}
+
+
 // Phase 3 decision: "Re-case-taking = ₹1000 extra, only if the patient
 // hasn't had a single follow-up in the last 1 year."
 //
