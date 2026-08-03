@@ -1,6 +1,7 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -24,6 +25,6 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // first fixing those env vars would re-open the "second auth session"
 // exposure flagged in the 30 Jul audit.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [],
+  functionMiddleware: [attachSupabaseAuth],
   requestMiddleware: [errorMiddleware],
 }));
