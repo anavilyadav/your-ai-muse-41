@@ -246,11 +246,11 @@ function LeadsPage() {
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{l.name}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {maskMobile(l.mobile)} • {l.source ?? "—"}
+                      {maskMobile(l.mobile)} • {l.lead_source ?? "—"}
                     </div>
-                    {l.note && (
+                    {l.notes && (
                       <div className="text-[11px] text-foreground/70 mt-1 truncate">
-                        "{l.note}"
+                        "{l.notes}"
                       </div>
                     )}
                   </div>

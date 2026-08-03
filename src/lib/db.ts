@@ -1257,7 +1257,7 @@ export async function searchLeads(term: string) {
   const { data, error } = await supabase
     .from("leads")
     .select("*")
-    .or(`name.ilike.${like},mobile.ilike.${like},source.ilike.${like}`)
+    .or(`name.ilike.${like},mobile.ilike.${like},lead_source.ilike.${like}`)
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) return [];
@@ -1328,11 +1328,11 @@ export async function fetchLeadSourceStats(): Promise<
   const results = await Promise.all(
     LEAD_SOURCES.map(async (source) => {
       const [leadsRes, convRes, patRes] = await Promise.all([
-        supabase.from("leads").select("id", { count: "exact", head: true }).eq("source", source),
+        supabase.from("leads").select("id", { count: "exact", head: true }).eq("lead_source", source),
         supabase
           .from("leads")
           .select("id", { count: "exact", head: true })
-          .eq("source", source)
+          .eq("lead_source", source)
           .eq("status", "Converted"),
         supabase.from("patients").select("id", { count: "exact", head: true }).eq("lead_source", source),
       ]);
@@ -2499,9 +2499,9 @@ export async function createLead(input: { name: string; mobile: string; source?:
   const { error } = await supabase.from("leads").insert({
     name,
     mobile,
-    source: input.source?.trim() || "Manual",
+    lead_source: input.source?.trim() || "Manual",
     status: "Cold",
-    note: input.note?.trim() || null,
+    notes: input.note?.trim() || null,
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
@@ -2564,9 +2564,9 @@ export async function commitLeadsImport(
       const chunk = rows.slice(i, i + BATCH).map((r) => ({
         name: r.name.trim(),
         mobile: r.mobile,
-        source: r.source?.trim() || "Bulk Import",
+        lead_source: r.source?.trim() || "Bulk Import",
         status: "Cold",
-        note: r.note?.trim() || null,
+        notes: r.note?.trim() || null,
         imported_batch: batchId,
       }));
       const { error } = await supabase.from("leads").insert(chunk);
