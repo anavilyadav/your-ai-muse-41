@@ -162,11 +162,12 @@ Deno.serve(async (req) => {
       }
       finalDestination = patientWhatsAppTarget(patient as any);
     } else if (!consentConfirmed) {
-      return new Response(
-        JSON.stringify({ error: "Either patientId (server-checks consent) or consentConfirmed:true (caller asserts consent) is required" }),
-        { status: 400 },
+      return json(
+        { error: "Either patientId (server-checks consent) or consentConfirmed:true (caller asserts consent) is required" },
+        400,
       );
     }
+
 
     if (!finalDestination) {
       return json({ error: "destination required" }, 400);
