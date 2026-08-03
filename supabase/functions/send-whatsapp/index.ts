@@ -63,14 +63,71 @@ async function logWhatsApp(
   }
 }
 
+// CALLER AUTHENTICATION (Block 2, security hardening).
+// This function had no caller check at all and no CORS headers. The URL is
+// public and guessable, so anyone who learned it could send arbitrary
+// WhatsApp messages to any number on the clinic's AiSensy account, and
+// (via patientId) enumerate whether a given patient id exists. It is now
+// callable only by:
+//   - a signed-in staff member — Authorization: Bearer <supabase session JWT>,
+//     validated server-side against Supabase Auth, or
+//   - the cron/backend caller — x-cron-secret matching CRON_FUNCTION_SECRET.
+// Browsers preflight the JSON POST, hence the OPTIONS handler; without it
+// the app would just see "Failed to fetch" (same bug already fixed in
+// staff-signin).
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-client-info, x-cron-secret",
+  "Access-Control-Max-Age": "86400",
+};
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+
+async function callerIsAuthorised(req: Request): Promise<boolean> {
+  // Path 1 — backend/cron shared secret.
+  const cronSecret = Deno.env.get("CRON_FUNCTION_SECRET");
+  const got = req.headers.get("x-cron-secret") ?? "";
+  if (cronSecret && got.length === cronSecret.length) {
+    let diff = 0;
+    for (let i = 0; i < cronSecret.length; i++) diff |= got.charCodeAt(i) ^ cronSecret.charCodeAt(i);
+    if (diff === 0) return true;
+  }
+  // Path 2 — a real signed-in staff session. getUser() revalidates the
+  // token with Supabase Auth rather than trusting the string.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return false;
+  try {
+    const anon = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    );
+    const { data, error } = await anon.auth.getUser();
+    return !error && !!data?.user;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
+    return json({ error: "POST only" }, 405);
+  }
+  if (!(await callerIsAuthorised(req))) {
+    return json({ error: "Unauthorized" }, 401);
   }
   try {
     const { campaignName, destination, userName, templateParams, media, patientId, consentConfirmed } = await req.json();
     if (!campaignName) {
-      return new Response(JSON.stringify({ error: "campaignName required" }), { status: 400 });
+      return json({ error: "campaignName required" }, 400);
     }
 
     const supabaseAdmin = createClient(
@@ -79,6 +136,8 @@ Deno.serve(async (req) => {
     );
 
     let finalDestination = destination;
+
+
 
     if (patientId) {
       const { data: patient, error: pErr } = await supabaseAdmin
