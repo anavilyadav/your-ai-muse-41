@@ -18,11 +18,16 @@ interface Props {
   nav?: NavItem[];
   children: ReactNode;
   /**
-   * Opt-in desktop layout (Owner screens only — Pharmacy stays mobile-first
-   * on purpose, so it never passes this). Every added class below is gated
-   * behind `wide &&`, so when this prop is omitted the component renders
+   * Opt-in desktop layout. Every added class below is gated behind
+   * `wide &&`, so when this prop is omitted the component renders
    * byte-identical to before at every screen width. When true: drops the
-   * 430px phone cap at lg+ and swaps the bottom tab bar for a left sidebar.
+   * 430px phone cap at lg+ and swaps the bottom tab bar for a left
+   * sidebar. Originally Owner-only ("Pharmacy stays mobile-first on
+   * purpose") -- that call was reversed on explicit request (03 Aug 2026):
+   * every screen, in every role, should now adapt to whatever device it's
+   * opened on. All Pharmacy/Owner RoleShell call sites pass this now;
+   * Reception's MobileShell got the equivalent treatment directly (it
+   * doesn't take a `wide` prop -- see that file).
    */
   wide?: boolean;
 }

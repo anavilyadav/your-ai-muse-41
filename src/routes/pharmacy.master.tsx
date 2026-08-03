@@ -100,6 +100,7 @@ function MasterPage() {
   const list = q ? all.filter((m) => m.med.toLowerCase().includes(q.toLowerCase())) : all;
   return (
     <RoleShell
+      wide
       title="Medicine Master"
       subtitle="Reference list"
       nav={PHARMACY_NAV}

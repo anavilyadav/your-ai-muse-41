@@ -28,14 +28,14 @@ function DispensePage() {
   const [busy, setBusy] = useState(false);
 
   if (lv || lr) {
-    return <RoleShell title="Dispense" showBack><LoadingBlock /></RoleShell>;
+    return <RoleShell wide title="Dispense" showBack><LoadingBlock /></RoleShell>;
   }
   // Was showing "Patient not found" for both a genuine not-found AND a
   // network/server error — the second one told pharmacy staff to give
   // up on a real visit that just had a fetch hiccup, instead of retrying.
   if (ev) {
     return (
-      <RoleShell title="Dispense" showBack>
+      <RoleShell wide title="Dispense" showBack>
         <p className="text-sm text-muted-foreground">
           Visit load nahi hua — connection check karo.
           <span className="block text-[11px] mt-1 opacity-70">{(errV as any)?.message ?? ""}</span>
@@ -48,7 +48,7 @@ function DispensePage() {
   }
   if (!visit) {
     return (
-      <RoleShell title="Dispense" showBack>
+      <RoleShell wide title="Dispense" showBack>
         <p className="text-sm text-muted-foreground">Patient not found in pharmacy queue.</p>
       </RoleShell>
     );
@@ -84,7 +84,7 @@ function DispensePage() {
   };
 
   return (
-    <RoleShell title="Dispense Medicines" showBack>
+    <RoleShell wide title="Dispense Medicines" showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4">
         <div className="flex justify-between items-center">
           <span className="font-extrabold text-base">{visit.patient?.name}</span>

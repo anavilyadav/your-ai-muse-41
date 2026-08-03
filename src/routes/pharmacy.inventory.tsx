@@ -141,6 +141,7 @@ function InventoryPage() {
 
   return (
     <RoleShell
+      wide
       title="Inventory"
       subtitle="Current stock levels"
       nav={PHARMACY_NAV}
