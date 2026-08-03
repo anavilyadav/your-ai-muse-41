@@ -1,6 +1,7 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -33,6 +34,6 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // unwired on merge. Flagged to Dr. Yadav; needs checking on the GitHub/
 // Lovable side, not just re-fixed here every time it recurs.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [],
+  functionMiddleware: [attachSupabaseAuth],
   requestMiddleware: [errorMiddleware],
 }));
