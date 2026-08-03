@@ -23,6 +23,15 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // createServerFn RPCs — this codebase has none. Wiring it back in without
 // first fixing those env vars would re-open the "second auth session"
 // exposure flagged in the 30 Jul audit.
+//
+// 03 Aug 2026 merge note: 3 commits appeared on origin/main mid-session
+// ("Work in progress" / "Changes" / "Update plan", bumping
+// @lovable.dev/vite-tanstack-config 2.8.4->2.8.5) that RE-imported and
+// RE-wired attachSupabaseAuth here, silently undoing this exact guard.
+// That looks like Lovable's two-way sync running again even though it
+// was supposed to be permanently disconnected -- reverted back to
+// unwired on merge. Flagged to Dr. Yadav; needs checking on the GitHub/
+// Lovable side, not just re-fixed here every time it recurs.
 export const startInstance = createStart(() => ({
   functionMiddleware: [],
   requestMiddleware: [errorMiddleware],
