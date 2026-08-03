@@ -13,6 +13,7 @@
 // so it shows up on the existing Owner > System Health page, which
 // already renders unresolved system_alerts rows at the top.
 
+import { requireCronSecret } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CHECK_LABELS: Record<string, string> = {
@@ -23,7 +24,12 @@ const CHECK_LABELS: Record<string, string> = {
   orphan_visits: "Visits jinka patient record hi nahi mila",
 };
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  // Caller check (see ../_shared/cron-auth.ts): this URL is public, so
+  // without it anyone could trigger a full run against real patients.
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
+
   try {
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,

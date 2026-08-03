@@ -14,6 +14,7 @@
 // outcome now also writes a row to whatsapp_log. The `interactions` write
 // is kept as-is (patient timeline / InteractionHistoryModal still reads it).
 
+import { requireCronSecret } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Kept in sync with buildWhatsAppDestination/patientWhatsAppTarget in
@@ -37,7 +38,12 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  // Caller check (see ../_shared/cron-auth.ts): this URL is public, so
+  // without it anyone could trigger a full run against real patients.
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
+
   try {
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
