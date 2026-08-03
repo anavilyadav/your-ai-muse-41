@@ -13,6 +13,7 @@
 // failed) now also writes a row to whatsapp_log for the Owner dashboard.
 // The `winback_log` dedup table and `interactions` write are unchanged.
 
+import { requireCronSecret } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Kept in sync with buildWhatsAppDestination/patientWhatsAppTarget in
@@ -49,7 +50,12 @@ function istDateNDaysAgoStr(daysAgo: number): string {
   return istNow.toISOString().slice(0, 10);
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  // Caller check (see ../_shared/cron-auth.ts): this URL is public, so
+  // without it anyone could trigger a full run against real patients.
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
+
   try {
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
