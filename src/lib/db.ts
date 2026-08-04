@@ -520,6 +520,19 @@ export async function updatePatientContactInfo(
     annual_income: number | null;
   }>,
 ): Promise<{ success: boolean; error: string | null; patient: DBPatient | null }> {
+  // Block 3: registration already refuses duplicate mobiles, but this edit
+  // path did not — so a correction could quietly point two patient records
+  // at the same number and break every WhatsApp/lookup flow keyed on it.
+  if (fields.mobile) {
+    const dup = await isDuplicateMobile(
+      fields.mobile,
+      fields.mobile_country_code ?? "+91",
+      patientId,
+    );
+    if (dup) {
+      return { success: false, error: "Yeh mobile number kisi aur patient pe already registered hai.", patient: null };
+    }
+  }
   const { data, error } = await supabase
     .from("patients")
     .update(fields)
@@ -528,6 +541,7 @@ export async function updatePatientContactInfo(
     .maybeSingle();
   return { success: !error, error: error?.message ?? null, patient: (data as DBPatient) ?? null };
 }
+
 
 // ---------- Queue reads ----------
 // IMPORTANT: this used to filter strictly on visit_date = today, which meant
