@@ -11,7 +11,6 @@ import {
   fetchInventorySearch,
   submitPrescription,
   branchLabel,
-  resolveDocUrl,
   saveRxDraft,
   fetchNextVisitOptions,
   DEFAULT_NEXT_VISIT_OPTIONS,
@@ -26,6 +25,7 @@ import { downloadPrescriptionPdf } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
+import { PhotoTimeline } from "@/components/yhc/PhotoTimeline";
 
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
   head: () => ({ meta: [{ title: "Write Rx — Doctor" }, { name: "robots", content: "noindex" }] }),
@@ -76,22 +76,6 @@ function RxWrite() {
     queryKey: ["patient-history", visit?.patient_id],
     queryFn: () => fetchPatientHistory(visit!.patient_id, 3),
     enabled: !!visit?.patient_id,
-  });
-
-  // Fix (03 Aug 2026): case photos were saved fine at Case-DR time but
-  // never fetched/rendered here -- the prescribing doctor had no way to
-  // see them without leaving this screen to open Patient Detail.
-  const { data: casePhotos } = useQuery({
-    queryKey: ["case-photos", visit?.id, visit?.case_photo_url, visit?.tongue_photo_url, visit?.reports_photo_url],
-    queryFn: async () => {
-      const [casePhoto, tonguePhoto, reportsPhoto] = await Promise.all([
-        resolveDocUrl("case-photos", visit?.case_photo_url),
-        resolveDocUrl("case-photos", visit?.tongue_photo_url),
-        resolveDocUrl("case-photos", visit?.reports_photo_url),
-      ]);
-      return { casePhoto, tonguePhoto, reportsPhoto };
-    },
-    enabled: !!visit && (!!visit.case_photo_url || !!visit.tongue_photo_url || !!visit.reports_photo_url),
   });
 
   const [rows, setRows] = useState<EditableRow[]>([emptyRow()]);
@@ -326,25 +310,7 @@ function RxWrite() {
             </div>
           )}
 
-          {(casePhotos?.casePhoto || casePhotos?.tonguePhoto || casePhotos?.reportsPhoto) && (
-            <div className="rounded-xl bg-surface border border-border p-3">
-              <div className="text-[11px] font-bold uppercase text-muted-foreground mb-2">Case photos (Case-DR ne li thi)</div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { url: casePhotos?.casePhoto, label: "Case paper" },
-                  { url: casePhotos?.tonguePhoto, label: "Tongue" },
-                  { url: casePhotos?.reportsPhoto, label: "Reports" },
-                ]
-                  .filter((p) => p.url)
-                  .map((p) => (
-                    <a key={p.label} href={p.url!} target="_blank" rel="noopener noreferrer" className="block">
-                      <img src={p.url!} alt={p.label} className="w-full aspect-square object-cover rounded-lg border border-border" />
-                      <div className="text-[10px] text-center text-muted-foreground mt-0.5">{p.label}</div>
-                    </a>
-                  ))}
-              </div>
-            </div>
-          )}
+          {visit.patient_id && <PhotoTimeline patientId={visit.patient_id} />}
 
           <div className="rounded-xl bg-surface border border-border p-3">
             <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1">Last 3 visits</div>
