@@ -2,6 +2,8 @@ import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { DegradedModeBanner } from "./DegradedModeBanner";
 
 export type NavItem = {
   to: string;
@@ -35,6 +37,7 @@ interface Props {
 export function RoleShell({ title, subtitle, showBack, right, nav = [], children, wide = false }: Props) {
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user } = useAuth();
 
   const sidebarNav = wide && nav.length > 0 && (
     <aside className="hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:gap-1 lg:border-r lg:border-border lg:bg-surface/60 lg:px-3 lg:py-6">
@@ -115,6 +118,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
               wide && "lg:mx-auto lg:w-full lg:max-w-[1100px] lg:px-8 lg:pb-10 lg:pt-6",
             )}
           >
+            {user?.role === "OWNER" && pathname !== "/owner/health" && <DegradedModeBanner />}
             {children}
           </main>
 
