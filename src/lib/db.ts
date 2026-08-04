@@ -3502,3 +3502,79 @@ export function auditRowLabel(entry: AuditLogEntry): string {
     entry.record_id ?? "—"
   );
 }
+
+// ─── Clinical photo timeline (Aug 2026) ────────────────────────────────────
+// The doctor used to have to hunt: case/tongue/report photos lived on the
+// visit row of whichever visit they were taken in, and staff-uploaded
+// documents lived in patient_documents. Nothing showed them together.
+// This merges both sources for one patient into a single date-descending
+// timeline, with short-lived signed URLs minted per item at read time
+// (buckets are private — see resolveDocUrl).
+export interface PhotoTimelineItem {
+  id: string;
+  url: string;
+  label: string;
+  date: string;
+  note: string | null;
+  source: "visit" | "document";
+}
+
+export async function fetchPatientPhotoTimeline(
+  patientId: string,
+  limitVisits = 40,
+): Promise<PhotoTimelineItem[]> {
+  const [visitsRes, docs] = await Promise.all([
+    supabase
+      .from("visits")
+      .select("id,visit_date,chief_complaint,case_photo_url,tongue_photo_url,reports_photo_url")
+      .eq("patient_id", patientId)
+      .order("visit_date", { ascending: false })
+      .limit(limitVisits),
+    fetchPatientDocuments(patientId),
+  ]);
+
+  const raw: { id: string; stored: string; bucket: "case-photos" | "patient-documents"; label: string; date: string; note: string | null; source: "visit" | "document" }[] = [];
+
+  for (const v of (visitsRes.data ?? []) as any[]) {
+    const kinds: [string, string | null][] = [
+      ["Case paper", v.case_photo_url],
+      ["Tongue", v.tongue_photo_url],
+      ["Reports", v.reports_photo_url],
+    ];
+    for (const [label, stored] of kinds) {
+      if (!stored) continue;
+      raw.push({
+        id: `${v.id}-${label}`,
+        stored,
+        bucket: "case-photos",
+        label,
+        date: v.visit_date,
+        note: v.chief_complaint ?? null,
+        source: "visit",
+      });
+    }
+  }
+
+  for (const d of docs) {
+    raw.push({
+      id: d.id,
+      stored: d.photo_url,
+      bucket: "patient-documents",
+      label: d.doc_type,
+      date: (d.created_at ?? "").slice(0, 10),
+      note: d.note,
+      source: "document",
+    });
+  }
+
+  const resolved = await Promise.all(
+    raw.map(async (r) => {
+      const url = await resolveDocUrl(r.bucket, r.stored);
+      return url ? ({ id: r.id, url, label: r.label, date: r.date, note: r.note, source: r.source } as PhotoTimelineItem) : null;
+    }),
+  );
+
+  return resolved
+    .filter((r): r is PhotoTimelineItem => !!r)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
