@@ -7,6 +7,7 @@ import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Walle
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -437,6 +438,7 @@ function PatientProfilePage() {
   const [family, setFamily] = useState<any[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+  const [viewerDoc, setViewerDoc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -655,6 +657,26 @@ function PatientProfilePage() {
           </ul>
         )}
       </div>
+
+      {viewerDoc && docUrls[viewerDoc] && (
+        <SecurePhotoLightbox
+          items={documents
+            .filter((d) => docUrls[d.id])
+            .map((d) => ({
+              id: d.id,
+              url: docUrls[d.id],
+              label: d.doc_type,
+              date: new Date(d.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+              note: d.note,
+            }))}
+          index={Math.max(0, documents.filter((d) => docUrls[d.id]).findIndex((d) => d.id === viewerDoc))}
+          onIndexChange={(i) => {
+            const list = documents.filter((d) => docUrls[d.id]);
+            if (list[i]) setViewerDoc(list[i].id);
+          }}
+          onClose={() => setViewerDoc(null)}
+        />
+      )}
 
       <div className="mt-5">
         <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-2">
