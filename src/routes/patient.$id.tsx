@@ -618,9 +618,14 @@ function PatientProfilePage() {
             {documents.map((d) => (
               <li key={d.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center gap-2.5">
                 {docUrls[d.id] ? (
-                  <a href={docUrls[d.id]} target="_blank" rel="noreferrer" className="shrink-0">
-                    <img src={docUrls[d.id]} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
-                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setViewerDoc(d.id)}
+                    aria-label={`Open ${d.doc_type}`}
+                    className="shrink-0"
+                  >
+                    <SecureImage src={docUrls[d.id]} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
+                  </button>
                 ) : (
                   <div className="h-14 w-14 rounded-lg border border-border bg-accent/10 shrink-0 grid place-items-center text-[9px] text-muted-foreground">
                     …
