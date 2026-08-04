@@ -520,6 +520,19 @@ export async function updatePatientContactInfo(
     annual_income: number | null;
   }>,
 ): Promise<{ success: boolean; error: string | null; patient: DBPatient | null }> {
+  // Block 3: registration already refuses duplicate mobiles, but this edit
+  // path did not — so a correction could quietly point two patient records
+  // at the same number and break every WhatsApp/lookup flow keyed on it.
+  if (fields.mobile) {
+    const dup = await isDuplicateMobile(
+      fields.mobile,
+      fields.mobile_country_code ?? "+91",
+      patientId,
+    );
+    if (dup) {
+      return { success: false, error: "Yeh mobile number kisi aur patient pe already registered hai.", patient: null };
+    }
+  }
   const { data, error } = await supabase
     .from("patients")
     .update(fields)
@@ -528,6 +541,7 @@ export async function updatePatientContactInfo(
     .maybeSingle();
   return { success: !error, error: error?.message ?? null, patient: (data as DBPatient) ?? null };
 }
+
 
 // ---------- Queue reads ----------
 // IMPORTANT: this used to filter strictly on visit_date = today, which meant
@@ -1541,35 +1555,32 @@ export async function fetchVisitPrescriptions(visitId: string) {
 }
 
 export async function markDispensed(visitId: string) {
-  // Now one atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the
-  // status guard + status update + inventory decrement for every
-  // prescription line on this visit all happen in one transaction.
+  // One atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the status
+  // guard + status update + inventory decrement for every prescription
+  // line on this visit all happen in one transaction.
   // Decrement is approximate by design (Dr. Yadav's own words: exact
   // drops aren't fixed, staff already eyeballs the physical bottle) —
-  // is_slx (SL globules, the default per Locked Architectural Decisions)
-  // = 4 drams (a full 45ml bottle), non-SLX (drops/liquid) = 0.5 dram.
-  // Falls back to the old two-step (no inventory decrement) only until
-  // that SQL migration is run, same not-hard-fail pattern used elsewhere.
+  // is_slx (SL globules) = 4 drams (a full 45ml bottle), non-SLX
+  // (drops/liquid) = 0.5 dram.
+  //
+  // Block 3: the old two-step fallback was REMOVED. It skipped the
+  // inventory decrement entirely, so dispensing kept working while stock
+  // silently drifted away from reality — the worst possible failure mode
+  // for a pharmacy. Blocking the dispense is the safe choice.
   const { data, error } = await supabase.rpc("dispense_visit_atomic", { p_visit_id: visitId });
   if (!error) return data;
 
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
-  if (!isMissingFunction) throw error;
-  logDegradedModeAlert("dispense_visit_atomic", { visit_id: visitId });
-
-  const { data: existing, error: exErr } = await supabase
-    .from("visits")
-    .select("visit_status")
-    .eq("id", visitId)
-    .maybeSingle();
-  if (exErr) throw exErr;
-  if (!existing) throw new Error("Visit not found");
-  if (existing.visit_status !== "PHARMACY") {
-    throw new Error("Yeh visit abhi Pharmacy stage mein nahi hai — dispense nahi kar sakte.");
+  if (isMissingFunction) {
+    logDegradedModeAlert("dispense_visit_atomic", { visit_id: visitId });
+    throw new Error(
+      "Dispense abhi possible nahi — database function `dispense_visit_atomic` missing hai. " +
+        "Owner ko bolein pending SQL migration run karein (iske bina stock count galat ho jaata).",
+    );
   }
-  const { error: upErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
-  if (upErr) throw upErr;
+  throw error;
 }
+
 
 // ---------- Case notes ----------
 
@@ -1913,11 +1924,25 @@ export async function fetchWeekRevenue() {
   });
 }
 
-export async function fetchReports(period: "week" | "month" | "lastMonth" | "year", branch?: string) {
+export type ReportPeriod = "today" | "week" | "month" | "lastMonth" | "year" | "custom";
+
+export async function fetchReports(
+  period: ReportPeriod,
+  branch?: string,
+  range?: { from: string; to: string },
+) {
   const now = istNow();
   let start: string;
   let end: string | null = null;
-  if (period === "week") {
+  if (period === "custom") {
+    // Date-wise access: any explicit IST calendar range (single day too,
+    // when from === to). Falls back to today if the caller passes nothing.
+    start = range?.from || now.toISOString().slice(0, 10);
+    end = range?.to || start;
+  } else if (period === "today") {
+    start = now.toISOString().slice(0, 10);
+    end = start;
+  } else if (period === "week") {
     const d = new Date(now); d.setUTCDate(now.getUTCDate() - 6);
     start = d.toISOString().slice(0, 10);
   } else if (period === "month") {
@@ -1930,6 +1955,7 @@ export async function fetchReports(period: "week" | "month" | "lastMonth" | "yea
   } else {
     start = now.getUTCFullYear() + "-01-01";
   }
+
   let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
@@ -3475,4 +3501,80 @@ export function auditRowLabel(entry: AuditLogEntry): string {
     row.campaign_name ?? row.title ?? (row.amount != null ? `₹${row.amount}` : null) ??
     entry.record_id ?? "—"
   );
+}
+
+// ─── Clinical photo timeline (Aug 2026) ────────────────────────────────────
+// The doctor used to have to hunt: case/tongue/report photos lived on the
+// visit row of whichever visit they were taken in, and staff-uploaded
+// documents lived in patient_documents. Nothing showed them together.
+// This merges both sources for one patient into a single date-descending
+// timeline, with short-lived signed URLs minted per item at read time
+// (buckets are private — see resolveDocUrl).
+export interface PhotoTimelineItem {
+  id: string;
+  url: string;
+  label: string;
+  date: string;
+  note: string | null;
+  source: "visit" | "document";
+}
+
+export async function fetchPatientPhotoTimeline(
+  patientId: string,
+  limitVisits = 40,
+): Promise<PhotoTimelineItem[]> {
+  const [visitsRes, docs] = await Promise.all([
+    supabase
+      .from("visits")
+      .select("id,visit_date,chief_complaint,case_photo_url,tongue_photo_url,reports_photo_url")
+      .eq("patient_id", patientId)
+      .order("visit_date", { ascending: false })
+      .limit(limitVisits),
+    fetchPatientDocuments(patientId),
+  ]);
+
+  const raw: { id: string; stored: string; bucket: "case-photos" | "patient-documents"; label: string; date: string; note: string | null; source: "visit" | "document" }[] = [];
+
+  for (const v of (visitsRes.data ?? []) as any[]) {
+    const kinds: [string, string | null][] = [
+      ["Case paper", v.case_photo_url],
+      ["Tongue", v.tongue_photo_url],
+      ["Reports", v.reports_photo_url],
+    ];
+    for (const [label, stored] of kinds) {
+      if (!stored) continue;
+      raw.push({
+        id: `${v.id}-${label}`,
+        stored,
+        bucket: "case-photos",
+        label,
+        date: v.visit_date,
+        note: v.chief_complaint ?? null,
+        source: "visit",
+      });
+    }
+  }
+
+  for (const d of docs) {
+    raw.push({
+      id: d.id,
+      stored: d.photo_url,
+      bucket: "patient-documents",
+      label: d.doc_type,
+      date: (d.created_at ?? "").slice(0, 10),
+      note: d.note,
+      source: "document",
+    });
+  }
+
+  const resolved = await Promise.all(
+    raw.map(async (r) => {
+      const url = await resolveDocUrl(r.bucket, r.stored);
+      return url ? ({ id: r.id, url, label: r.label, date: r.date, note: r.note, source: r.source } as PhotoTimelineItem) : null;
+    }),
+  );
+
+  return resolved
+    .filter((r): r is PhotoTimelineItem => !!r)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }

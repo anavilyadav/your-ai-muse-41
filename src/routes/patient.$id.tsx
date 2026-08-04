@@ -7,6 +7,7 @@ import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Walle
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -437,6 +438,7 @@ function PatientProfilePage() {
   const [family, setFamily] = useState<any[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+  const [viewerDoc, setViewerDoc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -618,9 +620,14 @@ function PatientProfilePage() {
             {documents.map((d) => (
               <li key={d.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center gap-2.5">
                 {docUrls[d.id] ? (
-                  <a href={docUrls[d.id]} target="_blank" rel="noreferrer" className="shrink-0">
-                    <img src={docUrls[d.id]} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
-                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setViewerDoc(d.id)}
+                    aria-label={`Open ${d.doc_type}`}
+                    className="shrink-0"
+                  >
+                    <SecureImage src={docUrls[d.id]} alt={d.doc_type} className="h-14 w-14 rounded-lg object-cover border border-border" />
+                  </button>
                 ) : (
                   <div className="h-14 w-14 rounded-lg border border-border bg-accent/10 shrink-0 grid place-items-center text-[9px] text-muted-foreground">
                     …
@@ -650,6 +657,26 @@ function PatientProfilePage() {
           </ul>
         )}
       </div>
+
+      {viewerDoc && docUrls[viewerDoc] && (
+        <SecurePhotoLightbox
+          items={documents
+            .filter((d) => docUrls[d.id])
+            .map((d) => ({
+              id: d.id,
+              url: docUrls[d.id],
+              label: d.doc_type,
+              date: new Date(d.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+              note: d.note,
+            }))}
+          index={Math.max(0, documents.filter((d) => docUrls[d.id]).findIndex((d) => d.id === viewerDoc))}
+          onIndexChange={(i) => {
+            const list = documents.filter((d) => docUrls[d.id]);
+            if (list[i]) setViewerDoc(list[i].id);
+          }}
+          onClose={() => setViewerDoc(null)}
+        />
+      )}
 
       <div className="mt-5">
         <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-2">

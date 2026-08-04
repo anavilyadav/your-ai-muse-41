@@ -54,7 +54,13 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "AISENSY_API_KEY not configured as a secret" }), { status: 500 });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Edge Functions run in UTC. India has no DST, so IST is always UTC+5:30.
+    // Without this shift a cron firing in the IST 12:00am-5:29am window reads
+    // yesterday's date and skips (or double-sends) that day's reminders —
+    // same offset the other WhatsApp crons already apply.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+
     const { data: due, error } = await supabaseAdmin
       .from("followups")
       .select("id, patient_id, due_date, followup_type, patients(name, mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent)")

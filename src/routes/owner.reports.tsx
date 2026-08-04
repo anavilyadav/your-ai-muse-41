@@ -19,11 +19,15 @@ export const Route = createFileRoute("/owner/reports")({
 });
 
 const PERIODS = [
+  { key: "today", label: "Today" },
   { key: "week", label: "This Week" },
   { key: "month", label: "This Month" },
   { key: "lastMonth", label: "Last Month" },
   { key: "year", label: "This Year" },
+  { key: "custom", label: "Date-wise" },
 ] as const;
+
+const todayStr = () => new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 const BRANCHES = BRANCH_LABELS;
 
@@ -40,9 +44,9 @@ function downloadCSV(filename: string, rows: [string, string][]) {
   URL.revokeObjectURL(url);
 }
 
-function BranchCompareModal({ period, onClose }: { period: string; onClose: () => void }) {
-  const q1 = useQuery({ queryKey: ["reports-branch", period, BRANCHES[0]], queryFn: () => fetchReports(period as any, BRANCHES[0]) });
-  const q2 = useQuery({ queryKey: ["reports-branch", period, BRANCHES[1]], queryFn: () => fetchReports(period as any, BRANCHES[1]) });
+function BranchCompareModal({ period, range, onClose }: { period: string; range?: { from: string; to: string }; onClose: () => void }) {
+  const q1 = useQuery({ queryKey: ["reports-branch", period, range?.from, range?.to, BRANCHES[0]], queryFn: () => fetchReports(period as any, BRANCHES[0], range) });
+  const q2 = useQuery({ queryKey: ["reports-branch", period, range?.from, range?.to, BRANCHES[1]], queryFn: () => fetchReports(period as any, BRANCHES[1], range) });
   const rows1 = q1.data?.rows ?? [];
   const rows2 = q2.data?.rows ?? [];
   const loading = q1.isLoading || q2.isLoading;
@@ -80,9 +84,14 @@ function BranchCompareModal({ period, onClose }: { period: string; onClose: () =
 function ReportsPage() {
   const [period, setPeriod] = useState<(typeof PERIODS)[number]["key"]>("month");
   const [showCompare, setShowCompare] = useState(false);
+  const [from, setFrom] = useState(todayStr());
+  const [to, setTo] = useState(todayStr());
+  const invalidRange = period === "custom" && from > to;
+  const range = period === "custom" ? { from, to } : undefined;
   const { data, isLoading } = useQuery({
-    queryKey: ["reports", period],
-    queryFn: () => fetchReports(period),
+    queryKey: ["reports", period, range?.from, range?.to],
+    queryFn: () => fetchReports(period, undefined, range),
+    enabled: !invalidRange,
   });
   const rows = data?.rows ?? [];
   // Phase 1 #13 — family-linking data existed but was never surfaced as a
@@ -95,7 +104,7 @@ function ReportsPage() {
 
   return (
     <RoleShell wide title="Reports & Analytics" nav={OWNER_NAV}>
-      {showCompare && <BranchCompareModal period={period} onClose={() => setShowCompare(false)} />}
+      {showCompare && <BranchCompareModal period={period} range={range} onClose={() => setShowCompare(false)} />}
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         {PERIODS.map((p) => (
           <button
@@ -110,7 +119,52 @@ function ReportsPage() {
           </button>
         ))}
       </div>
-      {isLoading ? (
+      {period === "custom" && (
+        <div className="mt-3 rounded-2xl bg-surface border border-border p-3">
+          <div className="text-[11px] font-bold uppercase text-muted-foreground mb-2">Choose dates (IST)</div>
+          <div className="flex items-center gap-2">
+            <label className="flex-1 text-[11px] text-muted-foreground">
+              From
+              <input
+                type="date"
+                value={from}
+                max={todayStr()}
+                onChange={(e) => setFrom(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-primary"
+              />
+            </label>
+            <label className="flex-1 text-[11px] text-muted-foreground">
+              To
+              <input
+                type="date"
+                value={to}
+                max={todayStr()}
+                onChange={(e) => setTo(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-primary"
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              onClick={() => { setFrom(todayStr()); setTo(todayStr()); }}
+              className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-primary"
+            >
+              Aaj
+            </button>
+            <button
+              onClick={() => {
+                const y = new Date(Date.now() + 5.5 * 60 * 60 * 1000 - 86400000).toISOString().slice(0, 10);
+                setFrom(y); setTo(y);
+              }}
+              className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-primary"
+            >
+              Kal
+            </button>
+          </div>
+          {invalidRange && <p className="mt-2 text-[11px] text-destructive">"From" date "To" se baad ki hai.</p>}
+        </div>
+      )}
+      {invalidRange ? null : isLoading ? (
         <LoadingBlock />
       ) : (
         <div className="mt-3 rounded-2xl bg-surface border border-border p-1.5">
@@ -131,7 +185,7 @@ function ReportsPage() {
       <button
         onClick={() => {
           if (!rows.length) { toast.error("Kuch data nahi hai export karne ko"); return; }
-          downloadCSV(`YHC-Report-${period}-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+          downloadCSV(`YHC-Report-${period === "custom" ? `${from}_to_${to}` : period}-${todayStr()}.csv`, rows);
           toast.success("Report download ho gayi");
         }}
         className="mt-4 w-full rounded-full bg-success text-success-foreground font-bold py-3 text-sm"

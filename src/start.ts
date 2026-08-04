@@ -1,6 +1,7 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -35,6 +36,6 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // side (repo Settings -> Integrations/Webhooks) and needs to be checked
 // and revoked there -- not just re-fixed here a fourth time.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [],
+  functionMiddleware: [attachSupabaseAuth],
   requestMiddleware: [errorMiddleware],
 }));
