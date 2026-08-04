@@ -11,7 +11,7 @@ import { Lock, Sparkles } from "lucide-react";
 export const Route = createFileRoute("/doctor/case/")({
   head: () => ({ meta: [{ title: "Case Board — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["CASE_DR", "OWNER"]}>
+    <AuthGate allow={["CASE_DR", "OWNER"]} permKey="caseBoard">
       <CaseBoardPage />
     </AuthGate>
   ),

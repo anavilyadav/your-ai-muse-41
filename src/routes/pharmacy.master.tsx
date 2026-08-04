@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/pharmacy/master")({
   head: () => ({ meta: [{ title: "Medicine Master — Pharmacy" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["PHARMA", "OWNER"]}>
+    <AuthGate allow={["PHARMA", "OWNER"]} permKey="medicineMaster">
       <MasterPage />
     </AuthGate>
   ),

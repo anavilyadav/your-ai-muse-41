@@ -13,7 +13,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 export const Route = createFileRoute("/pharmacy/inventory")({
   head: () => ({ meta: [{ title: "Inventory — Pharmacy" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["PHARMA", "OWNER"]}>
+    <AuthGate allow={["PHARMA", "OWNER"]} permKey="inventory">
       <InventoryPage />
     </AuthGate>
   ),

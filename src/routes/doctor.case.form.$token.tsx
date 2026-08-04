@@ -14,7 +14,7 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 export const Route = createFileRoute("/doctor/case/form/$token")({
   head: () => ({ meta: [{ title: "Case Taking — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["CASE_DR", "OWNER"]}>
+    <AuthGate allow={["CASE_DR", "OWNER"]} permKey="caseForm">
       <CaseFormPage />
     </AuthGate>
   ),

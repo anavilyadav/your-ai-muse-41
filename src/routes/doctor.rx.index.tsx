@@ -9,7 +9,7 @@ import { useAuth, useEffectiveRole } from "@/lib/auth";
 export const Route = createFileRoute("/doctor/rx/")({
   head: () => ({ meta: [{ title: "Rx Queue — Doctor" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["DOCTOR", "OWNER"]}>
+    <AuthGate allow={["DOCTOR", "OWNER"]} permKey="rxQueue">
       <RxQueue />
     </AuthGate>
   ),

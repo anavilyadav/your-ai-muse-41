@@ -7,7 +7,7 @@ import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
-import { RECEPTION_SCREENS, RECEPTION_FEATURES } from "@/lib/auth";
+import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -113,23 +113,30 @@ function BackupDoctorModal({ onClose }: { onClose: () => void }) {
 function ReceptionPermissionsGrid({
   settings,
   items,
+  roles,
   title,
   helpText,
 }: {
   settings: any[];
   items: { key: string; label: string }[];
+  // 04 Aug 2026: was hardcoded to exactly RECP1/RECP2 (both the type and
+  // the render below) — generalized so this one grid component can serve
+  // Reception, Case-DR, Doctor, and Pharmacy without duplicating it four
+  // times. The underlying recp_perm:<role>:<key> storage was already
+  // role-agnostic; only this component's UI wasn't.
+  roles: readonly string[];
   title: string;
   helpText: string;
 }) {
   const qc = useQueryClient();
   const [pending, setPending] = useState<string | null>(null);
 
-  const isOn = (role: "RECP1" | "RECP2", key: string) => {
+  const isOn = (role: string, key: string) => {
     const row = settings.find((r: any) => r.key === `recp_perm:${role}:${key}`);
     return row ? (row.value === "true" || row.value === true) : true; // default ON
   };
 
-  const toggle = async (role: "RECP1" | "RECP2", key: string) => {
+  const toggle = async (role: string, key: string) => {
     const k = `recp_perm:${role}:${key}`;
     const next = !isOn(role, key);
     setPending(k);
@@ -148,21 +155,26 @@ function ReceptionPermissionsGrid({
         {title}
       </div>
       <div className="rounded-2xl bg-surface border border-border overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto] bg-primary text-primary-foreground text-[11px] font-bold px-3 py-2">
+        <div
+          className="grid bg-primary text-primary-foreground text-[11px] font-bold px-3 py-2"
+          style={{ gridTemplateColumns: `1fr repeat(${roles.length}, auto)` }}
+        >
           <span>Screen</span>
-          <span className="w-12 text-center">RECP1</span>
-          <span className="w-12 text-center">RECP2</span>
+          {roles.map((role) => (
+            <span key={role} className="w-12 text-center">{role}</span>
+          ))}
         </div>
         {items.map((s, i) => (
           <div
             key={s.key}
             className={cn(
-              "grid grid-cols-[1fr_auto_auto] items-center px-3 py-2.5",
+              "grid items-center px-3 py-2.5",
               i < items.length - 1 && "border-b border-border",
             )}
+            style={{ gridTemplateColumns: `1fr repeat(${roles.length}, auto)` }}
           >
             <span className="text-[13px] text-primary truncate pr-2">{s.label}</span>
-            {(["RECP1", "RECP2"] as const).map((role) => {
+            {roles.map((role) => {
               const on = isOn(role, s.key);
               const k = `recp_perm:${role}:${s.key}`;
               return (
@@ -678,14 +690,37 @@ function ControlPage() {
           <ReceptionPermissionsGrid
             settings={data ?? []}
             items={RECEPTION_SCREENS}
+            roles={["RECP1", "RECP2"]}
             title="Reception Permissions — per screen ON/OFF"
             helpText="Default sabke liye ON hai. Jisko rokna ho us role ka wahi switch OFF kar do — turant apply hoga."
           />
           <ReceptionPermissionsGrid
             settings={data ?? []}
             items={RECEPTION_FEATURES}
+            roles={["RECP1", "RECP2"]}
             title="Feature-level Permissions — within a screen"
             helpText="Screen ON hone ke baad bhi in specific actions ko alag se rok sakte ho — poora screen band karne ki zaroorat nahi."
+          />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
+            items={CASE_DR_SCREENS}
+            roles={["CASE_DR"]}
+            title="Case-DR Permissions — per screen ON/OFF"
+            helpText="Default sabke liye ON hai. Kisi Case-DR ki koi screen rokni ho to yahan se OFF karo."
+          />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
+            items={DOCTOR_SCREENS}
+            roles={["DOCTOR"]}
+            title="Doctor Permissions — per screen ON/OFF"
+            helpText="Default sabke liye ON hai. Backup Doctor window mein bhi yahi permissions apply hote hain."
+          />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
+            items={PHARMACY_SCREENS}
+            roles={["PHARMA"]}
+            title="Pharmacy Permissions — per screen ON/OFF"
+            helpText="Default sabke liye ON hai."
           />
           <JustDialToggle settings={data ?? []} />
           <div>

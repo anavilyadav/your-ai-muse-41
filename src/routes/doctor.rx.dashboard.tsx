@@ -10,7 +10,7 @@ import { fetchDoctorDashboard } from "@/lib/db";
 export const Route = createFileRoute("/doctor/rx/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["DOCTOR", "OWNER"]}>
+    <AuthGate allow={["DOCTOR", "OWNER"]} permKey="rxDashboard">
       <DashboardPage />
     </AuthGate>
   ),

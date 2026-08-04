@@ -10,7 +10,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 export const Route = createFileRoute("/doctor/rx/history")({
   head: () => ({ meta: [{ title: "Patient History — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["DOCTOR", "OWNER"]}>
+    <AuthGate allow={["DOCTOR", "OWNER"]} permKey="rxHistory">
       <HistoryPage />
     </AuthGate>
   ),

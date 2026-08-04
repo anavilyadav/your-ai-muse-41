@@ -5,7 +5,7 @@ import { DoctorShell } from "@/components/yhc/DoctorShell";
 export const Route = createFileRoute("/doctor/case/reference")({
   head: () => ({ meta: [{ title: "Reference — Doctor App" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["CASE_DR", "DOCTOR", "OWNER"]}>
+    <AuthGate allow={["CASE_DR", "DOCTOR", "OWNER"]} permKey="caseReference">
       <ReferencePage />
     </AuthGate>
   ),

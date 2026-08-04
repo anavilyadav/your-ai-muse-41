@@ -18,7 +18,7 @@ export const PHARMACY_NAV: NavItem[] = [
 export const Route = createFileRoute("/pharmacy/")({
   head: () => ({ meta: [{ title: "Pharmacy Queue — YHC" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["PHARMA", "OWNER"]}>
+    <AuthGate allow={["PHARMA", "OWNER"]} permKey="pharmacyQueue">
       <PharmacyQueue />
     </AuthGate>
   ),

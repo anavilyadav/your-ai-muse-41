@@ -25,6 +25,34 @@ export const RECEPTION_SCREENS: { key: string; label: string }[] = [
   { key: "caseTracking", label: "Case Tracking (Pending Discussion)" },
 ];
 
+// 04 Aug 2026 — Operational Manual Part 7B: Owner wanted the same
+// granular per-screen ON/OFF control for Case-DR, Doctor, and Pharmacy
+// that Reception already had. The underlying mechanism (recp_perm:<role>:
+// <key> in `settings`, read by hasReceptionPermission below) was already
+// generic — it takes whatever the current effective role is, never
+// actually hardcoded to RECP1/RECP2 — so these are just new screen lists
+// using the same keys as each route's AuthGate permKey prop.
+export const CASE_DR_SCREENS: { key: string; label: string }[] = [
+  { key: "caseBoard", label: "Case Board" },
+  { key: "caseForm", label: "Case Taking Form" },
+  { key: "caseReference", label: "Reference Performa" },
+];
+
+export const DOCTOR_SCREENS: { key: string; label: string }[] = [
+  { key: "rxQueue", label: "Prescription Queue" },
+  { key: "rxConsult", label: "Write Prescription" },
+  { key: "rxDashboard", label: "Doctor Dashboard" },
+  { key: "rxHistory", label: "Rx History" },
+  { key: "caseReference", label: "Reference Performa" },
+];
+
+export const PHARMACY_SCREENS: { key: string; label: string }[] = [
+  { key: "pharmacyQueue", label: "Pharmacy Queue" },
+  { key: "dispense", label: "Dispense Medicine" },
+  { key: "inventory", label: "Inventory" },
+  { key: "medicineMaster", label: "Medicine Master" },
+];
+
 // Phase 1 #11 — feature-level permissions, one layer more granular than
 // RECEPTION_SCREENS above. Those gate an ENTIRE screen; these gate one
 // specific action inside a screen that's otherwise ON, using the exact
@@ -322,11 +350,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return false;
     // Mirror useEffectiveRole()'s logic here (not a call to that hook,
     // since this function lives inside AuthProvider itself) — Owner
-    // previewing as RECP1/RECP2 must see the same permission gates a
-    // real RECP1/RECP2 account would, not "always allowed" just because
+    // previewing as another role must see the same permission gates a
+    // real account of that role would, not "always allowed" just because
     // the underlying account is OWNER.
     const effectiveRole = user.role === "OWNER" && viewAsRole ? viewAsRole : user.role;
-    if (effectiveRole !== "RECP1" && effectiveRole !== "RECP2") return true; // only gates RECP1/RECP2
+    // 04 Aug 2026: was `if (effectiveRole !== "RECP1" && effectiveRole !==
+    // "RECP2") return true` — hardcoded to only ever gate those two roles,
+    // which meant the Case-DR/Doctor/Pharmacy screen toggles Owner could
+    // set in Control Centre (CASE_DR_SCREENS/DOCTOR_SCREENS/
+    // PHARMACY_SCREENS below) were saved but silently had no effect: this
+    // function returned true regardless before ever checking them. Owner
+    // itself must stay ungated (acting as OWNER, not previewing) — every
+    // other role is a candidate for gating now.
+    if (effectiveRole === "OWNER") return true;
     // Fail closed: if the permissions fetch hasn't succeeded yet (still
     // loading, or failed), we genuinely don't know what's restricted —
     // that must not be treated as "nothing is restricted."

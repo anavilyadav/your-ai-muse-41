@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
   head: () => ({ meta: [{ title: "Dispense — Pharmacy" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["PHARMA", "OWNER"]}>
+    <AuthGate allow={["PHARMA", "OWNER"]} permKey="dispense">
       <DispensePage />
     </AuthGate>
   ),

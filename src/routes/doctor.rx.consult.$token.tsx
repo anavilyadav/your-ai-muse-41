@@ -31,7 +31,7 @@ import { PhotoTimeline } from "@/components/yhc/PhotoTimeline";
 export const Route = createFileRoute("/doctor/rx/consult/$token")({
   head: () => ({ meta: [{ title: "Write Rx — Doctor" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["DOCTOR", "OWNER"]}>
+    <AuthGate allow={["DOCTOR", "OWNER"]} permKey="rxConsult">
       <RxWrite />
     </AuthGate>
   ),
