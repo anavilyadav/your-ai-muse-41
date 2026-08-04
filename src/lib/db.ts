@@ -1665,11 +1665,14 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
 
 // ---------- Signed URL resolver (buckets are private) ----------
 // case_photo_url / tongue_photo_url / reports_photo_url / patient_documents.photo_url
-// all still store the old "https://.../object/public/<bucket>/<path>" shape.
-// Buckets are private now, so that stored value only works as an identifier —
-// the path suffix after `/${bucket}/` — from which we mint a short-lived
-// signed URL each time the document actually needs to be shown. Nothing is
-// ever written back to the DB from this function; it's read-only resolution.
+// are just identifiers, never directly-usable links. Older rows (pre 04 Aug
+// 2026) store the legacy "https://.../object/public/<bucket>/<path>" shape
+// from a since-removed getPublicUrl() call; new uploads store the bare path
+// directly (uploadCasePhoto / uploadPatientDocument). Either shape works
+// here: if the marker isn't found we just treat the whole stored value as
+// the path. From whichever shape, we mint a short-lived signed URL each
+// time the document actually needs to be shown. Nothing is ever written
+// back to the DB from this function; it's read-only resolution.
 export async function resolveDocUrl(
   bucket: "patient-documents" | "case-photos",
   stored: string | null | undefined,
@@ -1702,8 +1705,15 @@ export async function uploadCasePhoto(visitId: string, kind: "case" | "tongue" |
     supabase.from("storage_backup_queue").insert({ bucket: "case-photos", path }).then(({ error: qErr }) => {
       if (qErr) console.error("storage_backup_queue enqueue failed:", qErr.message);
     });
-    const { data } = supabase.storage.from("case-photos").getPublicUrl(path);
-    return { success: true, error: null, url: data.publicUrl };
+    // 04 Aug 2026 fix: used to call getPublicUrl() here and store that.
+    // Bucket is Private, so that URL never actually worked as a public
+    // link — but the shape implied one, which was fragile (a bucket ever
+    // flipped to Public would have made it a real, unsigned leak). We
+    // just return/store the raw path now; resolveDocUrl() below already
+    // knows how to turn a bare path into a short-lived signed URL, and
+    // every reader already goes through resolveDocUrl(), never the raw
+    // stored value directly.
+    return { success: true, error: null, url: path };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "Upload failed", url: null };
   }
@@ -3179,11 +3189,14 @@ export async function uploadPatientDocument(
     supabase.from("storage_backup_queue").insert({ bucket: "patient-documents", path }).then(({ error: qErr }) => {
       if (qErr) console.error("storage_backup_queue enqueue failed:", qErr.message);
     });
-    const { data: pub } = supabase.storage.from("patient-documents").getPublicUrl(path);
+    // 04 Aug 2026 fix: same reasoning as uploadCasePhoto above — store the
+    // raw path, not a getPublicUrl() result the Private bucket can't
+    // actually serve. resolveDocUrl() (used by every reader) already
+    // handles a bare path.
     const { error } = await supabase.from("patient_documents").insert({
       patient_id: patientId,
       doc_type: docType,
-      photo_url: pub.publicUrl,
+      photo_url: path,
       note: note?.trim() || null,
       uploaded_by: uploadedBy || null,
     });
