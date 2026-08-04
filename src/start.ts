@@ -1,7 +1,6 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
-import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -31,11 +30,16 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // attachSupabaseAuth here again -- same guard, silently undone a second
 // time within hours, inside the same session that was hardening
 // send-whatsapp and the cron functions against unauthorised callers.
-// Reverted again. This is not a one-off: patching it back each time it
-// resurfaces does not fix the cause. The cause is on the GitHub/Lovable
-// side (repo Settings -> Integrations/Webhooks) and needs to be checked
-// and revoked there -- not just re-fixed here a fourth time.
+// Reverted again (8df360f).
+//
+// 04 Aug 2026, FOURTH occurrence: re-wired yet again by one of the many
+// auto "Changes" commits during the timeline/reports/Block-3 session
+// (between 8df360f and 17a8535). Reverted again. Four times in two days
+// is not a one-off -- the cause is on the GitHub/Lovable side (repo
+// Settings -> Integrations/Webhooks for lovable.dev's GitHub App
+// installation) and needs to be checked and revoked there, not just
+// re-fixed here a fifth time.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [attachSupabaseAuth],
+  functionMiddleware: [],
   requestMiddleware: [errorMiddleware],
 }));
