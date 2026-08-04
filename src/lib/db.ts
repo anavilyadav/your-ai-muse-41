@@ -1924,11 +1924,25 @@ export async function fetchWeekRevenue() {
   });
 }
 
-export async function fetchReports(period: "week" | "month" | "lastMonth" | "year", branch?: string) {
+export type ReportPeriod = "today" | "week" | "month" | "lastMonth" | "year" | "custom";
+
+export async function fetchReports(
+  period: ReportPeriod,
+  branch?: string,
+  range?: { from: string; to: string },
+) {
   const now = istNow();
   let start: string;
   let end: string | null = null;
-  if (period === "week") {
+  if (period === "custom") {
+    // Date-wise access: any explicit IST calendar range (single day too,
+    // when from === to). Falls back to today if the caller passes nothing.
+    start = range?.from || now.toISOString().slice(0, 10);
+    end = range?.to || start;
+  } else if (period === "today") {
+    start = now.toISOString().slice(0, 10);
+    end = start;
+  } else if (period === "week") {
     const d = new Date(now); d.setUTCDate(now.getUTCDate() - 6);
     start = d.toISOString().slice(0, 10);
   } else if (period === "month") {
@@ -1941,6 +1955,7 @@ export async function fetchReports(period: "week" | "month" | "lastMonth" | "yea
   } else {
     start = now.getUTCFullYear() + "-01-01";
   }
+
   let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
