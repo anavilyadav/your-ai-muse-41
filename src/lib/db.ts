@@ -1541,35 +1541,32 @@ export async function fetchVisitPrescriptions(visitId: string) {
 }
 
 export async function markDispensed(visitId: string) {
-  // Now one atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the
-  // status guard + status update + inventory decrement for every
-  // prescription line on this visit all happen in one transaction.
+  // One atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the status
+  // guard + status update + inventory decrement for every prescription
+  // line on this visit all happen in one transaction.
   // Decrement is approximate by design (Dr. Yadav's own words: exact
   // drops aren't fixed, staff already eyeballs the physical bottle) —
-  // is_slx (SL globules, the default per Locked Architectural Decisions)
-  // = 4 drams (a full 45ml bottle), non-SLX (drops/liquid) = 0.5 dram.
-  // Falls back to the old two-step (no inventory decrement) only until
-  // that SQL migration is run, same not-hard-fail pattern used elsewhere.
+  // is_slx (SL globules) = 4 drams (a full 45ml bottle), non-SLX
+  // (drops/liquid) = 0.5 dram.
+  //
+  // Block 3: the old two-step fallback was REMOVED. It skipped the
+  // inventory decrement entirely, so dispensing kept working while stock
+  // silently drifted away from reality — the worst possible failure mode
+  // for a pharmacy. Blocking the dispense is the safe choice.
   const { data, error } = await supabase.rpc("dispense_visit_atomic", { p_visit_id: visitId });
   if (!error) return data;
 
   const isMissingFunction = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
-  if (!isMissingFunction) throw error;
-  logDegradedModeAlert("dispense_visit_atomic", { visit_id: visitId });
-
-  const { data: existing, error: exErr } = await supabase
-    .from("visits")
-    .select("visit_status")
-    .eq("id", visitId)
-    .maybeSingle();
-  if (exErr) throw exErr;
-  if (!existing) throw new Error("Visit not found");
-  if (existing.visit_status !== "PHARMACY") {
-    throw new Error("Yeh visit abhi Pharmacy stage mein nahi hai — dispense nahi kar sakte.");
+  if (isMissingFunction) {
+    logDegradedModeAlert("dispense_visit_atomic", { visit_id: visitId });
+    throw new Error(
+      "Dispense abhi possible nahi — database function `dispense_visit_atomic` missing hai. " +
+        "Owner ko bolein pending SQL migration run karein (iske bina stock count galat ho jaata).",
+    );
   }
-  const { error: upErr } = await supabase.from("visits").update({ visit_status: "PAYMENT" }).eq("id", visitId);
-  if (upErr) throw upErr;
+  throw error;
 }
+
 
 // ---------- Case notes ----------
 
