@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -603,6 +603,101 @@ function SlxInstructionsCard() {
   );
 }
 
+// ---------- Case-Taking Reference Performa (04 Aug 2026, Manual Part 4B) ----------
+function ReferenceRubricsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["reference-rubrics"], queryFn: fetchReferenceRubrics });
+  const saved = data ?? DEFAULT_REFERENCE_RUBRICS;
+  const [draft, setDraft] = useState<ReferenceRubric[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const rubrics = draft ?? saved;
+
+  const update = (id: string, patch: Partial<ReferenceRubric>) => {
+    setDraft(rubrics.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const addRubric = () => {
+    setDraft([...rubrics, { id: crypto.randomUUID(), rubric: "", remedies: "" }]);
+  };
+
+  const removeRubric = (id: string) => {
+    setDraft(rubrics.filter((r) => r.id !== id));
+  };
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await saveReferenceRubrics(draft);
+      qc.invalidateQueries({ queryKey: ["reference-rubrics"] });
+      setDraft(null);
+      toast.success("Reference rubrics update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Case-Taking Reference Performa — Case-DR ka cheat sheet
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+        {rubrics.length === 0 && (
+          <p className="text-[12px] text-muted-foreground">Koi rubric nahi hai. Neeche se add karo.</p>
+        )}
+        {rubrics.map((r) => (
+          <div key={r.id} className="flex items-center gap-2">
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <input
+                placeholder="Rubric (jaise: Fear, dark)"
+                value={r.rubric}
+                onChange={(e) => update(r.id, { rubric: e.target.value })}
+                className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-[13px]"
+              />
+              <input
+                placeholder="Remedies (jaise: Stram, Phos, Puls, Calc)"
+                value={r.remedies}
+                onChange={(e) => update(r.id, { remedies: e.target.value })}
+                className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-[13px]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => removeRubric(r.id)}
+              className="shrink-0 h-8 w-8 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+              aria-label="Rubric hatao"
+              title="Rubric hatao"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addRubric}
+          className="w-full rounded-full border-2 border-dashed border-accent text-accent-foreground font-semibold py-2 text-[13px]"
+        >
+          + Naya rubric add karo
+        </button>
+        {draft && (
+          <button
+            onClick={save}
+            disabled={saving || rubrics.some((r) => !r.rubric.trim() || !r.remedies.trim())}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Rubrics"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Ye list Case-DR/Doctor ke "Reference" screen pe cheat-sheet ke roop mein dikhti hai.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
     { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
@@ -748,6 +843,7 @@ function ControlPage() {
           <FeeRulesCard />
           <NextVisitOptionsCard />
           <SlxInstructionsCard />
+          <ReferenceRubricsCard />
           <OtherModules />
           <PlannedModules />
         </div>

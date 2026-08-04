@@ -2674,6 +2674,42 @@ export async function saveSlxInstructions(text: string) {
   await upsertSetting("slx_instructions", text);
 }
 
+// ---------- Case-Taking Reference Performa (04 Aug 2026, Manual Part 4B) ----------
+// Was a hardcoded array of 5 rubric/remedy pairs baked directly into
+// doctor.case.reference.tsx -- Owner (a homeopath himself) had no way to
+// add or correct entries without a code change. Same open-list-in-
+// settings pattern as next_visit_options/fee_rules above.
+export interface ReferenceRubric {
+  id: string;
+  rubric: string;
+  remedies: string;
+}
+
+export const DEFAULT_REFERENCE_RUBRICS: ReferenceRubric[] = [
+  { id: "rr-1", rubric: "Anxiety, health about", remedies: "Ars, Phos, Calc, Nit-ac" },
+  { id: "rr-2", rubric: "Fear, dark", remedies: "Stram, Phos, Puls, Calc" },
+  { id: "rr-3", rubric: "Irritability", remedies: "Nux-v, Cham, Bry, Staph" },
+  { id: "rr-4", rubric: "Weeping, consolation agg", remedies: "Nat-m, Sil, Ign" },
+  { id: "rr-5", rubric: "Chilly patient", remedies: "Sil, Calc, Ars, Nux-v" },
+];
+
+export async function fetchReferenceRubrics(): Promise<ReferenceRubric[]> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "reference_rubrics").maybeSingle();
+  if (error) console.error("fetchReferenceRubrics failed:", error.message);
+  if (!data?.value) return [...DEFAULT_REFERENCE_RUBRICS];
+  try {
+    const parsed = JSON.parse(data.value);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_REFERENCE_RUBRICS];
+    return parsed;
+  } catch {
+    return [...DEFAULT_REFERENCE_RUBRICS];
+  }
+}
+
+export async function saveReferenceRubrics(rubrics: ReferenceRubric[]) {
+  await upsertSetting("reference_rubrics", JSON.stringify(rubrics));
+}
+
 
 // Phase 3 decision: "Re-case-taking = ₹1000 extra, only if the patient
 // hasn't had a single follow-up in the last 1 year."

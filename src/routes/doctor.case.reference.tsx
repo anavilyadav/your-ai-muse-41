@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { useQuery } from "@tanstack/react-query";
+import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
+import { fetchReferenceRubrics, DEFAULT_REFERENCE_RUBRICS } from "@/lib/db";
 
 export const Route = createFileRoute("/doctor/case/reference")({
   head: () => ({ meta: [{ title: "Reference — Doctor App" }, { name: "robots", content: "noindex" }] }),
@@ -11,27 +13,33 @@ export const Route = createFileRoute("/doctor/case/reference")({
   ),
 });
 
-const rubrics: [string, string][] = [
-  ["Anxiety, health about", "Ars, Phos, Calc, Nit-ac"],
-  ["Fear, dark", "Stram, Phos, Puls, Calc"],
-  ["Irritability", "Nux-v, Cham, Bry, Staph"],
-  ["Weeping, consolation agg", "Nat-m, Sil, Ign"],
-  ["Chilly patient", "Sil, Calc, Ars, Nux-v"],
-];
-
 function ReferencePage() {
+  // 04 Aug 2026 — was a hardcoded 5-entry array; now Owner-editable from
+  // Control Centre (saveReferenceRubrics), same open-list-in-settings
+  // pattern as Next Visit Options / Fee Rules. Falls back to the same 5
+  // defaults if Owner hasn't touched it yet, so this screen never shows
+  // empty for existing staff.
+  const { data, isLoading } = useQuery({ queryKey: ["reference-rubrics"], queryFn: fetchReferenceRubrics });
+  const rubrics = data ?? DEFAULT_REFERENCE_RUBRICS;
+
   return (
     <DoctorShell title="Reference" subtitle="Read only" nav="case">
       <div className="rounded-2xl bg-surface border border-border p-4">
         <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
           Common rubrics cheat sheet
         </div>
-        {rubrics.map(([r, m]) => (
-          <div key={r} className="py-2.5 border-b border-border last:border-b-0">
-            <div className="text-[13.5px] font-bold text-primary">{r}</div>
-            <div className="text-[12.5px] text-muted-foreground">{m}</div>
-          </div>
-        ))}
+        {isLoading ? (
+          <LoadingBlock />
+        ) : rubrics.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4">Koi rubric add nahi hua abhi — Owner Control Centre se add karo.</p>
+        ) : (
+          rubrics.map((r) => (
+            <div key={r.id} className="py-2.5 border-b border-border last:border-b-0">
+              <div className="text-[13.5px] font-bold text-primary">{r.rubric}</div>
+              <div className="text-[12.5px] text-muted-foreground">{r.remedies}</div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="mt-3 rounded-2xl bg-surface border border-border p-4">
