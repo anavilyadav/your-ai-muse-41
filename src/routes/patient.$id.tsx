@@ -8,6 +8,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
+import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -22,9 +23,12 @@ import {
   updatePatientContactInfo,
   isDuplicateMobile,
   patientWhatsAppTarget,
+  fetchPatientInteractions,
+  INTERACTION_TYPE_LABELS,
   DOC_TYPES,
   type DocType,
   type PatientDocument,
+  type PatientInteraction,
   type DBPatient,
   branchLabel as getBranchLabel,
 } from "@/lib/db";
@@ -435,6 +439,7 @@ function PatientProfilePage() {
   const { id } = Route.useParams();
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
+  const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
   const [family, setFamily] = useState<any[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
@@ -443,19 +448,22 @@ function PatientProfilePage() {
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
 
   const reload = async () => {
     setLoading(true);
-    const [p, vs, fam, docs] = await Promise.all([
+    const [p, vs, fam, docs, ints] = await Promise.all([
       fetchPatientById(id),
       fetchPatientHistory(id, 20),
       fetchFamilyMembers(id),
       fetchPatientDocuments(id),
+      fetchPatientInteractions(id),
     ]);
     setPatient(p);
     setVisits(vs);
     setFamily(fam);
     setDocuments(docs);
+    setInteractions(ints);
     setLoading(false);
   };
 
@@ -513,6 +521,9 @@ function PatientProfilePage() {
       )}
       {showEditModal && (
         <EditContactModal patient={patient} onClose={() => setShowEditModal(false)} onSaved={reload} />
+      )}
+      {showLogModal && (
+        <LogInteractionModal patientId={id} onClose={() => setShowLogModal(false)} onLogged={reload} />
       )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
@@ -679,30 +690,69 @@ function PatientProfilePage() {
       )}
 
       <div className="mt-5">
-        <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground px-1 mb-2">
-          Visit History
-        </h2>
-        {visits.length === 0 ? (
-          <p className="text-center text-xs text-muted-foreground py-6">No previous visits recorded.</p>
+        <div className="flex items-center justify-between px-1 mb-2">
+          <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground">Timeline</h2>
+          <button
+            onClick={() => setShowLogModal(true)}
+            className="text-[11px] font-bold text-primary underline inline-flex items-center gap-1"
+          >
+            <PhoneCall className="h-3 w-3" /> Log Interaction
+          </button>
+        </div>
+        {/* 04 Aug 2026 — Operational Manual Feature 1: visits and
+            interactions merged into one chronologically-sorted list
+            instead of two separate sections, so "why did they call" and
+            "what happened at their last visit" are answerable from one
+            scroll instead of hunting across the page. */}
+        {visits.length === 0 && interactions.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-6">Abhi tak koi visit ya interaction record nahi hai.</p>
         ) : (
           <ul className="space-y-2">
-            {visits.map((v: any) => (
-              <li key={v.id} className="rounded-xl bg-surface border border-border border-l-4 border-l-primary p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-primary">
-                    {new Date(v.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                  </span>
-                  <span className="text-[11px] font-bold text-success">{v.visit_status}</span>
-                </div>
-                {v.chief_complaint && <p className="text-sm mt-1">{v.chief_complaint}</p>}
-                {v.prescriptions && v.prescriptions.length > 0 && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                    <Pill className="h-3 w-3" />{" "}
-                    {v.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
-                  </p>
-                )}
-              </li>
-            ))}
+            {[
+              ...visits.map((v: any) => ({ kind: "visit" as const, at: v.visit_date, data: v })),
+              ...interactions.map((i) => ({ kind: "interaction" as const, at: i.created_at, data: i })),
+            ]
+              .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+              .map((entry) =>
+                entry.kind === "visit" ? (
+                  <li
+                    key={`v-${entry.data.id}`}
+                    className="rounded-xl bg-surface border border-border border-l-4 border-l-primary p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-primary">
+                        {new Date(entry.data.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                      </span>
+                      <span className="text-[11px] font-bold text-success">{entry.data.visit_status}</span>
+                    </div>
+                    {entry.data.chief_complaint && <p className="text-sm mt-1">{entry.data.chief_complaint}</p>}
+                    {entry.data.prescriptions && entry.data.prescriptions.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <Pill className="h-3 w-3" />{" "}
+                        {entry.data.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
+                      </p>
+                    )}
+                  </li>
+                ) : (
+                  <li
+                    key={`i-${entry.data.id}`}
+                    className="rounded-xl bg-surface border border-border border-l-4 border-l-accent p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-accent-foreground bg-accent/20 rounded-full px-2 py-0.5">
+                        {INTERACTION_TYPE_LABELS[entry.data.type]}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(entry.data.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{entry.data.note}</p>
+                    {entry.data.created_by && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">— {entry.data.created_by}</p>
+                    )}
+                  </li>
+                ),
+              )}
           </ul>
         )}
       </div>

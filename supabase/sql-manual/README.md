@@ -29,3 +29,7 @@ before they will succeed.
   same key returns the original result instead of inserting a second
   payment row. Closes the partial-payment double-submit gap (full payments
   were already accidentally protected by the existing DONE guard).
+- `0026_patient_interactions.sql` — new `patient_interactions` table
+  (Operational Manual Feature 2: call/verbal/WhatsApp/dose-change/query
+  log, no visit required). Backs the Log Interaction button (Reception +
+  Doctor) and the merged patient timeline.

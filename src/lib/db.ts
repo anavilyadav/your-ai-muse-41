@@ -854,6 +854,59 @@ export async function fetchPatientHistory(patientId: string, limit = 3) {
   }));
 }
 
+// ---------- Patient Interaction Log (04 Aug 2026, Operational Manual Feature 2) ----------
+// Records non-visit patient touchpoints — a phone call, verbal advice given
+// in-clinic, a dose change told over WhatsApp, a query answered — none of
+// which had anywhere to live before this. Standalone table (migration
+// 0026): a patient can have interactions with no visit attached at all,
+// so this isn't an extension of visits/followups. Reception logs these
+// from the patient profile; Doctor logs them from the Rx screen (verbal
+// dosing changes happen mid-consultation constantly).
+export const INTERACTION_TYPES = ["CALL", "WHATSAPP_REPLY", "IN_CLINIC_VERBAL", "DOSE_CHANGE", "QUERY"] as const;
+export type InteractionType = (typeof INTERACTION_TYPES)[number];
+export const INTERACTION_TYPE_LABELS: Record<InteractionType, string> = {
+  CALL: "Call",
+  WHATSAPP_REPLY: "WhatsApp Reply",
+  IN_CLINIC_VERBAL: "In-Clinic Verbal",
+  DOSE_CHANGE: "Dose Change",
+  QUERY: "Query",
+};
+
+export interface PatientInteraction {
+  id: string;
+  patient_id: string;
+  type: InteractionType;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export async function logPatientInteraction(
+  patientId: string,
+  type: InteractionType,
+  note: string,
+  createdBy?: string,
+) {
+  const { error } = await supabase.from("patient_interactions").insert({
+    patient_id: patientId,
+    type,
+    note: note.trim(),
+    created_by: createdBy || null,
+  });
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function fetchPatientInteractions(patientId: string, limit = 50): Promise<PatientInteraction[]> {
+  const { data, error } = await supabase
+    .from("patient_interactions")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return (data ?? []) as PatientInteraction[];
+}
+
 export interface RxRow {
   medicine_name: string;
   potency: string;

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import {
   fetchVisit,
   fetchPatientHistory,
@@ -88,6 +89,7 @@ function RxWrite() {
   const [nextVisit, setNextVisit] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const draftHydrated = useRef(false);
 
@@ -284,6 +286,9 @@ function RxWrite() {
 
   return (
     <DoctorShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
+      {showLogModal && visit.patient_id && (
+        <LogInteractionModal patientId={visit.patient_id} onClose={() => setShowLogModal(false)} onLogged={() => {}} />
+      )}
       {/* Single column below lg (Task 1 fix — the old `md:grid` broke here
           because DoctorShell capped content at 430px regardless of the
           actual browser width, crushing both columns to ~200px). Now that
@@ -332,6 +337,15 @@ function RxWrite() {
               <div className="text-xs text-muted-foreground">Koi previous visits nahi.</div>
             )}
           </div>
+
+          {visit.patient_id && (
+            <button
+              onClick={() => setShowLogModal(true)}
+              className="w-full rounded-xl bg-surface border border-border p-3 text-xs font-bold text-primary text-center"
+            >
+              + Log Interaction (verbal advice / dose change)
+            </button>
+          )}
         </section>
 
         {/* RIGHT: write rx */}
