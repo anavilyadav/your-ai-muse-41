@@ -18,3 +18,7 @@ before they will succeed.
   everyone else. Reads the secret from Vault so the value never lands in
   git. **Requires** `CRON_FUNCTION_SECRET` (Edge Function secret) and a
   Vault secret named `cron_function_secret` holding the same value.
+- `0024_atomic_followup_reschedule.sql` — `reschedule_followups_atomic()`
+  RPC: does the follow-up delete+insert (previously two separate,
+  independently-racy client calls) inside one transaction, with the visit
+  row locked against a concurrent retry. Fixes a duplicate-reminder bug.

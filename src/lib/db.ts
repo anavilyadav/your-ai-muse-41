@@ -1198,45 +1198,61 @@ export async function generateFollowupSchedule(patientId: string, visitId: strin
           d.setDate(d.getDate() - r.days_before_due);
           if (d < todayD) d.setTime(todayD.getTime()); // never schedule a reminder in the past
           return {
-            patient_id: patientId,
-            visit_id: visitId,
             due_date: d.toISOString().slice(0, 10),
             followup_type: r.label,
-            status: "PENDING" as const,
           };
         })
       : [
           {
-            patient_id: patientId,
-            visit_id: visitId,
             due_date: dueTarget.toISOString().slice(0, 10),
             followup_type: "DEFAULT",
-            status: "PENDING" as const,
           },
         ];
 
-  // Idempotent by design: clear any PENDING followups already tied to
-  // this exact visit before inserting the freshly computed set. Belt-
-  // and-suspenders against a future caller invoking this twice for the
-  // same visit (the current, only caller — collectPayment via the
-  // atomic RPC's DONE-guard — already can't retry into this after a
-  // partial failure, but this makes the function safe regardless of
-  // who calls it or how).
+  // 04 Aug 2026 fix: this used to be a separate DELETE (error only
+  // console.error'd, never thrown) followed by a separate INSERT -- two
+  // network round-trips, not one transaction. If the DELETE failed, old
+  // PENDING rows stayed AND the fresh set got inserted on top (duplicate
+  // reminders). If the two calls raced a concurrent retry for the same
+  // visit, both could insert on top of each other the same way. Now one
+  // atomic RPC does delete+insert inside a single transaction, with the
+  // visit row locked so a concurrent retry serializes instead of racing
+  // (supabase/sql-manual/0024_atomic_followup_reschedule.sql). Falls back
+  // to the old (racy) two-step approach only until that SQL is run.
+  const { error: rpcError } = await supabase.rpc("reschedule_followups_atomic", {
+    p_patient_id: patientId,
+    p_visit_id: visitId,
+    p_rows: rows,
+  });
+  if (!rpcError) return;
+
+  const isMissingFunction = rpcError?.code === "42883" || /function .* does not exist/i.test(rpcError?.message ?? "");
+  if (!isMissingFunction) throw rpcError;
+  logDegradedModeAlert("reschedule_followups_atomic", { visit_id: visitId });
+
+  const fallbackRows = rows.map((r) => ({
+    patient_id: patientId,
+    visit_id: visitId,
+    due_date: r.due_date,
+    followup_type: r.followup_type,
+    status: "PENDING" as const,
+  }));
+
   const { error: delErr } = await supabase
     .from("followups")
     .delete()
     .eq("visit_id", visitId)
     .eq("status", "PENDING");
-  if (delErr) console.error("generateFollowupSchedule: clearing old pending rows failed:", delErr.message);
+  if (delErr) console.error("generateFollowupSchedule fallback: clearing old pending rows failed:", delErr.message);
 
-  const { error } = await supabase.from("followups").insert(rows);
+  const { error } = await supabase.from("followups").insert(fallbackRows);
   if (error) {
     // Must not silently lose follow-up coverage — this used to only
     // console.error and swallow, which meant collectPayment's catch
     // around this call could never actually fire for the most likely
     // failure (the insert itself). Now it throws, so the caller's
     // "payment saved, but follow-up schedule didn't" message is real.
-    console.error("generateFollowupSchedule insert failed:", error.message);
+    console.error("generateFollowupSchedule fallback insert failed:", error.message);
     throw error;
   }
 }
