@@ -654,6 +654,14 @@ export async function collectPayment(input: {
   // payment insert, so there's no window where credit is "applied" but no
   // payment exists (or vice versa).
   credit_to_apply?: number;
+  // 04 Aug 2026 fix: caller generates one UUID per payment-screen visit
+  // (not per click) and reuses it across retries of that same submission.
+  // Lets collect_payment_atomic recognise "this exact attempt already
+  // went through" and return the original result instead of inserting a
+  // second payment row — closes the partial-payment double-submit gap
+  // (full payments were already accidentally protected by the DONE guard,
+  // partial ones weren't). Optional so old callers keep working unchanged.
+  idempotency_key?: string;
 }) {
   // Payment insert + credit consumption + patient-totals recompute +
   // visit-status update all happen inside ONE Postgres function
@@ -665,7 +673,7 @@ export async function collectPayment(input: {
   // same patient clobber each other. current_balance is always recomputed
   // as SUM(payments.balance_due) for the patient, not overwritten from
   // just this visit, so older outstanding dues are never wiped.
-  const { data, error } = await supabase.rpc("collect_payment_atomic", {
+  const baseArgs = {
     p_visit_id: input.visit_id,
     p_patient_id: input.patient_id,
     p_amount_charged: input.amount_charged,
@@ -674,7 +682,31 @@ export async function collectPayment(input: {
     p_branch: input.branch,
     p_notes: input.notes ?? null,
     p_credit_to_apply: input.credit_to_apply ?? 0,
-  });
+  };
+
+  let data: any, error: any;
+  if (input.idempotency_key) {
+    ({ data, error } = await supabase.rpc("collect_payment_atomic", {
+      ...baseArgs,
+      p_idempotency_key: input.idempotency_key,
+    }));
+    // Trailing-param gap only: migration 0025 (adds p_idempotency_key)
+    // deploys via a separate manual SQL step, but this code deploys the
+    // moment it's pushed (Vercel auto-deploy) — there will be a real
+    // window where the client sends a 9th arg the live function doesn't
+    // have yet. Retrying the SAME atomic RPC without that one arg is not
+    // the racy multi-step client fallback (collectPayment still refuses
+    // that entirely, below) — it's just running one version behind on
+    // the idempotency layer specifically, same trailing-default pattern
+    // migration 0012 already established for p_credit_to_apply.
+    const isMissingParam = error?.code === "42883" || /function .* does not exist/i.test(error?.message ?? "");
+    if (error && isMissingParam) {
+      logDegradedModeAlert("collect_payment_atomic_idempotency_key", { visit_id: input.visit_id });
+      ({ data, error } = await supabase.rpc("collect_payment_atomic", baseArgs));
+    }
+  } else {
+    ({ data, error } = await supabase.rpc("collect_payment_atomic", baseArgs));
+  }
   if (error) throw error;
 
   // Follow-up scheduling is a downstream side effect, not money — it

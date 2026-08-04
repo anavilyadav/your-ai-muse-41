@@ -24,7 +24,7 @@ export interface TableCall {
 }
 
 export function createSupabaseMock(opts: {
-  rpc?: Record<string, MockResult>;
+  rpc?: Record<string, MockResult | ((args: any) => MockResult)>;
   table?: Record<string, MockResult>;
 } = {}) {
   const rpcCalls: RpcCall[] = [];
@@ -57,7 +57,9 @@ export function createSupabaseMock(opts: {
     from: vi.fn((table: string) => builder(table)),
     rpc: vi.fn(async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
-      return opts.rpc?.[name] ?? { data: null, error: { message: `function ${name} does not exist`, code: "42883" } };
+      const configured = opts.rpc?.[name];
+      if (typeof configured === "function") return configured(args);
+      return configured ?? { data: null, error: { message: `function ${name} does not exist`, code: "42883" } };
     }),
     auth: {
       getSession: vi.fn(async () => ({ data: { session: null }, error: null })),

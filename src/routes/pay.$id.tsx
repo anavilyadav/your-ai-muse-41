@@ -43,6 +43,13 @@ function PayPage() {
   const [received, setReceived] = useState<number>(0);
   const [mode, setMode] = useState<"CASH" | "UPI" | "CARD">("CASH");
   const [busy, setBusy] = useState(false);
+  // 04 Aug 2026 fix: one key per mount of this screen (not per click) —
+  // reused across retries of the same submission (clinic wifi timeout,
+  // a re-tap while the first request is still in flight), so a payment
+  // that actually went through server-side doesn't get inserted twice
+  // just because the client thought it failed. Navigating away and back
+  // (a genuinely new attempt) gets a fresh key on remount.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [useCredit, setUseCredit] = useState(true);
 
   // Overpayment ledger (audit P0-6) — patients can have credit sitting from
@@ -149,6 +156,7 @@ function PayPage() {
         payment_mode: mode,
         branch: visit.branch,
         credit_to_apply: creditToApply,
+        idempotency_key: idempotencyKey,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });

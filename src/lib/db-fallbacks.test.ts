@@ -23,7 +23,7 @@ vi.mock("./supabase", async (importOriginal) => {
   };
 });
 
-function setup(opts: { rpc?: Record<string, MockResult>; table?: Record<string, MockResult> } = {}) {
+function setup(opts: { rpc?: Record<string, MockResult | ((args: any) => MockResult)>; table?: Record<string, MockResult> } = {}) {
   state.mock = createSupabaseMock(opts);
   return state.mock;
 }
@@ -151,6 +151,40 @@ describe("collectPayment (money path — must NOT degrade)", () => {
     const { collectPayment } = await import("./db");
     await collectPayment(input);
     expect(m.tableCalls.filter((c) => c.table === "followups")).toHaveLength(0);
+  });
+
+  it("sends p_idempotency_key when the caller provides one", async () => {
+    const m = setup({ rpc: { collect_payment_atomic: { data: { balance: 0 }, error: null } } });
+    const { collectPayment } = await import("./db");
+    await collectPayment({ ...input, idempotency_key: "key-abc" });
+    expect(m.rpcCalls[0].args).toMatchObject({ p_idempotency_key: "key-abc" });
+  });
+
+  it("omits p_idempotency_key entirely when the caller doesn't provide one (old callers unaffected)", async () => {
+    const m = setup({ rpc: { collect_payment_atomic: { data: { balance: 0 }, error: null } } });
+    const { collectPayment } = await import("./db");
+    await collectPayment(input);
+    expect(m.rpcCalls[0].args).not.toHaveProperty("p_idempotency_key");
+  });
+
+  it("retries WITHOUT p_idempotency_key when migration 0025 hasn't run yet, and raises a degraded-mode alert — but still via the atomic RPC, never the old multi-step path", async () => {
+    const m = setup({
+      rpc: {
+        collect_payment_atomic: (args: any) =>
+          "p_idempotency_key" in args
+            ? { data: null, error: { message: "function collect_payment_atomic(...) does not exist", code: "42883" } }
+            : { data: { balance: 500 }, error: null },
+      },
+    });
+    const { collectPayment } = await import("./db");
+    await collectPayment({ ...input, idempotency_key: "key-abc" });
+    expect(m.rpcCalls).toHaveLength(2);
+    expect(m.rpcCalls[0].args).toHaveProperty("p_idempotency_key", "key-abc");
+    expect(m.rpcCalls[1].args).not.toHaveProperty("p_idempotency_key");
+    expect(degradedAlerts(m.tableCalls).length).toBeGreaterThan(0);
+    // Still zero direct writes to `payments` from the client — the second
+    // attempt is the same atomic RPC, not a client-side insert.
+    expect(m.tableCalls.filter((c) => c.table === "payments")).toHaveLength(0);
   });
 });
 

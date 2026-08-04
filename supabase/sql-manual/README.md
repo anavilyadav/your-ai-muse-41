@@ -22,3 +22,10 @@ before they will succeed.
   RPC: does the follow-up delete+insert (previously two separate,
   independently-racy client calls) inside one transaction, with the visit
   row locked against a concurrent retry. Fixes a duplicate-reminder bug.
+- `0025_payment_idempotency_key.sql` — adds `idempotency_key` to `payments`
+  (unique where not null) and an optional `p_idempotency_key` param to
+  `collect_payment_atomic()`. The client sends one key per payment-screen
+  visit, reused across retries of that submission; a repeat call with the
+  same key returns the original result instead of inserting a second
+  payment row. Closes the partial-payment double-submit gap (full payments
+  were already accidentally protected by the existing DONE guard).
