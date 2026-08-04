@@ -34,6 +34,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS payments_idempotency_key_uidx
   ON payments (idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
+-- Discovered when actually applying this live (04 Aug 2026): CREATE OR
+-- REPLACE FUNCTION does NOT replace a function whose argument COUNT
+-- differs, even when the new arg is a trailing DEFAULT -- it silently
+-- creates a second overload instead. Same bug class that migration 0017
+-- had to hotfix for the 7-arg -> 8-arg change. Drop the old 8-arg
+-- signature explicitly before creating the 9-arg one below, or the app
+-- ends up with two ambiguous overloads and every payment call breaks.
+DROP FUNCTION IF EXISTS collect_payment_atomic(uuid, uuid, numeric, numeric, text, text, text, numeric);
+
 CREATE OR REPLACE FUNCTION collect_payment_atomic(
   p_visit_id uuid,
   p_patient_id uuid,
