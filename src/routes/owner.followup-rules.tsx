@@ -30,10 +30,11 @@ function RuleModal({
   const [minGap, setMinGap] = useState(String(rule?.min_gap_days ?? ""));
   const [maxGap, setMaxGap] = useState(String(rule?.max_gap_days ?? ""));
   const [daysBefore, setDaysBefore] = useState(String(rule?.days_before_due ?? ""));
+  const [channel, setChannel] = useState<"CALL" | "WHATSAPP">(rule?.channel ?? "WHATSAPP");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!label.trim() || minGap === "" || maxGap === "" || daysBefore === "") {
+    if (!label.trim() || minGap === "" || maxGap === "" || daysBefore === "" || daysBefore === "-") {
       toast.error("Sab fields bharo");
       return;
     }
@@ -44,6 +45,7 @@ function RuleModal({
       min_gap_days: Number(minGap),
       max_gap_days: Number(maxGap),
       days_before_due: Number(daysBefore),
+      channel,
       active: rule?.active ?? true,
     });
     setSaving(false);
@@ -76,11 +78,43 @@ function RuleModal({
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Due date se kitne din pehle message jaye</label>
-            <input inputMode="numeric" value={daysBefore} onChange={(e) => setDaysBefore(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Due date se kitne din pehle (ya baad mein) message jaye</label>
+            {/* 04 Aug 2026: negative now allowed — a "-" followed by digits
+                means the touchpoint fires AFTER the due date, for the
+                staged post-due chase sequence. Positive/zero still means
+                before-or-on the due date, same as always. */}
+            <input
+              inputMode="numeric"
+              value={daysBefore}
+              onChange={(e) => setDaysBefore(e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, ""))}
+              placeholder="e.g. 7, ya -2 (due date ke 2 din baad)"
+              className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Channel</label>
+            <div className="flex gap-1.5 mt-1">
+              {(["CALL", "WHATSAPP"] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setChannel(c)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-[12px] font-bold border",
+                    channel === c ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                  )}
+                >
+                  {c === "CALL" ? "Call (manual worklist)" : "WhatsApp (auto-send)"}
+                </button>
+              ))}
+            </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Matlab: agar doctor ne next-visit gap {minGap || "X"}–{maxGap || "Y"} din ka rakha, toh due date se {daysBefore || "N"} din pehle ek reminder jayega.
+            Matlab: agar doctor ne next-visit gap {minGap || "X"}–{maxGap || "Y"} din ka rakha,
+            {Number(daysBefore) >= 0
+              ? ` toh due date se ${daysBefore || "N"} din pehle`
+              : ` toh due date ke ${Math.abs(Number(daysBefore || 0))} din baad`}
+            {" "}ek {channel === "CALL" ? "call reminder (worklist mein)" : "WhatsApp reminder"} jayega.
           </p>
           <button onClick={save} disabled={saving} className="mt-2 w-full rounded-xl bg-primary text-primary-foreground py-3 text-sm font-bold disabled:opacity-60">
             {saving ? "Saving…" : "Save"}
@@ -144,7 +178,17 @@ function FollowupRulesPage() {
                     <div key={r.id} className={cn("flex items-center justify-between rounded-lg px-2.5 py-2", r.active ? "bg-background" : "bg-muted/50 opacity-60")}>
                       <div className="text-xs">
                         <span className="font-semibold">{r.label}</span>
-                        <span className="text-muted-foreground"> — due date se {r.days_before_due}d pehle</span>
+                        <span
+                          className={cn(
+                            "ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                            r.channel === "CALL" ? "bg-primary/10 text-primary" : "bg-success/15 text-success",
+                          )}
+                        >
+                          {r.channel === "CALL" ? "Call" : "WA"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {" "}— due date se {r.days_before_due >= 0 ? `${r.days_before_due}d pehle` : `${Math.abs(r.days_before_due)}d baad`}
+                        </span>
                       </div>
                       <div className="flex gap-1.5">
                         <button onClick={() => setEditRule(r)} className="h-7 w-7 grid place-items-center rounded-full bg-accent/20 text-accent-foreground">

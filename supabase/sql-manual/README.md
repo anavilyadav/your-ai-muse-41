@@ -33,3 +33,10 @@ before they will succeed.
   (Operational Manual Feature 2: call/verbal/WhatsApp/dose-change/query
   log, no visit required). Backs the Log Interaction button (Reception +
   Doctor) and the merged patient timeline.
+- `0027_staged_followup_sequence.sql` — adds `channel` (CALL/WHATSAPP) to
+  `followup_touchpoints` and `followups`, seeds the locked Day 0/2/5/9/
+  14/19/25 escalation cadence (additive to the existing gap-bracket
+  pre-due reminders, not a replacement), and updates
+  `reschedule_followups_atomic` to carry channel through. Also fixed
+  live: `followup_touchpoints` had 16 exact duplicate rows (every
+  pre-due reminder was firing twice) — deduped before this ran.

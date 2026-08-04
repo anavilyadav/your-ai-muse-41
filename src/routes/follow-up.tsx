@@ -60,7 +60,19 @@ function FollowUpPage() {
               <li key={r.id} className="rounded-xl bg-surface border border-border p-3">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
-                    <div className="font-semibold text-sm text-primary truncate">{r.patient?.name ?? "—"}</div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="font-semibold text-sm text-primary truncate">{r.patient?.name ?? "—"}</div>
+                      {r.channel && (
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                            r.channel === "CALL" ? "bg-primary/10 text-primary" : "bg-success/15 text-success",
+                          )}
+                        >
+                          {r.channel === "CALL" ? "Call" : "WA"}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-muted-foreground">{r.patient?.primary_disease ?? r.followup_type ?? "—"}</div>
                     <div className={cn("text-[11px] font-semibold mt-1",
                       tone === "destructive" && "text-destructive",

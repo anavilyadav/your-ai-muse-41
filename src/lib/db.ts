@@ -1232,7 +1232,18 @@ export interface FollowupTouchpoint {
   label: string;
   min_gap_days: number;
   max_gap_days: number;
+  // 04 Aug 2026: was always "days before due date" (must be positive).
+  // Now allows negative values too, meaning "this many days AFTER the
+  // due date" — needed for the staged post-due chase sequence (Day 2/5/
+  // 9/14/19/25), which fires only once a patient has already missed
+  // their date, not before it.
   days_before_due: number;
+  // 04 Aug 2026: which channel this touchpoint is for. CALL rows are a
+  // manual-worklist-only entry (RECP2 has to actually call); WHATSAPP
+  // rows also get an automated message from whatsapp-daily-reminders.
+  // Defaults to WHATSAPP so every pre-existing rule (all created before
+  // this field existed) keeps behaving exactly as it did.
+  channel: "CALL" | "WHATSAPP";
   active: boolean;
 }
 
@@ -1246,7 +1257,9 @@ export async function fetchFollowupTouchpoints(): Promise<FollowupTouchpoint[]> 
   return (data ?? []) as FollowupTouchpoint[];
 }
 
-export async function saveFollowupTouchpoint(input: Partial<FollowupTouchpoint> & { label: string; min_gap_days: number; max_gap_days: number; days_before_due: number }) {
+export async function saveFollowupTouchpoint(
+  input: Partial<FollowupTouchpoint> & { label: string; min_gap_days: number; max_gap_days: number; days_before_due: number; channel: "CALL" | "WHATSAPP" },
+) {
   const { id, ...rest } = input;
   const { error } = id
     ? await supabase.from("followup_touchpoints").update(rest).eq("id", id)
@@ -1285,12 +1298,14 @@ export async function generateFollowupSchedule(patientId: string, visitId: strin
           return {
             due_date: d.toISOString().slice(0, 10),
             followup_type: r.label,
+            channel: r.channel ?? "WHATSAPP",
           };
         })
       : [
           {
             due_date: dueTarget.toISOString().slice(0, 10),
             followup_type: "DEFAULT",
+            channel: "WHATSAPP" as const,
           },
         ];
 
@@ -1320,6 +1335,7 @@ export async function generateFollowupSchedule(patientId: string, visitId: strin
     visit_id: visitId,
     due_date: r.due_date,
     followup_type: r.followup_type,
+    channel: r.channel,
     status: "PENDING" as const,
   }));
 

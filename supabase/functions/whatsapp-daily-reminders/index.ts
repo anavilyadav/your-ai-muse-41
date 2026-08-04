@@ -1,9 +1,16 @@
 // Runs on a schedule (via Supabase Cron / pg_cron — set up in the
 // Dashboard, no app code needed for the schedule itself).
 //
-// Finds all followups due today (or overdue) that haven't had a reminder
-// sent yet, and sends each patient a WhatsApp FOLLOWUP_REMINDER via AiSensy,
-// then marks them as sent so they're never messaged twice.
+// Finds all WHATSAPP-channel followups due today (or overdue) that haven't
+// had a reminder sent yet, and sends each patient a WhatsApp
+// FOLLOWUP_REMINDER via AiSensy, then marks them as sent so they're never
+// messaged twice.
+//
+// 04 Aug 2026: added the channel filter — followup_touchpoints/followups
+// now distinguish CALL (manual worklist only, e.g. the staged Day 0/5/14/
+// 25 post-due chase) from WHATSAPP (also auto-sent here, e.g. Day 2/9/19).
+// Before this, every row got an automated WhatsApp regardless of its
+// intended channel.
 //
 // Needs an approved AiSensy API Campaign named exactly "FOLLOWUP_REMINDER".
 //
@@ -65,6 +72,7 @@ Deno.serve(async (req) => {
       .from("followups")
       .select("id, patient_id, due_date, followup_type, patients(name, mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent)")
       .eq("status", "PENDING")
+      .eq("channel", "WHATSAPP")
       .lte("due_date", today)
       .is("reminder_sent_at", null);
 
