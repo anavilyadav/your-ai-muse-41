@@ -700,6 +700,8 @@ function ReferenceRubricsCard() {
 
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
+    { label: "Medicine Master", to: "/pharmacy/master", note: "180+ remedies preloaded — add, rename, deactivate" },
+    { label: "Inventory (branch-wise stock)", to: "/pharmacy/inventory", note: "Bajaj Nagar / Jagatpura / Total, potency-wise" },
     { label: "Lead CRM", to: "/leads", note: "Enquiries, HOT/Warm/Cold, convert to patient" },
     { label: "Follow-up CRM", to: "/follow-up", note: "Overdue + upcoming follow-up calls" },
     { label: "Deliveries (Courier)", to: "/delivery", note: "Advance-paid medicine delivery tracking" },
