@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, fetchInventorySearch, addStockEntry, BRANCH_LABELS } from "@/lib/db";
+import { fetchInventory, addStockEntry, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -19,7 +19,10 @@ export const Route = createFileRoute("/pharmacy/inventory")({
   ),
 });
 
-const BRANCHES = BRANCH_LABELS;
+// "Total" is a view, not a real branch — never sent to the DB, only used
+// to pick which rows the list below shows.
+const TOTAL = "TOTAL" as const;
+const TABS = [...BRANCH_KEYS, TOTAL] as const;
 const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
 
 function isLow(row: any): boolean {
@@ -28,15 +31,18 @@ function isLow(row: any): boolean {
   return stock <= low;
 }
 
+// Catalog-sourced — picks from the Medicine Master list (typo-proof) but
+// still lets Pharmacy type a name that isn't in the catalog yet; AddStockModal
+// registers it in the catalog on submit before adding stock.
 function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const debouncedValue = useDebouncedValue(value, 300);
   const { data } = useQuery({
-    queryKey: ["med-autocomplete", debouncedValue],
-    queryFn: () => fetchInventorySearch(debouncedValue),
+    queryKey: ["med-catalog-autocomplete", debouncedValue],
+    queryFn: () => fetchMedicinesCatalog(debouncedValue, true),
     enabled: debouncedValue.trim().length >= 2,
   });
-  const suggestions = Array.from(new Set((data ?? []).map((m: any) => m.medicine_name)));
+  const suggestions = data ?? [];
   return (
     <div className="relative">
       <input
@@ -45,18 +51,18 @@ function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
-        placeholder="Type karo — existing medicine dikhengi, ya nayi likh do"
+        placeholder="Master se pick karo, ya nayi likh do"
       />
       {open && suggestions.length > 0 && (
         <ul className="absolute z-10 w-full mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
-          {suggestions.map((name: any) => (
-            <li key={name}>
+          {suggestions.map((m) => (
+            <li key={m.id}>
               <button
                 type="button"
-                onMouseDown={() => { onChange(name); setOpen(false); }}
+                onMouseDown={() => { onChange(m.name); setOpen(false); }}
                 className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
               >
-                {name}
+                {m.name}
               </button>
             </li>
           ))}
@@ -66,10 +72,10 @@ function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v
   );
 }
 
-function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: string; onClose: () => void; onAdded: () => void }) {
   const [medicine, setMedicine] = useState("");
   const [potency, setPotency] = useState("");
-  const [branch, setBranch] = useState(BRANCHES[0]);
+  const [branch, setBranch] = useState(defaultBranch);
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -112,8 +118,8 @@ function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
             <div className="flex gap-1.5 mt-1">
-              {BRANCHES.map((b) => (
-                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+              {BRANCH_KEYS.map((b) => (
+                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
               ))}
             </div>
           </div>
@@ -131,19 +137,41 @@ function AddStockModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
 }
 
 function InventoryPage() {
+  const [tab, setTab] = useState<(typeof TABS)[number]>(BRANCH_KEYS[0]);
   const [f, setF] = useState<"All" | "Low Stock">("All");
   const [showAdd, setShowAdd] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
   const queryClient = useQueryClient();
-  const rows = (data?.rows ?? []) as any[];
+  const allRows = (data?.rows ?? []) as any[];
   const inventoryTruncated = data?.truncated ?? false;
+
+  // Total view merges same medicine+potency across both branches into one
+  // row with a combined stock figure — "kitni bottles kahan padi hain" is
+  // answered by the branch tabs; Total answers "kitni bottles clinic mein
+  // hain overall", which is a different, equally real question.
+  const branchRows = tab === TOTAL ? allRows : allRows.filter((r) => r.branch === tab);
+  const rows =
+    tab === TOTAL
+      ? Array.from(
+          allRows.reduce((map, r) => {
+            const key = `${r.medicine_name}__${r.potency ?? ""}`;
+            const cur = map.get(key) ?? { ...r, stock_drams: 0, reorder_level: 0 };
+            cur.stock_drams = Number(cur.stock_drams) + Number(r.stock_drams ?? 0);
+            cur.reorder_level = Math.max(Number(cur.reorder_level), Number(r.reorder_level ?? 0));
+            map.set(key, cur);
+            return map;
+          }, new Map<string, any>()).values(),
+        )
+      : branchRows;
   const list = f === "Low Stock" ? rows.filter(isLow) : rows;
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inventory"] });
 
   return (
     <RoleShell
       wide
       title="Inventory"
-      subtitle="Current stock levels"
+      subtitle="Branch-wise stock"
       nav={PHARMACY_NAV}
       right={
         <button
@@ -155,10 +183,24 @@ function InventoryPage() {
       }
     >
       {showAdd && (
-        <AddStockModal onClose={() => setShowAdd(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["inventory"] })} />
+        <AddStockModal defaultBranch={tab === TOTAL ? BRANCH_KEYS[0] : tab} onClose={() => setShowAdd(false)} onAdded={invalidate} />
       )}
       <div className="flex gap-2">
-        <Stat v={rows.length} l="Total Items" />
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "flex-1 rounded-full px-3 py-2 text-[12px] font-bold border text-center",
+              tab === t ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-primary border-border",
+            )}
+          >
+            {t === TOTAL ? "Total (both)" : branchLabel(t)}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Stat v={rows.length} l={tab === TOTAL ? "Total Items" : `${branchLabel(tab)} Items`} />
         <Stat v={rows.filter(isLow).length} l="Low Stock" tone="destructive" />
       </div>
       {inventoryTruncated && (
@@ -183,7 +225,7 @@ function InventoryPage() {
       {isLoading ? (
         <LoadingBlock />
       ) : list.length === 0 ? (
-        <EmptyBlock label="Inventory khaali hai." />
+        <EmptyBlock label={tab === TOTAL ? "Inventory khaali hai." : `${branchLabel(tab)} mein stock khaali hai.`} />
       ) : (
         <ul className="mt-4 space-y-2.5">
           {list.map((i, idx) => {
@@ -202,6 +244,11 @@ function InventoryPage() {
                   <div className="font-bold text-primary text-[15px]">
                     {i.medicine_name ?? i.med} {i.potency && i.potency !== "—" && i.potency}
                   </div>
+                  {tab === TOTAL && (
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${allRows.filter((r) => r.medicine_name === i.medicine_name && r.potency === i.potency && r.branch === b).reduce((s, r) => s + Number(r.stock_drams ?? 0), 0)}`).join(" · ")}
+                    </div>
+                  )}
                   {low && <div className="text-[12px] text-destructive font-semibold mt-0.5">⚠ Low stock — reorder soon</div>}
                 </div>
                 <div className="text-right">

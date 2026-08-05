@@ -9,7 +9,7 @@ import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import {
   fetchVisit,
   fetchPatientHistory,
-  fetchInventorySearch,
+  fetchInStockMedicines,
   submitPrescription,
   branchLabel,
   saveRxDraft,
@@ -17,7 +17,7 @@ import {
   DEFAULT_NEXT_VISIT_OPTIONS,
   fetchSlxInstructions,
   DEFAULT_SLX_INSTRUCTIONS,
-  addStockEntry,
+  addMedicineToCatalog,
   type RxRow,
   type RxDraft,
   type NextVisitOption,
@@ -488,9 +488,14 @@ function RxRowEditor({
   const debouncedTerm = useDebouncedValue(term, 300);
   const [open, setOpen] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
+  // In-stock only (05 Aug 2026) — a doctor should never be able to pick a
+  // medicine+potency+branch combo that isn't actually on the shelf right
+  // now. fetchInventorySearch (used elsewhere, e.g. Pharmacy's Add Stock
+  // autocomplete) intentionally still shows zero-stock rows too — that's a
+  // different, correct need (finding an existing item to top up).
   const { data: inv, isFetching: invLoading } = useQuery({
-    queryKey: ["inv-search", debouncedTerm, branch],
-    queryFn: () => fetchInventorySearch(debouncedTerm, branch),
+    queryKey: ["inv-in-stock", debouncedTerm, branch],
+    queryFn: () => fetchInStockMedicines(debouncedTerm, branch),
     enabled: open && debouncedTerm.length > 0,
   });
 
@@ -504,20 +509,25 @@ function RxRowEditor({
     open && debouncedTerm.trim().length > 1 && !invLoading && (!inv || inv.length === 0);
 
   const addAsNewMedicine = async () => {
+    // Registers the name in the Medicine Master catalog only — not a
+    // phantom 0-stock inventory row like before (that cluttered Inventory
+    // with entries that were never actually physical stock). This Rx line
+    // still uses whatever text the doctor typed either way; the catalog
+    // entry just means Pharmacy can find it by name next time they stock it.
     const name = debouncedTerm.trim();
     if (!name || addingNew) return;
     setAddingNew(true);
-    const res = await addStockEntry({ medicine_name: name, potency: row.potency, branch, quantity: 0 });
+    const res = await addMedicineToCatalog(name);
     setAddingNew(false);
     if (!res.success) {
       toast.error(res.error || "Medicine add nahi ho paya");
       return;
     }
-    onChange({ medicine_name: name });
-    setTerm(name);
+    onChange({ medicine_name: res.medicine?.name ?? name });
+    setTerm(res.medicine?.name ?? name);
     setOpen(false);
-    qc.invalidateQueries({ queryKey: ["inv-search"] });
-    toast.success(`"${name}" master mein add ho gaya (stock 0 — Pharmacy se restock karna hoga)`);
+    qc.invalidateQueries({ queryKey: ["inv-in-stock"] });
+    toast.success(`"${name}" Medicine Master mein add ho gaya — Pharmacy ko is potency ka stock bharna hoga`);
   };
 
   return (

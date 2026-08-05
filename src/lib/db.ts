@@ -1644,21 +1644,102 @@ export async function addStockEntry(input: StockEntryInput) {
   return { success: true, error: null };
 }
 
-export async function fetchMasterMedicines() {
-  const { data } = await supabase
-    .from("inventory")
-    .select("medicine_name, potency, type")
-    .order("medicine_name", { ascending: true })
-    .limit(2000);
-  const map = new Map<string, { med: string; potencies: string[]; type: string }>();
-  (data ?? []).forEach((r: any) => {
-    const cur: { med: string; potencies: string[]; type: string } =
-      map.get(r.medicine_name) ?? { med: r.medicine_name, potencies: [], type: r.type ?? "" };
-    if (r.potency && !cur.potencies.includes(r.potency)) cur.potencies.push(r.potency);
-    if (r.type && !cur.type) cur.type = r.type;
+// ---------- Medicine Master (05 Aug 2026) ----------
+// A real name-only catalog, decoupled from stock/potency/branch. Was
+// previously just "whatever medicine_name values exist in inventory"
+// (fetchMasterMedicines, removed) — that had two live bugs: it selected
+// an `inventory.type` column that never existed in the DB (silently
+// swallowed error, page always showed empty), and "adding a medicine"
+// meant creating a phantom 0-stock inventory row rather than a real
+// catalog entry. Migration 0028 fixed both and added this `medicines`
+// table, seeded with 180 standard remedies so nobody has to type a name
+// from scratch. Owner/Pharmacy can add more or rename/deactivate here;
+// inventory (potency + stock + branch) is unchanged and unrelated.
+export interface DBMedicine {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+export async function fetchMedicinesCatalog(search?: string, includeInactive = true): Promise<DBMedicine[]> {
+  let q = supabase.from("medicines").select("id, name, is_active").eq("is_deleted", false).order("name", { ascending: true }).limit(500);
+  if (!includeInactive) q = q.eq("is_active", true);
+  const clean = search ? sanitizeIlikeTerm(search) : "";
+  const { data, error } = clean ? await q.ilike("name", `%${clean}%`) : await q;
+  if (error) return [];
+  return (data ?? []) as DBMedicine[];
+}
+
+export async function addMedicineToCatalog(name: string): Promise<{ success: boolean; error: string | null; medicine?: DBMedicine }> {
+  const clean = name.trim();
+  if (!clean) return { success: false, error: "Medicine naam khaali nahi ho sakta" };
+  const { data, error } = await supabase.from("medicines").insert({ name: clean }).select("id, name, is_active").maybeSingle();
+  if (error) {
+    // Unique-violation on the case-insensitive live-name index means it
+    // already exists — treat that as success and hand back the existing row,
+    // rather than erroring on something the user didn't do wrong.
+    if (error.code === "23505") {
+      const { data: existing } = await supabase.from("medicines").select("id, name, is_active").ilike("name", clean).eq("is_deleted", false).maybeSingle();
+      if (existing) return { success: true, error: null, medicine: existing as DBMedicine };
+    }
+    return { success: false, error: error.message };
+  }
+  return { success: true, error: null, medicine: data as DBMedicine };
+}
+
+/** Renames a medicine in the master catalog, and cascades the new name onto
+ * any current (live) inventory rows still filed under the old name — so
+ * branch stock doesn't silently "disappear" under a name nobody can find
+ * anymore. Two sequential updates, not one transaction: this is reference
+ * data (not money), and at present data volume the risk of a partial
+ * failure leaving things briefly inconsistent is low and self-evident
+ * (Owner would immediately notice a mismatched name and can re-run it). */
+export async function renameMedicineInCatalog(id: string, oldName: string, newName: string): Promise<{ success: boolean; error: string | null }> {
+  const clean = newName.trim();
+  if (!clean) return { success: false, error: "Naya naam khaali nahi ho sakta" };
+  const { error } = await supabase.from("medicines").update({ name: clean, modified_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { success: false, error: error.code === "23505" ? "Ye naam pehle se kisi aur medicine ka hai" : error.message };
+  if (oldName.trim() !== clean) {
+    await supabase.from("inventory").update({ medicine_name: clean, modified_at: new Date().toISOString() }).eq("medicine_name", oldName).eq("is_deleted", false);
+  }
+  return { success: true, error: null };
+}
+
+export async function setMedicineActive(id: string, isActive: boolean): Promise<{ success: boolean; error: string | null }> {
+  const { error } = await supabase.from("medicines").update({ is_active: isActive, modified_at: new Date().toISOString() }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+/** Per-medicine stock summary across both branches — powers the "Bajaj X ·
+ * Jagatpura Y · Total Z" line on the Medicine Master screen. Reuses
+ * fetchInventory() (already fetched for the Inventory tab in most sessions)
+ * rather than a second round-trip; caller decides whether to pass it in. */
+export function summarizeStockByMedicine(inventoryRows: any[]): Map<string, { potencies: Set<string>; byBranch: Record<string, number>; total: number }> {
+  const map = new Map<string, { potencies: Set<string>; byBranch: Record<string, number>; total: number }>();
+  for (const r of inventoryRows) {
+    if (r.is_deleted) continue;
+    const cur = map.get(r.medicine_name) ?? { potencies: new Set<string>(), byBranch: {}, total: 0 };
+    if (r.potency) cur.potencies.add(r.potency);
+    const stock = Number(r.stock_drams ?? 0);
+    cur.byBranch[r.branch] = (cur.byBranch[r.branch] ?? 0) + stock;
+    cur.total += stock;
     map.set(r.medicine_name, cur);
-  });
-  return Array.from(map.values());
+  }
+  return map;
+}
+
+/** Doctor-facing Rx picker — unlike fetchInventorySearch (used by Pharmacy's
+ * Add Stock autocomplete, which should show zero-stock rows too so staff
+ * can find and top them up), this only returns potency/branch combos that
+ * actually have stock right now, so a doctor can never select something
+ * that isn't physically on the shelf. */
+export async function fetchInStockMedicines(term: string, branch?: string) {
+  const clean = sanitizeIlikeTerm(term);
+  let q = supabase.from("inventory").select("*").eq("is_deleted", false).gt("stock_drams", 0).limit(20);
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = clean ? await q.ilike("medicine_name", `%${clean}%`) : await q;
+  if (error) return [];
+  return data ?? [];
 }
 
 // ---------- Dispense ----------
