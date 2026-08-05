@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addStockEntry, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS } from "@/lib/db";
+import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -72,64 +72,124 @@ function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v
   );
 }
 
+// Rapid bulk-entry (05 Aug 2026, Dr. Yadav's request): with 180+ medicines
+// each carrying several potencies across 2 branches, one-medicine-one-
+// potency-one-branch-per-modal meant 500+ separate form submissions.
+// Branch is picked ONCE per session (Pharmacy is physically standing in
+// one branch counting bottles — they don't need the other branch's
+// numbers open at the same time). Every common potency gets its own qty
+// box up front; "Save & Next Medicine" submits every filled box in one
+// action, then clears the form and keeps the modal open with the same
+// branch, ready for the next medicine — so a whole shelf can be entered
+// without reopening this sheet each time.
 function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: string; onClose: () => void; onAdded: () => void }) {
   const [medicine, setMedicine] = useState("");
-  const [potency, setPotency] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
-  const [qty, setQty] = useState("");
+  const [qtyByPotency, setQtyByPotency] = useState<Record<string, string>>({});
+  const [extraPotencies, setExtraPotencies] = useState<string[]>([]);
+  const [newPotency, setNewPotency] = useState("");
   const [saving, setSaving] = useState(false);
+  const [sessionCount, setSessionCount] = useState(0);
+
+  const potencyRows = [...COMMON_POTENCIES, ...extraPotencies];
+
+  const setQty = (p: string, v: string) => setQtyByPotency((cur) => ({ ...cur, [p]: v }));
+
+  const addCustomPotency = () => {
+    const p = newPotency.trim();
+    if (!p || potencyRows.includes(p)) { setNewPotency(""); return; }
+    setExtraPotencies((cur) => [...cur, p]);
+    setNewPotency("");
+  };
+
+  const resetForNext = () => {
+    setMedicine("");
+    setQtyByPotency({});
+    setExtraPotencies([]);
+  };
 
   const submit = async () => {
-    const q = Number(qty);
-    if (!medicine.trim() || !potency.trim() || !q || q <= 0) {
-      toast.error("Medicine, potency aur valid quantity bharo");
-      return;
-    }
+    if (!medicine.trim()) { toast.error("Medicine naam bharo"); return; }
+    const entries = potencyRows
+      .map((p) => ({ potency: p, quantity: Number(qtyByPotency[p]) }))
+      .filter((e) => e.quantity > 0);
+    if (entries.length === 0) { toast.error("Kam se kam ek potency mein quantity bharo"); return; }
+
     setSaving(true);
-    const res = await addStockEntry({ medicine_name: medicine.trim(), potency: potency.trim(), branch, quantity: q });
+    const result = await addBulkStockEntries(medicine.trim(), branch, entries);
     setSaving(false);
-    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
-    toast.success("Stock add ho gaya");
+
+    if (result.failed.length === 0) {
+      toast.success(`${medicine.trim()} — ${result.succeeded} potencies save ho gayi`);
+    } else if (result.succeeded > 0) {
+      toast.error(`${result.succeeded} saved, ${result.failed.length} fail: ${result.failed.map((f) => f.potency).join(", ")}`);
+    } else {
+      toast.error("Kuch save nahi hua: " + result.failed[0]?.error);
+      return; // keep the form filled so they can retry, don't reset
+    }
+    setSessionCount((c) => c + 1);
     onAdded();
-    onClose();
+    resetForNext();
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
-      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-extrabold text-primary text-lg">Add Stock Entry</h2>
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">Add Stock — Bulk</h2>
           <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
+        {sessionCount > 0 && (
+          <div className="text-[12px] text-success font-semibold mb-3">✓ {sessionCount} medicine{sessionCount > 1 ? "s" : ""} stocked is session mein</div>
+        )}
         <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch (poore session ke liye fix)</label>
+            <div className="flex gap-1.5 mt-1">
+              {BRANCH_KEYS.map((b) => (
+                <button key={b} onClick={() => setBranch(b)} className={cn("flex-1 rounded-full px-3 py-2 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
+              ))}
+            </div>
+          </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
             <MedicineAutocomplete value={medicine} onChange={setMedicine} />
           </div>
           <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {COMMON_POTENCIES.map((p) => (
-                <button key={p} type="button" onClick={() => setPotency(p)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", potency === p ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{p}</button>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">
+              Jitni potencies ka stock hai, sab bhar do — khaali chhod do jiska nahi hai
+            </label>
+            <div className="mt-1.5 rounded-xl border border-border overflow-hidden">
+              {potencyRows.map((p, i) => (
+                <div key={p} className={cn("flex items-center gap-2 px-3 py-2", i % 2 === 0 ? "bg-surface" : "bg-background")}>
+                  <span className="text-[13px] font-bold text-primary w-14 shrink-0">{p}</span>
+                  <input
+                    value={qtyByPotency[p] ?? ""}
+                    onChange={(e) => setQty(p, e.target.value)}
+                    inputMode="numeric"
+                    placeholder="qty"
+                    className="flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm"
+                  />
+                </div>
               ))}
             </div>
-            <input value={potency} onChange={(e) => setPotency(e.target.value)} className="w-full mt-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="Ya alag potency likho" />
-          </div>
-          <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
-            <div className="flex gap-1.5 mt-1">
-              {BRANCH_KEYS.map((b) => (
-                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
-              ))}
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                value={newPotency}
+                onChange={(e) => setNewPotency(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomPotency(); } }}
+                placeholder="Alag potency (e.g. 50M)"
+                className="flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm"
+              />
+              <button type="button" onClick={addCustomPotency} className="rounded-full bg-muted text-primary text-[12px] font-bold px-3 py-1.5 shrink-0">
+                + Row
+              </button>
             </div>
           </div>
-          <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Quantity (drams) to add</label>
-            <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="e.g. 50" />
-          </div>
-          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
-            {saving ? "Saving…" : "Add Stock"}
+          <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Save & Next Medicine"}
           </button>
+          <p className="text-[11px] text-muted-foreground text-center">Save karne ke baad form khaali ho jaayega, branch wahi rahega — turant agli medicine daal sakte ho.</p>
         </div>
       </div>
     </div>

@@ -1661,6 +1661,30 @@ export interface DBMedicine {
   is_active: boolean;
 }
 
+/** Bulk version of addStockEntry — one medicine, one branch, several
+ * potencies in a single user action (05 Aug 2026, Dr. Yadav's request:
+ * with 180+ medicines × several potencies × 2 branches, one-at-a-time
+ * entry meant 500+ separate form submissions). Runs the potency rows in
+ * parallel (each is already its own row-locked transaction server-side
+ * via increment_stock) and reports which ones failed rather than
+ * all-or-nothing, so a single bad row doesn't lose the rest of the batch. */
+export async function addBulkStockEntries(
+  medicine_name: string,
+  branch: string,
+  entries: { potency: string; quantity: number }[],
+): Promise<{ succeeded: number; failed: { potency: string; error: string }[] }> {
+  const results = await Promise.allSettled(
+    entries.map((e) => addStockEntry({ medicine_name, potency: e.potency, branch, quantity: e.quantity })),
+  );
+  const failed: { potency: string; error: string }[] = [];
+  let succeeded = 0;
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value.success) succeeded += 1;
+    else failed.push({ potency: entries[i].potency, error: r.status === "fulfilled" ? r.value.error ?? "Unknown error" : String(r.reason) });
+  });
+  return { succeeded, failed };
+}
+
 export async function fetchMedicinesCatalog(search?: string, includeInactive = true): Promise<DBMedicine[]> {
   let q = supabase.from("medicines").select("id, name, is_active").eq("is_deleted", false).order("name", { ascending: true }).limit(500);
   if (!includeInactive) q = q.eq("is_active", true);
