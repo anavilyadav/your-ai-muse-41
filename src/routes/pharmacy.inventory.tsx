@@ -230,6 +230,7 @@ function InventoryPage() {
   return (
     <RoleShell
       wide
+      showBack
       title="Inventory"
       subtitle="Branch-wise stock"
       nav={PHARMACY_NAV}

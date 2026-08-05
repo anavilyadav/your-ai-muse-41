@@ -27,7 +27,6 @@ export const Route = createFileRoute("/pharmacy/master")({
     </AuthGate>
   ),
 });
-
 function AddMedicineModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -180,6 +179,7 @@ function MasterPage() {
   return (
     <RoleShell
       wide
+      showBack
       title="Medicine Master"
       subtitle={`${all.filter((m) => m.is_active).length} active medicines`}
       nav={PHARMACY_NAV}
