@@ -245,6 +245,122 @@ function JustDialToggle({ settings }: { settings: any[] }) {
   );
 }
 
+// Fixed Supabase project ref — same one every Edge Function URL in this
+// project uses (see src/lib/supabase.ts). Webhook URLs never change, so
+// they can be shown as plain text here instead of fetched from anywhere.
+const SUPABASE_FN_BASE = "https://swekxnhvecrcpiuteqmj.supabase.co/functions/v1";
+
+// 06 Aug 2026 — "backend pe kuch na touch karna pade" (Dr. Yadav). These
+// two webhooks are generic/reusable: once each is connected ONE TIME
+// (website form tool ↔ external-lead-webhook, Meta App ↔
+// meta-leadgen-webhook), every future new form/campaign flows through
+// automatically — nothing here needs to change again. This panel exists
+// so Owner can see the URL to paste, and flip a source off without asking
+// for a code change.
+function LeadSourceToggle({ settings, settingKey, title, help }: { settings: any[]; settingKey: string; title: string; help: string }) {
+  const qc = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const row = settings.find((r: any) => r.key === settingKey);
+  const on = row ? row.value === "true" : true;
+
+  const toggle = async () => {
+    setPending(true);
+    try {
+      await upsertSetting(settingKey, String(!on));
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setPending(false);
+  };
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <div className="text-sm font-semibold text-primary">{title}</div>
+        <div className="text-[11px] text-muted-foreground">{help}</div>
+      </div>
+      <button onClick={toggle} disabled={pending} className={cn(pending && "opacity-50")}>
+        <span className={cn("relative h-5 w-9 rounded-full transition inline-block", on ? "bg-success" : "bg-border")}>
+          <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all", on ? "left-[18px]" : "left-0.5")} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function CopyableUrl({ label, url }: { label: string; url: string }) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Copy ho gaya");
+    } catch {
+      toast.error("Copy nahi hua — manually select karke copy karo");
+    }
+  };
+  return (
+    <div className="mt-2">
+      <div className="text-[10px] font-bold text-muted-foreground uppercase">{label}</div>
+      <button onClick={copy} className="mt-1 w-full text-left rounded-lg bg-muted/50 border border-border px-2.5 py-2 text-[11px] font-mono break-all">
+        {url}
+      </button>
+    </div>
+  );
+}
+
+function LeadSourcesPanel({ settings }: { settings: any[] }) {
+  const [showMetaDetail, setShowMetaDetail] = useState(false);
+  return (
+    <div className="rounded-2xl bg-surface border border-border p-3.5">
+      <div className="text-sm font-bold text-primary mb-1">Lead Sources — Website / FB / Instagram</div>
+      <div className="text-[11px] text-muted-foreground mb-3">
+        Ek baar connect karne ke baad, naye form/campaign ke liye kabhi bhi code change nahi chahiye.
+      </div>
+
+      <LeadSourceToggle
+        settings={settings}
+        settingKey="external_lead_webhook_enabled"
+        title="Website / Google Form Auto-Lead"
+        help="Kisi bhi website form ya Google Form ko is ek URL se jodo"
+      />
+      <CopyableUrl label="Webhook URL" url={`${SUPABASE_FN_BASE}/external-lead-webhook`} />
+      <p className="text-[10px] text-muted-foreground mt-1.5">
+        Website ka form (ya Google Form → Apps Script trigger) is URL pe POST kare:
+        {" "}<code className="text-[10px]">{"{ source, name, mobile }"}</code> + header{" "}
+        <code className="text-[10px]">x-lead-secret</code>. Secret ek baar Supabase Dashboard mein set hota hai
+        (jaise AiSensy key) — uske baad koi bhi naya form isi URL+secret se turant kaam karega.
+      </p>
+
+      <div className="h-px bg-border my-3.5" />
+
+      <LeadSourceToggle
+        settings={settings}
+        settingKey="meta_leadgen_enabled"
+        title="Facebook / Instagram Lead Ads Auto-Capture"
+        help="Meta ke native 'Instant Form' ads se seedha lead aaye"
+      />
+      <CopyableUrl label="Webhook URL" url={`${SUPABASE_FN_BASE}/meta-leadgen-webhook`} />
+      <button
+        onClick={() => setShowMetaDetail((v) => !v)}
+        className="mt-1.5 text-[11px] font-semibold text-primary underline"
+      >
+        {showMetaDetail ? "Setup steps chhupao" : "One-time setup kaise karein?"}
+      </button>
+      {showMetaDetail && (
+        <ol className="mt-2 text-[11px] text-foreground/80 space-y-1.5 list-decimal list-inside">
+          <li>Meta for Developers pe apna Facebook Page se linked App banao (ek baar).</li>
+          <li>App → Webhooks → "leadgen" field subscribe karo, upar wala URL paste karo.</li>
+          <li>Verify token — koi bhi string choose karo, App mein bhi wahi daalo (Supabase secret <code className="text-[10px]">META_VERIFY_TOKEN</code>).</li>
+          <li>App Secret (App → Settings → Basic) ko Supabase secret <code className="text-[10px]">META_APP_SECRET</code> mein daalo.</li>
+          <li>Page Access Token (Graph API Explorer se, leads_retrieval permission ke saath) ko <code className="text-[10px]">META_PAGE_ACCESS_TOKEN</code> mein daalo.</li>
+          <li>Ye 4 secrets Supabase Dashboard → Edge Functions → Secrets mein ek baar set karne hain — uske baad koi bhi naya ad campaign is Page pe automatically capture hoga, kabhi dobara touch nahi karna.</li>
+        </ol>
+      )}
+    </div>
+  );
+}
+
+
 // The 14 clinic-ops / feature-module / privacy / payment toggles that used
 // to live here were removed: they wrote to `settings` but no code path
 // anywhere in the app ever read those keys, so flipping them did nothing.
@@ -820,6 +936,7 @@ function ControlPage() {
             helpText="Default sabke liye ON hai."
           />
           <JustDialToggle settings={data ?? []} />
+          <LeadSourcesPanel settings={data ?? []} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
               Backup Doctor
