@@ -1,12 +1,19 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff, Plus } from "lucide-react";
+import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
-import { fetchLeads, fetchLeadStats, fetchLeadSourceStats, searchLeads, updateLeadStatus, setLeadDnd, maskMobile, logWhatsAppInteraction, createLead, LEAD_SOURCES, type LeadStatus } from "@/lib/db";
+import {
+  fetchLeads, fetchLeadStats, fetchLeadSourceStats, searchLeads,
+  updateLeadStage, setLeadQuality, setLeadDnd, assignLead, setLeadFollowup, logLeadCall,
+  maskMobile, logWhatsAppInteraction, createLead, fetchStaff, searchPatients,
+  LEAD_SOURCES, LEAD_SOURCE_LABELS, LEAD_SOURCE_CRITERIA, LEAD_STAGES, LEAD_STAGE_LABELS,
+  LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
+  type LeadStage, type LeadQuality, type LeadSource,
+} from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -22,20 +29,37 @@ export const Route = createFileRoute("/leads")({
 type Filter = "All" | "HOT" | "Follow-up Due" | "New Today";
 const filters: Filter[] = ["All", "HOT", "Follow-up Due", "New Today"];
 
-const statusStyle: Record<LeadStatus, string> = {
+// FIXED 05 Aug: temperature (quality) and funnel stage are two different
+// DB columns now — styled separately instead of one conflated enum.
+const qualityStyle: Record<LeadQuality, string> = {
   HOT: "bg-destructive/15 text-destructive border-destructive/30",
-  Warm: "bg-accent/25 text-accent-foreground border-accent/40",
-  Cold: "bg-muted text-muted-foreground border-border",
-  Converted: "bg-success/20 text-success border-success/40",
-  Lost: "bg-muted text-muted-foreground border-border line-through",
+  WARM: "bg-accent/25 text-accent-foreground border-accent/40",
+  COLD: "bg-muted text-muted-foreground border-border",
 };
 
-const borderStyle: Record<LeadStatus, string> = {
+const qualityBorder: Record<LeadQuality, string> = {
   HOT: "border-l-destructive",
-  Warm: "border-l-accent",
-  Cold: "border-l-muted-foreground/40",
-  Converted: "border-l-success",
-  Lost: "border-l-muted-foreground/30",
+  WARM: "border-l-accent",
+  COLD: "border-l-muted-foreground/40",
+};
+
+const stageStyle: Record<LeadStage, string> = {
+  NEW: "bg-muted text-muted-foreground border-border",
+  CONTACTED: "bg-accent/20 text-accent-foreground border-accent/30",
+  NURTURING: "bg-accent/25 text-accent-foreground border-accent/40",
+  APPOINTMENT_FIXED: "bg-primary/15 text-primary border-primary/30",
+  CONVERTED: "bg-success/20 text-success border-success/40",
+  LOST: "bg-muted text-muted-foreground border-border line-through",
+};
+
+// Which stage a logged call outcome moves the lead to — keeps the funnel
+// honest without staff having to separately remember to update it.
+const OUTCOME_TO_STAGE: Record<(typeof LEAD_CALL_OUTCOMES)[number], LeadStage> = {
+  "No Answer": "CONTACTED",
+  "Interested": "NURTURING",
+  "Not Interested": "LOST",
+  "Callback Requested": "CONTACTED",
+  "Booked": "APPOINTMENT_FIXED",
 };
 
 function daysSince(iso: string | null | undefined): number {
@@ -67,13 +91,19 @@ function LeadsPage() {
 
   const filtered = useMemo(() => {
     return leads.filter((l) => {
-      const status = (l.status ?? "Cold") as LeadStatus;
-      const created = l.created_at ?? l.enquired_at;
+      const quality = (l.lead_quality ?? "WARM") as LeadQuality;
+      const stage = (l.status ?? "NEW") as LeadStage;
+      const created = l.created_at;
       if (filter === "All") return true;
-      if (filter === "HOT") return status === "HOT";
+      if (filter === "HOT") return quality === "HOT";
       if (filter === "New Today") return daysSince(created) < 1;
-      if (filter === "Follow-up Due")
-        return (status === "HOT" || status === "Warm") && daysSince(created) >= 1;
+      if (filter === "Follow-up Due") {
+        // A real due-date takes priority (leads.next_followup); leads
+        // without one fall back to the old "hot/warm and not touched
+        // today" heuristic so nothing silently disappears from this tab.
+        if (l.next_followup) return new Date(l.next_followup) <= new Date();
+        return stage !== "CONVERTED" && stage !== "LOST" && (quality === "HOT" || quality === "WARM") && daysSince(created) >= 1;
+      }
       return true;
     });
   }, [leads, filter]);
@@ -92,27 +122,63 @@ function LeadsPage() {
   const sourceRows = sourceQ.data ?? [];
   const [showSources, setShowSources] = useState(false);
 
-  const doUpdate = async (id: string, s: LeadStatus) => {
+  const invalidateLeads = () => {
+    qc.invalidateQueries({ queryKey: ["leads"] });
+    qc.invalidateQueries({ queryKey: ["leads-search"] });
+    qc.invalidateQueries({ queryKey: ["lead-stats"] });
+    qc.invalidateQueries({ queryKey: ["lead-source-stats"] });
+  };
+
+  const doStage = async (id: string, s: LeadStage) => {
     try {
-      await updateLeadStatus(id, s);
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      qc.invalidateQueries({ queryKey: ["leads-search"] });
-      qc.invalidateQueries({ queryKey: ["lead-stats"] });
+      await updateLeadStage(id, s);
+      invalidateLeads();
     } catch (e: any) {
-      toast.error("Status update nahi hua: " + (e?.message ?? "unknown error"));
+      toast.error("Stage update nahi hua: " + (e?.message ?? "unknown error"));
     }
+  };
+
+  const doQuality = async (id: string, q: LeadQuality) => {
+    try {
+      await setLeadQuality(id, q);
+      invalidateLeads();
+    } catch (e: any) {
+      toast.error("Quality update nahi hua: " + (e?.message ?? "unknown error"));
+    }
+  };
+
+  const doAssign = async (id: string, userId: string) => {
+    const res = await assignLead(id, userId || null);
+    if (!res.success) { toast.error("Assign nahi hua: " + res.error); return; }
+    invalidateLeads();
+  };
+
+  const doFollowup = async (id: string, date: string) => {
+    const res = await setLeadFollowup(id, date || null);
+    if (!res.success) { toast.error("Follow-up date save nahi hua: " + res.error); return; }
+    invalidateLeads();
+  };
+
+  const doLogCall = async (id: string, outcome: (typeof LEAD_CALL_OUTCOMES)[number]) => {
+    const res = await logLeadCall(id, outcome);
+    if (!res.success) { toast.error("Call log nahi hua: " + res.error); return; }
+    await doStage(id, OUTCOME_TO_STAGE[outcome]);
+    toast.success(`Call logged: ${outcome}`);
   };
 
   const doDnd = async (id: string, current: boolean) => {
     const res = await setLeadDnd(id, !current);
     if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
     toast.success(!current ? "DND lagaya — ab isko message/call nahi jayega" : "DND hataya");
-    qc.invalidateQueries({ queryKey: ["leads"] });
-    qc.invalidateQueries({ queryKey: ["leads-search"] });
+    invalidateLeads();
   };
+
+  const staffQ = useQuery({ queryKey: ["staff-for-leads"], queryFn: fetchStaff });
+  const assignableStaff = (staffQ.data ?? []).filter((u: any) => ["RECP1", "RECP2", "CALLING", "OWNER"].includes(u.role));
 
   const displayList = isSearching ? (searchQ.data ?? []) : filtered;
   const displayLoading = isSearching ? searchQ.isLoading : isLoading;
+  const [manageId, setManageId] = useState<string | null>(null);
 
   return (
     <MobileShell
@@ -130,6 +196,7 @@ function LeadsPage() {
     >
       {showAddLead && (
         <AddLeadModal
+          staff={assignableStaff}
           onClose={() => setShowAddLead(false)}
           onAdded={() => {
             qc.invalidateQueries({ queryKey: ["leads"] });
@@ -231,62 +298,140 @@ function LeadsPage() {
       ) : (
         <ul className="mt-3 space-y-2">
           {displayList.map((l) => {
-            const status = (l.status ?? "Cold") as LeadStatus;
-            const created = l.created_at ?? l.enquired_at;
+            const quality = (l.lead_quality ?? "WARM") as LeadQuality;
+            const stage = (l.status ?? "NEW") as LeadStage;
+            const created = l.created_at;
             const days = mounted ? daysSince(created) : 0;
+            const sourceLabel = LEAD_SOURCE_LABELS[(l.lead_source ?? "OTHER") as LeadSource] ?? l.lead_source ?? "—";
+            const assignedStaff = assignableStaff.find((u: any) => u.id === l.assigned_to);
+            const isOpen = manageId === l.id;
+            const closed = stage === "CONVERTED" || stage === "LOST";
             return (
               <li
                 key={l.id}
                 className={cn(
                   "rounded-xl bg-surface border border-border border-l-4 p-3 shadow-sm",
-                  borderStyle[status],
+                  qualityBorder[quality],
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{l.name}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {maskMobile(l.mobile)} • {l.lead_source ?? "—"}
+                      {maskMobile(l.mobile)} • {sourceLabel}
+                      {l.disease_interest ? ` • ${l.disease_interest}` : ""}
                     </div>
                     {l.notes && (
-                      <div className="text-[11px] text-foreground/70 mt-1 truncate">
-                        "{l.notes}"
+                      <div className="text-[11px] text-foreground/70 mt-1 truncate">"{l.notes}"</div>
+                    )}
+                    {assignedStaff && (
+                      <div className="text-[10px] text-primary mt-0.5">→ {assignedStaff.name}</div>
+                    )}
+                    {l.next_followup && (
+                      <div className="text-[10px] text-accent-foreground mt-0.5">
+                        Follow-up: {new Date(l.next_followup).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
                       </div>
                     )}
                   </div>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                      statusStyle[status],
-                    )}
-                  >
-                    {status}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setHistoryLead({ id: l.id, name: l.name })}
-                  className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
-                >
-                  <History className="h-3 w-3" /> History
-                </button>
-                <button
-                  onClick={() => doDnd(l.id, !!l.dnd)}
-                  className={cn(
-                    "mt-1.5 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold underline",
-                    l.dnd ? "text-destructive" : "text-muted-foreground",
-                  )}
-                >
-                  <BellOff className="h-3 w-3" /> {l.dnd ? "DND ON" : "Mark DND"}
-                </button>
-                <div className="mt-1 text-[10px] text-muted-foreground">
-                  {mounted ? (days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", qualityStyle[quality])}>
+                      {quality}
+                    </span>
+                    <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-medium", stageStyle[stage])}>
+                      {LEAD_STAGE_LABELS[stage]}
+                    </span>
+                  </div>
                 </div>
 
-                {status !== "Converted" && status !== "Lost" && !l.dnd && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <button
+                    onClick={() => setHistoryLead({ id: l.id, name: l.name })}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
+                  >
+                    <History className="h-3 w-3" /> History
+                  </button>
+                  <button
+                    onClick={() => doDnd(l.id, !!l.dnd)}
+                    className={cn(
+                      "inline-flex items-center gap-1 text-[10px] font-semibold underline",
+                      l.dnd ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    <BellOff className="h-3 w-3" /> {l.dnd ? "DND ON" : "Mark DND"}
+                  </button>
+                  <button
+                    onClick={() => setManageId(isOpen ? null : l.id)}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground underline"
+                  >
+                    {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} Manage
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">
+                    {mounted ? (days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
+                    {l.call_count > 0 ? ` • ${l.call_count} call${l.call_count > 1 ? "s" : ""}` : ""}
+                  </span>
+                </div>
+
+                {isOpen && (
+                  <div className="mt-2 rounded-lg bg-muted/40 border border-border p-2.5 grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase">Quality</label>
+                      <select
+                        value={quality}
+                        onChange={(e) => doQuality(l.id, e.target.value as LeadQuality)}
+                        className="w-full mt-0.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                      >
+                        {LEAD_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase">Stage</label>
+                      <select
+                        value={stage}
+                        onChange={(e) => doStage(l.id, e.target.value as LeadStage)}
+                        className="w-full mt-0.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                      >
+                        {LEAD_STAGES.map((s) => <option key={s} value={s}>{LEAD_STAGE_LABELS[s]}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase">Assign To</label>
+                      <select
+                        value={l.assigned_to ?? ""}
+                        onChange={(e) => doAssign(l.id, e.target.value)}
+                        className="w-full mt-0.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                      >
+                        <option value="">— Unassigned —</option>
+                        {assignableStaff.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase">Follow-up date</label>
+                      <input
+                        type="date"
+                        value={l.next_followup ?? ""}
+                        onChange={(e) => doFollowup(l.id, e.target.value)}
+                        className="w-full mt-0.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase">Log call outcome</label>
+                      <select
+                        defaultValue=""
+                        onChange={(e) => { if (e.target.value) { doLogCall(l.id, e.target.value as any); e.target.value = ""; } }}
+                        className="w-full mt-0.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                      >
+                        <option value="">Kaisa raha call?</option>
+                        {LEAD_CALL_OUTCOMES.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {!closed && !l.dnd && (
                   <div className="mt-2.5 grid grid-cols-3 gap-2">
                     <a
                       href={`tel:${l.mobile}`}
-                      onClick={() => doUpdate(l.id, status === "Cold" ? "Warm" : status)}
+                      onClick={() => stage === "NEW" && doStage(l.id, "CONTACTED")}
                       className="flex items-center justify-center gap-1 rounded-lg bg-success text-success-foreground py-2 text-xs font-semibold"
                     >
                       <PhoneCall className="h-3.5 w-3.5" /> Call
@@ -302,7 +447,7 @@ function LeadsPage() {
                     </a>
                     <button
                       onClick={async () => {
-                        await doUpdate(l.id, "Converted");
+                        await doStage(l.id, "CONVERTED");
                         toast.success(`${l.name} converted → Register`);
                         navigate({ to: "/register", replace: true });
                       }}
@@ -356,16 +501,43 @@ function StatCard({
 // Phase 1 #12 — manual single-lead entry. Bulk Import already handles CSV
 // files; this covers the one-off case (walk-in enquiry, a call that
 // doesn't fit any automated source) without needing a whole file upload.
-function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+//
+// UPGRADED 05 Aug — this is the "top-level" manual-add: source now uses the
+// DB's real vocabulary (see LEAD_SOURCES fix), plus the per-source criteria
+// fields (LEAD_SOURCE_CRITERIA) — disease interest for everyone, and a
+// mandatory Referred-By patient link specifically when source = REFERRAL
+// (a referral you can't trace back to the referring patient is useless for
+// a thank-you follow-up later).
+function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
-  const [source, setSource] = useState<string>("Walk-in");
+  const [source, setSource] = useState<LeadSource>("WALK_IN");
+  const [diseaseInterest, setDiseaseInterest] = useState("");
   const [note, setNote] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Referred-By patient picker — only matters when source is REFERRAL.
+  const [referredSearch, setReferredSearch] = useState("");
+  const debouncedReferred = useDebouncedValue(referredSearch, 300);
+  const [referredPatient, setReferredPatient] = useState<{ id: string; name: string; mobile: string } | null>(null);
+  const referredQ = useQuery({
+    queryKey: ["referred-patient-search", debouncedReferred],
+    queryFn: () => searchPatients(debouncedReferred),
+    enabled: source === "REFERRAL" && debouncedReferred.trim().length >= 2 && !referredPatient,
+  });
+
+  const criteria = LEAD_SOURCE_CRITERIA[source];
+  const canSubmit = name.trim() && mobile.length === 10 && (source !== "REFERRAL" || !!referredPatient);
 
   const submit = async () => {
     setSaving(true);
-    const res = await createLead({ name, mobile, source, note });
+    const res = await createLead({
+      name, mobile, source, note,
+      diseaseInterest: diseaseInterest || undefined,
+      referredByPatientId: referredPatient?.id,
+      assignedTo: assignedTo || undefined,
+    });
     setSaving(false);
     if (!res.success) {
       toast.error(res.error ?? "Save nahi hua");
@@ -411,14 +583,73 @@ function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
                 reporting meaningless. */}
             <select
               value={source}
-              onChange={(e) => setSource(e.target.value)}
+              onChange={(e) => { setSource(e.target.value as LeadSource); setReferredPatient(null); setReferredSearch(""); }}
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             >
               {LEAD_SOURCES.map((src) => (
-                <option key={src} value={src}>{src}</option>
+                <option key={src} value={src}>{LEAD_SOURCE_LABELS[src]}</option>
               ))}
             </select>
+            <p className="text-[10px] text-muted-foreground mt-1">{criteria.note}</p>
           </div>
+
+          {source === "REFERRAL" && (
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Referred By (zaroori)</label>
+              {referredPatient ? (
+                <div className="mt-1 flex items-center justify-between rounded-xl border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                  <span>{referredPatient.name} • {maskMobile(referredPatient.mobile)}</span>
+                  <button onClick={() => setReferredPatient(null)} className="text-[10px] text-destructive font-semibold">Change</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={referredSearch}
+                    onChange={(e) => setReferredSearch(e.target.value)}
+                    placeholder="Referring patient ka naam/mobile"
+                    className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+                  />
+                  {referredQ.data && referredQ.data.length > 0 && (
+                    <ul className="mt-1 rounded-xl border border-border bg-surface divide-y divide-border max-h-36 overflow-y-auto">
+                      {referredQ.data.map((p: any) => (
+                        <li key={p.id}>
+                          <button
+                            onClick={() => setReferredPatient({ id: p.id, name: p.name, mobile: p.mobile })}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-muted"
+                          >
+                            {p.name} • {maskMobile(p.mobile)}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Disease / Interest (optional)</label>
+            <input
+              value={diseaseInterest}
+              onChange={(e) => setDiseaseInterest(e.target.value)}
+              placeholder="e.g. Psoriasis, Migraine, Hair Fall"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          {staff.length > 0 && (
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Assign To (optional)</label>
+              <select
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+              >
+                <option value="">— Unassigned —</option>
+                {staff.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Note (optional)</label>
             <textarea
@@ -431,7 +662,7 @@ function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
           </div>
           <button
             onClick={submit}
-            disabled={saving || !name.trim() || mobile.length !== 10}
+            disabled={saving || !canSubmit}
             className="w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50"
           >
             {saving ? "Saving…" : "Lead Add Karo"}

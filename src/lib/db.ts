@@ -136,9 +136,9 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string,
   try {
     const { error } = await supabase
       .from("leads")
-      .update({ status: "Converted", converted_patient_id: patientId })
+      .update({ status: "CONVERTED", converted_patient_id: patientId })
       .eq("mobile", mobile)
-      .neq("status", "Converted");
+      .neq("status", "CONVERTED");
     if (error) console.error("autoConvertMatchingLead failed:", error.message);
   } catch (e: any) {
     console.error("autoConvertMatchingLead threw:", e?.message ?? e);
@@ -1445,7 +1445,20 @@ export async function logWhatsAppInteraction(
   }
 }
 
-export type LeadStatus = "HOT" | "Warm" | "Cold" | "Converted" | "Lost";
+// FIXED 05 Aug: this used to be one enum mixing "temperature" (HOT/Warm/
+// Cold) with "funnel stage" (Converted/Lost) — but the live DB has TWO
+// separate columns for these (leads.status = funnel stage, leads.lead_quality
+// = temperature), each with its own CHECK constraint. Writing "Cold" or
+// "HOT" into `status` violated leads_status_check on every single insert.
+export const LEAD_STAGES = ["NEW", "CONTACTED", "NURTURING", "APPOINTMENT_FIXED", "CONVERTED", "LOST"] as const;
+export type LeadStage = (typeof LEAD_STAGES)[number];
+export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
+  NEW: "New", CONTACTED: "Contacted", NURTURING: "Nurturing",
+  APPOINTMENT_FIXED: "Appointment Fixed", CONVERTED: "Converted", LOST: "Lost",
+};
+
+export const LEAD_QUALITIES = ["HOT", "WARM", "COLD"] as const;
+export type LeadQuality = (typeof LEAD_QUALITIES)[number];
 
 // Once leads volume is large (thousands+), the plain list (capped at 500,
 // most-recent-first) can't be how anyone finds an older lead — this is
@@ -1472,8 +1485,8 @@ export async function searchLeads(term: string) {
 export async function fetchLeadStats() {
   const [total, hot, converted, newToday] = await Promise.all([
     supabase.from("leads").select("id", { count: "exact", head: true }),
-    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "HOT"),
-    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("lead_quality", "HOT"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED"),
     supabase.from("leads").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(today())),
   ]);
   return {
@@ -1484,34 +1497,67 @@ export async function fetchLeadStats() {
   };
 }
 
-// ---------- Lead source tracking (TASK 5) ----------
-// Fixed vocabulary so the analytics below can actually group. Free-typed
-// sources ("jd", "Just Dial", "justdial ") would splinter into useless
-// one-row buckets, which is exactly what the imported data already suffers
-// from — anything unrecognised rolls up under "Other" instead.
+// ---------- Lead source tracking (TASK 5, fixed 05 Aug — see migration 0030) ----------
+// CRITICAL FIX (05 Aug): these values used to be Title-Case free strings
+// ("Walk-in", "JustDial"...) that DON'T match the live `leads_lead_source_check`
+// CHECK constraint, which only allows the exact uppercase set below. Every
+// insert using the old values was failing silently at the DB layer — this
+// is why the live leads table had 0 rows despite a fully-built UI. Values
+// here are the DB's canonical vocabulary; LEAD_SOURCE_LABELS is what staff
+// actually see on screen.
 export const LEAD_SOURCES = [
-  "Walk-in",
-  "Referral",
-  "JustDial",
-  "Google",
-  "Facebook",
-  "Instagram",
-  "WhatsApp",
-  "Other",
+  "WALK_IN",
+  "JUSTDIAL",
+  "WHATSAPP",
+  "INSTAGRAM",
+  "FACEBOOK",
+  "GOOGLE",
+  "REFERRAL",
+  "YOUTUBE",
+  "OTHER",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  WALK_IN: "Walk-in",
+  JUSTDIAL: "JustDial",
+  WHATSAPP: "WhatsApp",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
+  GOOGLE: "Google",
+  REFERRAL: "Referral",
+  YOUTUBE: "YouTube",
+  OTHER: "Other",
+};
+
+// Per-source capture criteria — what's required/expected when a lead comes
+// in from each channel, and how it actually reaches the leads table today.
+// Shown in the Add Lead form (conditional fields) and documented here so
+// it doesn't live only in one person's head.
+export const LEAD_SOURCE_CRITERIA: Record<LeadSource, { capture: "auto" | "manual"; required: string[]; note: string }> = {
+  WALK_IN: { capture: "manual", required: ["name", "mobile"], note: "Reception adds on the spot when someone walks in or calls without an online trail." },
+  JUSTDIAL: { capture: "auto", required: ["name", "mobile"], note: "Pabbly → Apps Script → justdial-lead-webhook (HMAC-secured). Auto lead_quality=HOT, auto LEAD_WELCOME WhatsApp." },
+  WHATSAPP: { capture: "manual", required: ["name", "mobile"], note: "Staff logs when a fresh number messages the clinic WhatsApp. Auto-capture via AiSensy incoming webhook is on the roadmap, not built yet." },
+  INSTAGRAM: { capture: "manual", required: ["name", "mobile"], note: "DM/comment enquiry — staff logs manually. Meta Lead Ads webhook not built yet." },
+  FACEBOOK: { capture: "manual", required: ["name", "mobile"], note: "Same as Instagram — manual today, Meta webhook is a future upgrade." },
+  GOOGLE: { capture: "manual", required: ["name", "mobile"], note: "Search/Maps/Ads enquiry call — manual today, Google Ads lead-form webhook is a future upgrade." },
+  REFERRAL: { capture: "manual", required: ["name", "mobile", "referred_by_patient_id"], note: "Must link the referring patient — used for thank-you follow-up and future incentive tracking." },
+  YOUTUBE: { capture: "manual", required: ["name", "mobile"], note: "Comment/DM enquiry — manual." },
+  OTHER: { capture: "manual", required: ["name", "mobile"], note: "Catch-all — use the Notes field to say what it actually was." },
+};
+
 export function normalizeLeadSource(raw: string | null | undefined): LeadSource {
   const s = (raw ?? "").trim().toLowerCase();
-  if (!s) return "Other";
-  if (/walk|opd|clinic/.test(s)) return "Walk-in";
-  if (/refer/.test(s)) return "Referral";
-  if (/just ?dial|^jd$/.test(s)) return "JustDial";
-  if (/google|gmb|search|ads?$/.test(s)) return "Google";
-  if (/facebook|fb|meta/.test(s)) return "Facebook";
-  if (/insta|ig$/.test(s)) return "Instagram";
-  if (/whats ?app|wa$/.test(s)) return "WhatsApp";
-  return "Other";
+  if (!s) return "OTHER";
+  if (/walk|opd|clinic/.test(s)) return "WALK_IN";
+  if (/refer/.test(s)) return "REFERRAL";
+  if (/just ?dial|^jd$/.test(s)) return "JUSTDIAL";
+  if (/google|gmb|search|ads?$/.test(s)) return "GOOGLE";
+  if (/facebook|fb|meta/.test(s)) return "FACEBOOK";
+  if (/insta|ig$/.test(s)) return "INSTAGRAM";
+  if (/whats ?app|wa$/.test(s)) return "WHATSAPP";
+  if (/you ?tube|yt$/.test(s)) return "YOUTUBE";
+  return "OTHER";
 }
 
 /**
@@ -1533,7 +1579,7 @@ export async function fetchLeadSourceStats(): Promise<
           .from("leads")
           .select("id", { count: "exact", head: true })
           .eq("lead_source", source)
-          .eq("status", "Converted"),
+          .eq("status", "CONVERTED"),
         supabase.from("patients").select("id", { count: "exact", head: true }).eq("lead_source", source),
       ]);
       return {
@@ -1569,13 +1615,47 @@ export async function fetchLeads(): Promise<{ rows: any[]; truncated: boolean }>
   const truncated = rows.length > LIMIT;
   return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
 }
-export async function updateLeadStatus(id: string, status: LeadStatus) {
-  const { error } = await supabase.from("leads").update({ status }).eq("id", id);
+// FIXED 05 Aug: renamed from updateLeadStatus (which wrote temperature
+// values like "HOT" into the funnel-stage column). This one only touches
+// `status` (leads_status_check: NEW/CONTACTED/NURTURING/APPOINTMENT_FIXED/
+// CONVERTED/LOST).
+export async function updateLeadStage(id: string, stage: LeadStage) {
+  const { error } = await supabase.from("leads").update({ status: stage }).eq("id", id);
+  if (error) throw error;
+}
+
+// New — separate control for temperature (leads_quality_check: HOT/WARM/COLD),
+// which used to be conflated with stage and so had no working way to set it.
+export async function setLeadQuality(id: string, quality: LeadQuality) {
+  const { error } = await supabase.from("leads").update({ lead_quality: quality }).eq("id", id);
   if (error) throw error;
 }
 
 export async function setLeadDnd(id: string, dnd: boolean) {
   const { error } = await supabase.from("leads").update({ dnd }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// New — assignment (leads.assigned_to existed in the DB but was never
+// wired to any UI/function before this).
+export async function assignLead(id: string, userId: string | null) {
+  const { error } = await supabase.from("leads").update({ assigned_to: userId }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// New — follow-up date (leads.next_followup existed but nothing wrote it).
+export async function setLeadFollowup(id: string, date: string | null) {
+  const { error } = await supabase.from("leads").update({ next_followup: date }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// New — call logging (leads.call_count/last_outcome existed but nothing
+// wrote them). Increments the count and records the outcome in one call.
+export const LEAD_CALL_OUTCOMES = ["No Answer", "Interested", "Not Interested", "Callback Requested", "Booked"] as const;
+export async function logLeadCall(id: string, outcome: (typeof LEAD_CALL_OUTCOMES)[number]) {
+  const { data: row } = await supabase.from("leads").select("call_count").eq("id", id).maybeSingle();
+  const nextCount = (row?.call_count ?? 0) + 1;
+  const { error } = await supabase.from("leads").update({ call_count: nextCount, last_outcome: outcome }).eq("id", id);
   return { success: !error, error: error?.message ?? null };
 }
 
@@ -2191,7 +2271,7 @@ export async function fetchReports(
   let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
-  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "Converted").gte("created_at", istDayStart(start));
+  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("created_at", istDayStart(start));
   if (branch) {
     payQ = payQ.eq("branch", branch);
     visQ = visQ.eq("branch", branch);
@@ -2969,11 +3049,32 @@ export interface ImportLeadRow { name: string; mobile: string; source?: string; 
 // the exact same normalization + dedup rules as bulk import so a manually
 // typed lead can't create a duplicate against either an existing lead or
 // an already-registered patient.
-export async function createLead(input: { name: string; mobile: string; source?: string; note?: string }): Promise<{ success: boolean; error: string | null }> {
+//
+// FIXED 05 Aug: was writing lead_source="Manual" and status="Cold" — neither
+// value is in the live CHECK constraints (leads_lead_source_check,
+// leads_status_check), so this insert has been failing on every single
+// call. Now writes the DB's real vocabulary, and also carries the "top
+// level" criteria fields per source (see LEAD_SOURCE_CRITERIA): disease
+// interest, who referred them (required for REFERRAL), who it's assigned
+// to, and which branch it belongs to.
+export async function createLead(input: {
+  name: string;
+  mobile: string;
+  source?: LeadSource;
+  note?: string;
+  diseaseInterest?: string;
+  referredByPatientId?: string;
+  assignedTo?: string;
+  branch?: string;
+}): Promise<{ success: boolean; error: string | null }> {
   const name = input.name.trim();
   const mobile = normalizeMobile(input.mobile);
+  const source: LeadSource = input.source ?? "OTHER";
   if (!name) return { success: false, error: "Naam zaroori hai" };
   if (mobile.length !== 10) return { success: false, error: "10-digit mobile zaroori hai" };
+  if (source === "REFERRAL" && !input.referredByPatientId) {
+    return { success: false, error: "Referral ke liye 'Referred By' patient select karna zaroori hai" };
+  }
 
   const [existingLeads, existingPatients] = await Promise.all([
     findExistingMobiles("leads", [mobile]),
@@ -2985,9 +3086,14 @@ export async function createLead(input: { name: string; mobile: string; source?:
   const { error } = await supabase.from("leads").insert({
     name,
     mobile,
-    lead_source: input.source?.trim() || "Manual",
-    status: "Cold",
+    lead_source: source,
+    status: "NEW",
+    lead_quality: source === "JUSTDIAL" ? "HOT" : "WARM",
     notes: input.note?.trim() || null,
+    disease_interest: input.diseaseInterest?.trim() || null,
+    referred_by_patient_id: input.referredByPatientId || null,
+    assigned_to: input.assignedTo || null,
+    branch: input.branch || undefined, // omit → DB default (BAJAJ_NAGAR)
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
@@ -3047,14 +3153,18 @@ export async function commitLeadsImport(
   let imported = 0;
   try {
     for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH).map((r) => ({
-        name: r.name.trim(),
-        mobile: r.mobile,
-        lead_source: r.source?.trim() || "Bulk Import",
-        status: "Cold",
-        notes: r.note?.trim() || null,
-        imported_batch: batchId,
-      }));
+      const chunk = rows.slice(i, i + BATCH).map((r) => {
+        const source = normalizeLeadSource(r.source);
+        return {
+          name: r.name.trim(),
+          mobile: r.mobile,
+          lead_source: source, // FIXED 05 Aug: free-text/"Bulk Import" isn't in leads_lead_source_check — must be normalized
+          status: "NEW",
+          lead_quality: source === "JUSTDIAL" ? "HOT" : "WARM",
+          notes: r.note?.trim() || null,
+          imported_batch: batchId,
+        };
+      });
       const { error } = await supabase.from("leads").insert(chunk);
       if (error) throw error;
       imported += chunk.length;

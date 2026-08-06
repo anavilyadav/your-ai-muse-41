@@ -121,9 +121,14 @@ Deno.serve(async (req) => {
     const { data: existingLead } = await supabaseAdmin.from("leads").select("id, dnd").eq("mobile", mobile).maybeSingle();
     let leadId = existingLead?.id;
     if (!leadId) {
+      // FIXED 05 Aug: was inserting `source`/`note` (columns that don't
+      // exist on leads — the real names are `lead_source`/`notes`) and
+      // `status: "HOT"` (not a valid leads_status_check value — HOT belongs
+      // in `lead_quality`, not `status`). Every JustDial-webhook insert was
+      // failing on this before the fix — confirmed 0 rows in the live table.
       const { data: newLead, error: leadErr } = await supabaseAdmin
         .from("leads")
-        .insert({ name, mobile, source: "JustDial", status: "HOT", note: body.note ?? null })
+        .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "HOT", notes: body.note ?? null })
         .select("id")
         .maybeSingle();
       if (leadErr || !newLead) {
