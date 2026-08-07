@@ -48,8 +48,12 @@ function CaseTrackingPage() {
   });
 
   const list = pending ?? [];
-  const onlineList = list.filter((v) => v.visit_type === "ONLINE");
-  const walkInList = list.filter((v) => v.visit_type !== "ONLINE");
+  // FIXED 06 Aug: visits.visit_type is never "ONLINE" in the DB
+  // (visits_visit_type_check only allows OPD/FOLLOWUP/VIDEO/DELIVERY) —
+  // was always resolving onlineList to empty. See src/lib/db.ts for the
+  // matching write-side fix.
+  const onlineList = list.filter((v) => v.visit_type === "VIDEO");
+  const walkInList = list.filter((v) => v.visit_type !== "VIDEO");
 
   return (
     <RoleShell wide title="Case Tracking" subtitle="Registered vs discussed — koi bhi case gayab nahi hoga" showBack>

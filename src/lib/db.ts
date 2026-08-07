@@ -190,12 +190,21 @@ export async function checkInExistingPatient(input: {
   if (!error && data) {
     let visit = data as DBVisit;
     if (input.case_channel === "ONLINE") {
-      const { data: updatedVisit } = await supabase
+      // FIXED 06 Aug: was writing visit_type="ONLINE" — visits_visit_type_check
+      // only allows OPD/FOLLOWUP/VIDEO/DELIVERY, so this UPDATE has been
+      // silently failing (error wasn't even checked here) on every online
+      // check-in. Effect: every video consultation kept whatever visit_type
+      // the RPC set by default (OPD), so feeKindForVisit() never classified
+      // it as ONLINE and it got billed the wrong fee. "ONLINE" stays the
+      // app-level case_channel value (that's just this function's own
+      // parameter contract, not a DB value) — only the DB write changes.
+      const { data: updatedVisit, error: onlineErr } = await supabase
         .from("visits")
-        .update({ visit_type: "ONLINE" })
+        .update({ visit_type: "VIDEO" })
         .eq("id", visit.id)
         .select("*")
         .maybeSingle();
+      if (onlineErr) console.error("Marking visit as VIDEO failed:", onlineErr.message);
       if (updatedVisit) visit = updatedVisit as DBVisit;
     }
     return { visit };
@@ -221,7 +230,7 @@ async function checkInExistingPatientLegacy(input: {
     .insert({
       patient_id: input.patient_id,
       visit_date: today(),
-      visit_type: input.case_channel === "ONLINE" ? "ONLINE" : "OPD",
+      visit_type: input.case_channel === "ONLINE" ? "VIDEO" : "OPD", // FIXED 06 Aug — visits_visit_type_check has no "ONLINE"
       visit_status: "REGISTERED",
       token_number: token,
       branch: input.branch,
@@ -370,14 +379,15 @@ export async function createPatientWithVisit(input: {
 
     let visit = data.visit as DBVisit;
     if (input.case_channel === "ONLINE") {
-      // Same "small follow-up write" pattern as the patient-extras block
-      // above — the atomic RPC doesn't know about this yet either.
-      const { data: updatedVisit } = await supabase
+      // FIXED 06 Aug — see checkInExistingPatient's identical fix for the
+      // full explanation: DB constraint has no "ONLINE", only "VIDEO".
+      const { data: updatedVisit, error: onlineErr } = await supabase
         .from("visits")
-        .update({ visit_type: "ONLINE" })
+        .update({ visit_type: "VIDEO" })
         .eq("id", visit.id)
         .select("*")
         .maybeSingle();
+      if (onlineErr) console.error("Marking visit as VIDEO failed:", onlineErr.message);
       if (updatedVisit) visit = updatedVisit as DBVisit;
     }
     return { patient, visit };
@@ -464,7 +474,7 @@ async function createPatientWithVisitLegacy(input: {
     .insert({
       patient_id: p.id,
       visit_date: today(),
-      visit_type: input.case_channel === "ONLINE" ? "ONLINE" : "OPD",
+      visit_type: input.case_channel === "ONLINE" ? "VIDEO" : "OPD", // FIXED 06 Aug — visits_visit_type_check has no "ONLINE"
       visit_status: "REGISTERED",
       token_number: token,
       branch: input.branch,
@@ -2792,7 +2802,13 @@ export async function saveFeeMaster(fees: FeeMaster) {
  * check-in, so <= 1 means "this is their first".
  */
 export function feeKindForVisit(visit: { visit_type?: string | null; patient?: { lifetime_visits?: number | null } | null }): keyof FeeMaster {
-  if ((visit.visit_type ?? "").toUpperCase() === "ONLINE") return "ONLINE";
+  // FIXED 06 Aug: was checking for "ONLINE", but visits.visit_type can
+  // only ever be OPD/FOLLOWUP/VIDEO/DELIVERY (visits_visit_type_check) —
+  // it was never actually "ONLINE" in the DB, so this always fell through
+  // to NEW/FOLLOWUP and every video consultation got billed the wrong fee.
+  // "ONLINE" stays the FeeMaster/FeeRuleAppliesTo key name (that's just
+  // this app's own naming for the fee bucket) — only the DB-value check changes.
+  if ((visit.visit_type ?? "").toUpperCase() === "VIDEO") return "ONLINE";
   return Number(visit.patient?.lifetime_visits ?? 1) <= 1 ? "NEW" : "FOLLOWUP";
 }
 

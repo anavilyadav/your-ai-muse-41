@@ -30,9 +30,13 @@ const rule = (over: Partial<FeeRule>): FeeRule => ({
 });
 
 describe("feeKindForVisit", () => {
-  it("ONLINE beats everything, even a first visit", () => {
-    expect(feeKindForVisit({ visit_type: "ONLINE", patient: { lifetime_visits: 1 } })).toBe("ONLINE");
-    expect(feeKindForVisit({ visit_type: "online", patient: { lifetime_visits: 12 } })).toBe("ONLINE");
+  it("VIDEO beats everything, even a first visit", () => {
+    // FIXED 06 Aug: feeKindForVisit checks visits.visit_type, which can
+    // only ever be OPD/FOLLOWUP/VIDEO/DELIVERY (visits_visit_type_check) —
+    // "ONLINE" was never a real DB value, so this test was asserting
+    // behaviour the function couldn't actually exhibit against real data.
+    expect(feeKindForVisit({ visit_type: "VIDEO", patient: { lifetime_visits: 1 } })).toBe("ONLINE");
+    expect(feeKindForVisit({ visit_type: "video", patient: { lifetime_visits: 12 } })).toBe("ONLINE");
   });
 
   it("first visit (lifetime_visits <= 1) is a NEW case", () => {
