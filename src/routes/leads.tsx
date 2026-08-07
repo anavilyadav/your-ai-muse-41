@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   fetchLeads, fetchLeadStats, fetchLeadSourceStats, searchLeads,
   updateLeadStage, setLeadQuality, setLeadDnd, assignLead, setLeadFollowup, logLeadCall,
-  maskMobile, logWhatsAppInteraction, createLead, fetchStaff, searchPatients,
+  maskMobile, logWhatsAppInteraction, createLead, fetchStaff, searchPatients, fetchLeadSources,
   LEAD_SOURCES, LEAD_SOURCE_LABELS, LEAD_SOURCE_CRITERIA, LEAD_STAGES, LEAD_STAGE_LABELS,
   LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
   type LeadStage, type LeadQuality, type LeadSource,
@@ -511,11 +511,16 @@ function StatCard({
 function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
-  const [source, setSource] = useState<LeadSource>("WALK_IN");
+  const [source, setSource] = useState<string>("WALK_IN");
   const [diseaseInterest, setDiseaseInterest] = useState("");
   const [note, setNote] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Dynamic — includes the 9 built-in sources plus anything Owner has
+  // added via Control Centre → Lead Sources → Add More (migration 0033).
+  const sourcesQ = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
+  const sources = (sourcesQ.data ?? []).filter((s) => s.active);
 
   // Referred-By patient picker — only matters when source is REFERRAL.
   const [referredSearch, setReferredSearch] = useState("");
@@ -527,7 +532,14 @@ function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () =
     enabled: source === "REFERRAL" && debouncedReferred.trim().length >= 2 && !referredPatient,
   });
 
-  const criteria = LEAD_SOURCE_CRITERIA[source];
+  // Fixed per-source criteria text for the 9 built-in sources; anything
+  // Owner adds later doesn't have hand-written criteria yet, so it gets an
+  // honest generic note instead of a blank/broken lookup.
+  const criteria = LEAD_SOURCE_CRITERIA[source as LeadSource] ?? {
+    capture: "manual" as const,
+    required: ["name", "mobile"],
+    note: "Owner-added source — manual entry, no auto-capture wired for this yet.",
+  };
   const canSubmit = name.trim() && mobile.length === 10 && (source !== "REFERRAL" || !!referredPatient);
 
   const submit = async () => {
@@ -583,11 +595,11 @@ function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () =
                 reporting meaningless. */}
             <select
               value={source}
-              onChange={(e) => { setSource(e.target.value as LeadSource); setReferredPatient(null); setReferredSearch(""); }}
+              onChange={(e) => { setSource(e.target.value); setReferredPatient(null); setReferredSearch(""); }}
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             >
-              {LEAD_SOURCES.map((src) => (
-                <option key={src} value={src}>{LEAD_SOURCE_LABELS[src]}</option>
+              {sources.map((src) => (
+                <option key={src.code} value={src.code}>{src.label}</option>
               ))}
             </select>
             <p className="text-[10px] text-muted-foreground mt-1">{criteria.note}</p>

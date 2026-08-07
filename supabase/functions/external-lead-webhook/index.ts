@@ -28,18 +28,15 @@
 // Called with: raw JSON body
 //   { source, name, mobile, secret?, note?, disease_interest?, source_ref? }
 // Header (alternative to body.secret): x-lead-secret: <the secret>
-// `source` must be one of leads_lead_source_check's values (WALK_IN,
-// JUSTDIAL, WHATSAPP, INSTAGRAM, FACEBOOK, GOOGLE, REFERRAL, YOUTUBE,
-// OTHER) — invalid values are rejected with a clear error rather than
-// silently bucketed under OTHER, so a typo'd source is caught immediately
-// by whoever is setting up the new integration, not discovered later in
-// broken reporting.
+// `source` must be an ACTIVE code in the live public.lead_sources table
+// (migration 0033) — checked with a DB query, not a hardcoded list, so a
+// source Owner adds from Control Centre → Lead Sources → Add More works
+// immediately here too, with zero redeploy.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { constantTimeEqual } from "../_shared/cron-auth.ts";
 
 const MAX_PER_MINUTE = 30; // higher than JustDial's 20 — this serves multiple sources at once
-const VALID_SOURCES = ["WALK_IN", "JUSTDIAL", "WHATSAPP", "INSTAGRAM", "FACEBOOK", "GOOGLE", "REFERRAL", "YOUTUBE", "OTHER"];
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -91,8 +88,13 @@ Deno.serve(async (req) => {
     if (!name || mobile.length !== 10) {
       return new Response(JSON.stringify({ error: "name and 10-digit mobile required" }), { status: 400 });
     }
-    if (!VALID_SOURCES.includes(source)) {
-      return new Response(JSON.stringify({ error: `source must be one of: ${VALID_SOURCES.join(", ")}` }), { status: 400 });
+    const { data: sourceRow } = await supabaseAdmin.from("lead_sources").select("code, active").eq("code", source).maybeSingle();
+    if (!sourceRow || !sourceRow.active) {
+      const { data: allSources } = await supabaseAdmin.from("lead_sources").select("code").eq("active", true);
+      return new Response(
+        JSON.stringify({ error: `Unknown/inactive source "${source}". Valid: ${(allSources ?? []).map((s: any) => s.code).join(", ")}` }),
+        { status: 400 },
+      );
     }
 
     // Already a patient? Log the enquiry against their existing record,

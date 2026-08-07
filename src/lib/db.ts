@@ -1560,6 +1560,47 @@ export function normalizeLeadSource(raw: string | null | undefined): LeadSource 
   return "OTHER";
 }
 
+// ---------- Owner-extensible lead sources (06 Aug, migration 0033) ----------
+// The 9 above are the well-known/built-in set (with real per-source
+// criteria text). Beyond that, Dr. Yadav asked for an "Add More" option —
+// a new ad platform (IndiaMART, Sulekha, whatever comes next) shouldn't
+// need a code change. leads.lead_source is now a foreign key into
+// public.lead_sources instead of a hardcoded CHECK list, so adding a row
+// here IS the whole operation — external-lead-webhook validates against
+// this same live table, so a newly-added source works immediately for
+// anything already configured to send it.
+export interface LeadSourceRow { code: string; label: string; active: boolean }
+
+export async function fetchLeadSources(): Promise<LeadSourceRow[]> {
+  const { data, error } = await supabase.from("lead_sources").select("code, label, active").order("label");
+  if (error) {
+    console.error("fetchLeadSources failed:", error.message);
+    // Never let a fetch failure block the Add-Lead form entirely — fall
+    // back to the built-in set so staff can still add a lead.
+    return LEAD_SOURCES.map((code) => ({ code, label: LEAD_SOURCE_LABELS[code], active: true }));
+  }
+  return data ?? [];
+}
+
+export async function addLeadSource(label: string): Promise<{ success: boolean; error: string | null; code?: string }> {
+  const clean = label.trim();
+  if (!clean) return { success: false, error: "Naam zaroori hai" };
+  // Deterministic code from the label — "IndiaMART" -> "INDIAMART", "Just Dial 2" -> "JUST_DIAL_2".
+  const code = clean.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  if (!code) return { success: false, error: "Valid naam do (letters/numbers)" };
+  const { error } = await supabase.from("lead_sources").insert({ code, label: clean });
+  if (error) {
+    if (error.code === "23505") return { success: false, error: "Ye source pehle se hai" };
+    return { success: false, error: error.message };
+  }
+  return { success: true, error: null, code };
+}
+
+export async function setLeadSourceActive(code: string, active: boolean) {
+  const { error } = await supabase.from("lead_sources").update({ active }).eq("code", code);
+  return { success: !error, error: error?.message ?? null };
+}
+
 /**
  * Per-source counts, computed with COUNT queries (never from the capped
  * 500-row list) so the numbers stay honest at 30k+ leads.
@@ -3060,7 +3101,7 @@ export interface ImportLeadRow { name: string; mobile: string; source?: string; 
 export async function createLead(input: {
   name: string;
   mobile: string;
-  source?: LeadSource;
+  source?: string; // built-in LeadSource OR any Owner-added lead_sources.code (migration 0033)
   note?: string;
   diseaseInterest?: string;
   referredByPatientId?: string;
@@ -3069,7 +3110,7 @@ export async function createLead(input: {
 }): Promise<{ success: boolean; error: string | null }> {
   const name = input.name.trim();
   const mobile = normalizeMobile(input.mobile);
-  const source: LeadSource = input.source ?? "OTHER";
+  const source = input.source ?? "OTHER";
   if (!name) return { success: false, error: "Naam zaroori hai" };
   if (mobile.length !== 10) return { success: false, error: "10-digit mobile zaroori hai" };
   if (source === "REFERRAL" && !input.referredByPatientId) {

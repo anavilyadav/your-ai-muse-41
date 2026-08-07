@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -308,6 +308,79 @@ function CopyableUrl({ label, url }: { label: string; url: string }) {
   );
 }
 
+function ManageLeadSources() {
+  const qc = useQueryClient();
+  const { data: sources, isLoading } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const add = async () => {
+    if (!newLabel.trim()) return;
+    setAdding(true);
+    const res = await addLeadSource(newLabel);
+    setAdding(false);
+    if (!res.success) { toast.error(res.error ?? "Add nahi hua"); return; }
+    toast.success(`"${newLabel}" add ho gaya — abhi se Lead CRM mein use ho sakta hai`);
+    setNewLabel("");
+    qc.invalidateQueries({ queryKey: ["lead-sources"] });
+  };
+
+  const toggle = async (code: string, active: boolean) => {
+    const res = await setLeadSourceActive(code, !active);
+    if (!res.success) { toast.error(res.error ?? "Update nahi hua"); return; }
+    qc.invalidateQueries({ queryKey: ["lead-sources"] });
+  };
+
+  return (
+    <div className="mt-3.5 pt-3.5 border-t border-border">
+      <div className="text-sm font-bold text-primary mb-1">Lead Sources — Add More</div>
+      <div className="text-[11px] text-muted-foreground mb-2">
+        Naya source (IndiaMART, Sulekha, koi naya ad platform, wagera) yahan se add karo —
+        turant Add Lead form mein aur website-webhook dono jagah use ho sakega, koi code change nahi chahiye.
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="e.g. IndiaMART"
+          className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+        />
+        <button
+          onClick={add}
+          disabled={adding || !newLabel.trim()}
+          className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-xs font-bold disabled:opacity-50"
+        >
+          {adding ? "…" : "Add"}
+        </button>
+      </div>
+
+      {!isLoading && sources && sources.length > 0 && (
+        <>
+          <button onClick={() => setShowAll((v) => !v)} className="mt-2 text-[11px] font-semibold text-primary underline">
+            {showAll ? "Sources chhupao" : `Sab ${sources.length} sources dekho`}
+          </button>
+          {showAll && (
+            <div className="mt-2 space-y-1">
+              {sources.map((s) => (
+                <div key={s.code} className="flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-1.5">
+                  <span className={cn("text-xs", !s.active && "text-muted-foreground line-through")}>{s.label}</span>
+                  <button onClick={() => toggle(s.code, s.active)}>
+                    <span className={cn("relative h-4 w-7 rounded-full transition inline-block", s.active ? "bg-success" : "bg-border")}>
+                      <span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all", s.active ? "left-[14px]" : "left-0.5")} />
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function LeadSourcesPanel({ settings }: { settings: any[] }) {
   const [showMetaDetail, setShowMetaDetail] = useState(false);
   return (
@@ -356,6 +429,8 @@ function LeadSourcesPanel({ settings }: { settings: any[] }) {
           <li>Ye 4 secrets Supabase Dashboard → Edge Functions → Secrets mein ek baar set karne hain — uske baad koi bhi naya ad campaign is Page pe automatically capture hoga, kabhi dobara touch nahi karna.</li>
         </ol>
       )}
+
+      <ManageLeadSources />
     </div>
   );
 }
