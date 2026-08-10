@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, Wallet, ClipboardList, MessageCircle, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -95,6 +95,11 @@ function OwnerDashboard() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
+            <Link to="/appointments" className="rounded-2xl bg-surface border border-border p-3.5">
+              <CalendarCheck className="h-5 w-5 text-primary" />
+              <div className="font-bold text-primary text-sm mt-1">Appointments</div>
+              <div className="text-[11px] text-muted-foreground">Book · slot & time settings</div>
+            </Link>
             <Link to="/owner/incentives" className="rounded-2xl bg-surface border border-border p-3.5">
               <Target className="h-5 w-5 text-accent-foreground" />
               <div className="font-bold text-primary text-sm mt-1">Incentives</div>
