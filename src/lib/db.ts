@@ -2598,6 +2598,7 @@ export async function fetchStaff() {
   const { data, error } = await supabase
     .from("users")
     .select("*")
+    .eq("is_deleted", false)
     .order("role", { ascending: true })
     .limit(200);
   if (error) return [];
@@ -2627,6 +2628,26 @@ export async function addStaffProfile(input: NewStaffInput) {
     .single();
   if (error) return { success: false, error: error.message, data: null };
   return { success: true, error: null, data };
+}
+
+export interface UpdateStaffInput {
+  id: string;
+  name: string;
+  mobile: string;
+  role: string;
+  branch: string | null;
+}
+
+// Profile-field edit only (name/mobile/role/branch) — does not touch login
+// email or PIN, that stays on the create-staff-login Edge Function path
+// (EditEmailModal in owner.staff.tsx) since changing a login email needs
+// the service-role key.
+export async function updateStaffProfile(input: UpdateStaffInput) {
+  const { error } = await supabase
+    .from("users")
+    .update({ name: input.name, mobile: input.mobile, role: input.role, branch: input.branch })
+    .eq("id", input.id);
+  return { success: !error, error: error?.message ?? null };
 }
 
 // Visits older than the 30-day queue floor that are still not DONE are

@@ -15,6 +15,25 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Browsers send a preflight OPTIONS request before the real POST below;
+// without these headers the preflight itself fails (405) and the browser
+// never sends the actual request — this is why every "create login" click
+// from the Owner Control Centre was silently failing (confirmed live via
+// edge function logs, 10 Aug 2026: repeated OPTIONS 405 on this function,
+// while the sibling staff-signin function — which already had this — was
+// fine). Same pattern as staff-signin.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-client-info",
+  "Access-Control-Max-Age": "86400",
+};
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+
 // Phase 1 #5 — orphan-risk verified and fixed.
 //
 // When a staff member's login is first created below, users.id is
@@ -79,8 +98,11 @@ async function repointStaffId(supabaseAdmin: any, oldId: string, newId: string) 
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
+    return json({ error: "POST only" }, 405);
   }
   try {
     const supabaseAdmin = createClient(
@@ -92,11 +114,11 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace(/^Bearer\s+/i, "");
     if (!token) {
-      return new Response(JSON.stringify({ error: "Not signed in" }), { status: 401 });
+      return json({ error: "Not signed in" }, 401);
     }
     const { data: callerAuth, error: callerErr } = await supabaseAdmin.auth.getUser(token);
     if (callerErr || !callerAuth?.user) {
-      return new Response(JSON.stringify({ error: "Invalid or expired session" }), { status: 401 });
+      return json({ error: "Invalid or expired session" }, 401);
     }
     const { data: callerProfile } = await supabaseAdmin
       .from("users")
@@ -104,7 +126,7 @@ Deno.serve(async (req) => {
       .eq("id", callerAuth.user.id)
       .maybeSingle();
     if (callerProfile?.role !== "OWNER") {
-      return new Response(JSON.stringify({ error: "Owner access required" }), { status: 403 });
+      return json({ error: "Owner access required" }, 403);
     }
     // ---- End caller verification ----
 
@@ -112,34 +134,63 @@ Deno.serve(async (req) => {
     const { action, mobile, email, pin } = body;
 
     if (!mobile || String(mobile).length !== 10) {
-      return new Response(JSON.stringify({ error: "Valid 10-digit mobile required" }), { status: 400 });
-    }
-    if (!email || !String(email).includes("@")) {
-      return new Response(JSON.stringify({ error: "Valid email required" }), { status: 400 });
+      return json({ error: "Valid 10-digit mobile required" }, 400);
     }
 
     const { data: profile } = await supabaseAdmin
       .from("users")
-      .select("id, has_login")
+      .select("id, has_login, role")
       .eq("mobile", mobile)
       .maybeSingle();
 
     if (!profile) {
-      return new Response(JSON.stringify({ error: "No staff profile found for this mobile — add the staff member first" }), { status: 404 });
+      return json({ error: "No staff profile found for this mobile — add the staff member first" }, 404);
+    }
+
+    // Removing staff: soft-delete the profile (is_active/is_deleted, per the
+    // schema's own existing columns — never a hard DELETE, since visits/
+    // prescriptions/audit_log rows reference this id and losing that trail
+    // would break accountability) and ban their Auth login if one exists,
+    // so a removed staff member genuinely cannot sign in anymore even if
+    // they still know their PIN. Owner accounts are refused here as a
+    // server-side backstop — the UI already hides this action for OWNER.
+    if (action === "delete") {
+      if (profile.role === "OWNER") {
+        return json({ error: "Owner account cannot be removed" }, 400);
+      }
+      const { error: delErr } = await supabaseAdmin
+        .from("users")
+        .update({ is_active: false, is_deleted: true })
+        .eq("mobile", mobile);
+      if (delErr) return json({ error: delErr.message }, 400);
+      if (profile.has_login) {
+        try {
+          await supabaseAdmin.auth.admin.updateUserById(profile.id, { ban_duration: "87600h" });
+        } catch (e) {
+          // Profile is already removed either way; a ban failure (e.g. no
+          // real Auth account ever existed for this id) shouldn't block that.
+          console.error("Auth ban on delete failed:", e);
+        }
+      }
+      return json({ success: true });
+    }
+
+    if (!email || !String(email).includes("@")) {
+      return json({ error: "Valid email required" }, 400);
     }
 
     if (action === "update-email") {
       if (profile.has_login) {
         const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { email });
-        if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+        if (error) return json({ error: error.message }, 400);
       }
       await supabaseAdmin.from("users").update({ email }).eq("mobile", mobile);
-      return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      return json({ success: true });
     }
 
     // default action: create the login
     if (!pin || String(pin).length < 6) {
-      return new Response(JSON.stringify({ error: "6+ digit PIN required" }), { status: 400 });
+      return json({ error: "6+ digit PIN required" }, 400);
     }
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -147,7 +198,7 @@ Deno.serve(async (req) => {
       email_confirm: true,
     });
     if (error) {
-      return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+      return json({ error: error.message }, 400);
     }
     const oldId = profile.id;
     const newId = data.user.id;
@@ -164,10 +215,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, userId: newId }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return json({ success: true, userId: newId });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return json({ error: String(e) }, 500);
   }
 });
