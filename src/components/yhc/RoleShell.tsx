@@ -31,15 +31,22 @@ interface Props {
    * Reception's MobileShell got the equivalent treatment directly (it
    * doesn't take a `wide` prop -- see that file).
    *
-   * Tablet tier (10 Aug 2026): the phone cap used to jump straight from
+   * Tablet width (10 Aug 2026): the phone cap used to jump straight from
    * 430px to the uncapped lg+ layout, so anything between (iPad portrait,
-   * most Android tablets -- 768-1023px) rendered as a narrow phone column
-   * floating in the middle of a much wider screen. The md: rules below
-   * widen that column to 720px starting at 768px, still with the bottom
-   * tab bar (the sidebar swap stays at lg+ as before) -- applied
-   * unconditionally, not gated behind `wide`, since every current call
-   * site already passes it and a narrower tablet column is strictly worse
-   * than a wider one even for a future caller that doesn't.
+   * Android tablets -- roughly 600-1023px) rendered as a narrow phone
+   * column floating in the middle of a much wider screen. First attempt
+   * used a `md:` (768px) breakpoint for this, which missed real devices
+   * with a narrower CSS viewport than expected -- a OnePlus Pad Lite
+   * (1920x1200 physical, ~600px CSS width in portrait on Android's
+   * default density scaling) still hit the 430px cap since 600 < 768.
+   * A fixed breakpoint can't cover every device's actual reported width,
+   * so max-w-[430px] is now clamp(430px, 94vw, 720px): floors at the
+   * original 430px for real phones (94vw < 430 below ~457px viewport,
+   * byte-identical there), then scales continuously with whatever width
+   * the device reports, capping at 720px once there's enough room --
+   * still with the bottom tab bar (the sidebar swap stays at lg+ as
+   * before). Applied unconditionally, not gated behind `wide`, since
+   * every current call site already passes it.
    */
   wide?: boolean;
 }
@@ -78,7 +85,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div
         className={cn(
-          "relative w-full max-w-[430px] md:max-w-[720px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]",
+          "relative w-full max-w-[clamp(430px,94vw,720px)] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]",
           wide && "lg:max-w-none lg:flex-row lg:shadow-none",
         )}
       >
@@ -135,7 +142,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
           {nav.length > 0 && (
             <nav
               className={cn(
-                "fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[720px] z-30 border-t border-border bg-surface/95 backdrop-blur",
+                "fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[clamp(430px,94vw,720px)] z-30 border-t border-border bg-surface/95 backdrop-blur",
                 wide && "lg:hidden",
               )}
             >
