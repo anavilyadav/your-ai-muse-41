@@ -72,11 +72,11 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)] lg:max-w-none lg:flex-row lg:shadow-none">
+      <div className="relative w-full max-w-[430px] md:max-w-[720px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)] lg:max-w-none lg:flex-row lg:shadow-none">
         {sidebarNav}
 
         <div className="flex min-w-0 flex-1 flex-col lg:min-h-screen">
-          <header className="sticky top-0 z-20 bg-primary text-primary-foreground px-4 pt-4 pb-4 rounded-b-2xl lg:rounded-none lg:px-8">
+          <header className="sticky top-0 z-20 bg-primary text-primary-foreground px-4 md:px-6 pt-4 pb-4 rounded-b-2xl lg:rounded-none lg:px-8">
             <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               {showBack ? (
                 <button
@@ -111,7 +111,7 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
 
           <main
             className={cn(
-              "flex-1 px-4 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
+              "flex-1 px-4 md:px-6 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
               items.length ? "pb-28" : "pb-8",
               "lg:mx-auto lg:w-full lg:max-w-[1100px] lg:px-8 lg:pb-10 lg:pt-6",
             )}
@@ -120,7 +120,7 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
           </main>
 
           {items.length > 0 && (
-            <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
+            <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[720px] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
               <ul className={cn("grid", items.length === 3 ? "grid-cols-3" : "grid-cols-2")}>
                 {items.map(({ to, label, icon: Icon, exact }) => {
                   const active = exact ? pathname === to : pathname.startsWith(to);

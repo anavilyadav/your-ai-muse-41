@@ -22,12 +22,17 @@ const navItems = [
 // Desktop/tablet layout: was phone-width-only (max-w-[430px]) at every
 // screen size, on every screen using this shell (Reception's entire app —
 // Queue, Register, Search, Patient Detail, Payment, Appointments,
-// Delivery, Follow-up, Leads, Outstanding, Summary, Tasks). Every added
-// class below is gated behind `lg:` exactly like DoctorShell/RoleShell's
-// `wide` mode, so phone/tablet rendering (below the lg breakpoint) is
-// byte-identical to before — this only changes what a desktop browser
-// window sees: drops the 430px cap, swaps the bottom tab bar for a left
+// Delivery, Follow-up, Leads, Outstanding, Summary, Tasks). The `lg:`
+// classes below drop the 430px cap and swap the bottom tab bar for a left
 // sidebar, same pattern already used for Doctor and Owner screens.
+//
+// Tablet tier (10 Aug 2026): 430px only jumped straight to the uncapped
+// lg+ layout, so iPad-portrait/Android-tablet widths (768-1023px) still
+// rendered as a narrow phone column floating in the middle of a much
+// wider screen. The md: rules below widen that column to 720px starting
+// at 768px, keeping the bottom tab bar until the existing lg+ sidebar
+// swap — this is the shell reception actually uses, so this is what
+// makes reception's screens usable on a tablet, not just doctor/owner's.
 export function MobileShell({ title, subtitle, showBack, right, children }: Props) {
   const router = useRouter();
   const navigate = useNavigate();
@@ -41,7 +46,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)] lg:max-w-none lg:flex-row lg:shadow-none">
+      <div className="relative w-full max-w-[430px] md:max-w-[720px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)] lg:max-w-none lg:flex-row lg:shadow-none">
         {/* Desktop sidebar nav — hidden below lg, replaces the bottom tab bar */}
         <aside className="hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:gap-1 lg:border-r lg:border-border lg:bg-surface/60 lg:px-3 lg:py-6">
           <div className="flex items-center gap-2 px-3 pb-6">
@@ -77,7 +82,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
 
         <div className="flex min-w-0 flex-1 flex-col lg:min-h-screen">
           {/* Header */}
-          <header className="sticky top-0 z-20 bg-primary text-primary-foreground px-4 pt-4 pb-4 rounded-b-2xl lg:rounded-none lg:px-8">
+          <header className="sticky top-0 z-20 bg-primary text-primary-foreground px-4 md:px-6 pt-4 pb-4 rounded-b-2xl lg:rounded-none lg:px-8">
             <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               {showBack ? (
                 <button
@@ -115,12 +120,12 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
           </header>
 
           {/* Content */}
-          <main className="flex-1 px-4 pt-4 pb-28 animate-in fade-in slide-in-from-bottom-2 duration-300 lg:mx-auto lg:w-full lg:max-w-[1100px] lg:px-8 lg:pb-10 lg:pt-6">
+          <main className="flex-1 px-4 md:px-6 pt-4 pb-28 animate-in fade-in slide-in-from-bottom-2 duration-300 lg:mx-auto lg:w-full lg:max-w-[1100px] lg:px-8 lg:pb-10 lg:pt-6">
             {children}
           </main>
 
           {/* Bottom nav — mobile/tablet only, sidebar takes over at lg */}
-          <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
+          <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[720px] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
             <ul className="grid grid-cols-4">
               {navItems.map(({ to, label, icon: Icon }) => {
                 const active = to === "/" ? pathname === "/" : pathname.startsWith(to);

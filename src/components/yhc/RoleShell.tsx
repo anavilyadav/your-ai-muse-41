@@ -30,6 +30,16 @@ interface Props {
    * opened on. All Pharmacy/Owner RoleShell call sites pass this now;
    * Reception's MobileShell got the equivalent treatment directly (it
    * doesn't take a `wide` prop -- see that file).
+   *
+   * Tablet tier (10 Aug 2026): the phone cap used to jump straight from
+   * 430px to the uncapped lg+ layout, so anything between (iPad portrait,
+   * most Android tablets -- 768-1023px) rendered as a narrow phone column
+   * floating in the middle of a much wider screen. The md: rules below
+   * widen that column to 720px starting at 768px, still with the bottom
+   * tab bar (the sidebar swap stays at lg+ as before) -- applied
+   * unconditionally, not gated behind `wide`, since every current call
+   * site already passes it and a narrower tablet column is strictly worse
+   * than a wider one even for a future caller that doesn't.
    */
   wide?: boolean;
 }
@@ -68,7 +78,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div
         className={cn(
-          "relative w-full max-w-[430px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]",
+          "relative w-full max-w-[430px] md:max-w-[720px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]",
           wide && "lg:max-w-none lg:flex-row lg:shadow-none",
         )}
       >
@@ -77,7 +87,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
         <div className={cn("flex min-w-0 flex-1 flex-col", wide && "lg:min-h-screen")}>
           <header
             className={cn(
-              "sticky top-0 z-20 bg-primary text-primary-foreground px-4 pt-4 pb-4 rounded-b-2xl",
+              "sticky top-0 z-20 bg-primary text-primary-foreground px-4 md:px-6 pt-4 pb-4 rounded-b-2xl",
               wide && "lg:rounded-none lg:px-8",
             )}
           >
@@ -113,7 +123,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
 
           <main
             className={cn(
-              "flex-1 px-4 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
+              "flex-1 px-4 md:px-6 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
               nav.length ? "pb-28" : "pb-8",
               wide && "lg:mx-auto lg:w-full lg:max-w-[1100px] lg:px-8 lg:pb-10 lg:pt-6",
             )}
@@ -125,7 +135,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
           {nav.length > 0 && (
             <nav
               className={cn(
-                "fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-30 border-t border-border bg-surface/95 backdrop-blur",
+                "fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] md:max-w-[720px] z-30 border-t border-border bg-surface/95 backdrop-blur",
                 wide && "lg:hidden",
               )}
             >
