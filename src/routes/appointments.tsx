@@ -22,7 +22,10 @@ import {
   DEFAULT_SLOT_CONFIG,
   branchLabel,
   BRANCH_KEYS,
+  APPT_TYPES,
+  apptTypeLabel,
   type ApptBranch,
+  type ApptType,
   type SlotConfig,
 } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
@@ -47,17 +50,24 @@ const statusStyle: Record<string, string> = {
 };
 
 function SlotPicker({
-  date, branch, value, onChange, isOwner,
+  date, branch, type, value, onChange, isOwner,
 }: {
-  date: string; branch: ApptBranch; value: string; onChange: (t: string) => void; isOwner: boolean;
+  date: string; branch: ApptBranch; type: ApptType; value: string; onChange: (t: string) => void; isOwner: boolean;
 }) {
   const { data, isLoading } = useQuery({
-    queryKey: ["slot-availability", date, branch],
-    queryFn: () => fetchSlotAvailability(date, branch),
+    queryKey: ["slot-availability", date, branch, type],
+    queryFn: () => fetchSlotAvailability(date, branch, type),
   });
 
   if (isLoading) return <div className="text-center text-xs text-muted-foreground py-4">Slots load ho rahe hain…</div>;
   if (!data || data.length === 0) return <div className="text-center text-xs text-muted-foreground py-4">Is branch ke liye slot hours set nahi hain — Owner Settings se set karo.</div>;
+  if (data[0]?.capReached) {
+    return (
+      <div className="text-center text-xs text-destructive py-4">
+        Aaj ke liye {apptTypeLabel(type)} appointments ki daily limit puri ho gayi.
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-3 gap-2 max-h-56 overflow-y-auto py-1">
@@ -102,6 +112,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
+  const [type, setType] = useState<ApptType>("FOLLOWUP");
   const [branch, setBranch] = useState<ApptBranch>("BAJAJ_NAGAR");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -123,7 +134,8 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
       mobile: mobile.replace(/\D/g, ""),
       appointment_date: date,
       appointment_time: time,
-      slot_minutes: cfg.slotMinutes,
+      slot_minutes: cfg.typeConfig[type]?.slotMinutes ?? DEFAULT_SLOT_CONFIG.typeConfig[type].slotMinutes,
+      appointment_type: type,
       branch,
       reason: reason.trim() || undefined,
     });
@@ -155,13 +167,28 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-1.5">
+            {APPT_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setType(t); setTime(""); }}
+                className={cn(
+                  "rounded-xl border py-2.5 text-[13px] font-bold",
+                  type === t ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                )}
+              >
+                {apptTypeLabel(t)}
+              </button>
+            ))}
+          </div>
           <div className="relative">
             <input
               value={name}
               onChange={(e) => { setName(e.target.value); setPatientId(undefined); setWaConsent(false); setShowSuggestions(true); }}
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-              placeholder="Patient naam — existing patient search hoga"
+              placeholder="Naam, mobile ya card number — existing patient search hoga"
               className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             />
             {showSuggestions && !patientId && (patientSearch.data?.length ?? 0) > 0 && (
@@ -200,9 +227,9 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           </div>
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-              Slot {time && <span className="normal-case font-semibold text-primary">— {time} selected</span>}
+              {apptTypeLabel(type)} slot {time && <span className="normal-case font-semibold text-primary">— {time} selected</span>}
             </div>
-            <SlotPicker date={date} branch={branch} value={time} onChange={setTime} isOwner={isOwner} />
+            <SlotPicker date={date} branch={branch} type={type} value={time} onChange={setTime} isOwner={isOwner} />
             {!isOwner && (
               <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
                 <Star className="h-2.5 w-2.5" /> VIP-reserved slots sirf Owner book kar sakta hai
@@ -306,16 +333,20 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
 
         <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Slot length & capacity</div>
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium text-primary">Slot duration</span>
-            <select
-              className="rounded-lg border border-border bg-background text-[12px] px-2 py-1.5"
-              value={cfg.slotMinutes}
-              onChange={(e) => setCfg({ ...cfg, slotMinutes: Number(e.target.value) })}
-            >
-              {[10, 15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
-            </select>
-          </div>
+          {APPT_TYPES.map((t) => (
+            <div key={t} className="flex items-center justify-between">
+              <span className="text-[13px] font-medium text-primary">{apptTypeLabel(t)} duration</span>
+              <select
+                className="rounded-lg border border-border bg-background text-[12px] px-2 py-1.5"
+                value={cfg.typeConfig[t].slotMinutes}
+                onChange={(e) =>
+                  setCfg({ ...cfg, typeConfig: { ...cfg.typeConfig, [t]: { ...cfg.typeConfig[t], slotMinutes: Number(e.target.value) } } })
+                }
+              >
+                {[10, 15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
+              </select>
+            </div>
+          ))}
           <div className="flex items-center justify-between">
             <span className="text-[13px] font-medium text-primary">Patients per slot</span>
             <input
@@ -332,6 +363,35 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
                 <input type="time" value={cfg.hours[b].start} onChange={(e) => setCfg({ ...cfg, hours: { ...cfg.hours, [b]: { ...cfg.hours[b], start: e.target.value } } })} className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
                 <span className="self-center text-muted-foreground text-xs">to</span>
                 <input type="time" value={cfg.hours[b].end} onChange={(e) => setCfg({ ...cfg, hours: { ...cfg.hours, [b]: { ...cfg.hours[b], end: e.target.value } } })} className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[12px]" />
+              </div>
+            </div>
+          ))}
+          <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground pt-1">
+            Daily limit (khaali = unlimited)
+          </div>
+          {APPT_TYPES.map((t) => (
+            <div key={t} className="flex items-center justify-between gap-2">
+              <span className="text-[13px] font-medium text-primary">{apptTypeLabel(t)}</span>
+              <div className="flex gap-2">
+                {[...BRANCH_KEYS].map((b) => (
+                  <div key={b} className="flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">{branchLabel(b)}</span>
+                    <input
+                      type="number" min={0}
+                      placeholder="—"
+                      className="w-14 rounded-lg border border-border bg-background text-[12px] px-2 py-1.5 text-center"
+                      value={cfg.typeConfig[t].dailyCap[b] ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const n = raw.trim() === "" ? null : Math.max(0, Number(raw) || 0);
+                        setCfg({
+                          ...cfg,
+                          typeConfig: { ...cfg.typeConfig, [t]: { ...cfg.typeConfig[t], dailyCap: { ...cfg.typeConfig[t].dailyCap, [b]: n } } },
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -512,7 +572,17 @@ function AppointmentsPage() {
                     </span>
                   )}
                 </div>
-                <div className="mt-1 font-semibold text-sm truncate">{a.patient_name}</div>
+                <div className="mt-1 flex items-center gap-1.5 min-w-0">
+                  <span className="font-semibold text-sm truncate">{a.patient_name}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold",
+                      (a.appointment_type ?? "FOLLOWUP") === "NEW" ? "bg-accent/25 text-accent-foreground" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {apptTypeLabel((a.appointment_type ?? "FOLLOWUP") as ApptType)}
+                  </span>
+                </div>
                 <div className="text-[11px] text-muted-foreground truncate">
                   {a.doctor ?? "Dr. Yadav"} • {branchLabel(a.branch)}
                 </div>

@@ -2367,6 +2367,7 @@ export interface NewAppointmentInput {
   appointment_date: string; // YYYY-MM-DD
   appointment_time?: string;
   slot_minutes?: number;
+  appointment_type?: ApptType;
   doctor?: string;
   reason?: string;
   branch?: string;
@@ -2415,10 +2416,30 @@ export async function updateAppointmentStatus(id: string, status: string) {
 
 export type ApptBranch = "BAJAJ_NAGAR" | "JAGATPURA";
 
+// New Case vs Follow-up (10 Aug 2026, Dr. Yadav's decision): new cases run
+// 30-60 min and are handled by Junior Doctors, follow-ups are much shorter.
+// Each type gets its own slot duration and an optional daily cap per
+// branch, so reception can book either quickly without the two competing
+// for the same undifferentiated slot grid. Deliberately NOT tied to a
+// specific Junior Doctor yet — that's a time-block only for now, doctor
+// assignment can be added later without reshaping this.
+export type ApptType = "NEW" | "FOLLOWUP";
+export const APPT_TYPES: ApptType[] = ["NEW", "FOLLOWUP"];
+export const apptTypeLabel = (t: ApptType) => (t === "NEW" ? "New Case" : "Follow-up");
+
+export interface TypeSlotConfig {
+  slotMinutes: number;
+  // null/undefined = unlimited. Simple daily total per branch, not a
+  // per-hour or per-doctor cap — Owner can tighten this later if needed.
+  dailyCap: Record<ApptBranch, number | null>;
+}
+
 export interface SlotConfig {
+  /** @deprecated kept only so old saved settings still parse; superseded by typeConfig[type].slotMinutes */
   slotMinutes: number;
   capacityPerSlot: number;
   hours: Record<ApptBranch, { start: string; end: string }>;
+  typeConfig: Record<ApptType, TypeSlotConfig>;
 }
 
 export const DEFAULT_SLOT_CONFIG: SlotConfig = {
@@ -2427,6 +2448,16 @@ export const DEFAULT_SLOT_CONFIG: SlotConfig = {
   hours: {
     "BAJAJ_NAGAR": { start: "09:00", end: "20:00" },
     "JAGATPURA": { start: "09:00", end: "20:00" },
+  },
+  typeConfig: {
+    NEW: {
+      slotMinutes: 45,
+      dailyCap: { BAJAJ_NAGAR: null, JAGATPURA: null },
+    },
+    FOLLOWUP: {
+      slotMinutes: 15,
+      dailyCap: { BAJAJ_NAGAR: null, JAGATPURA: null },
+    },
   },
 };
 
@@ -2440,6 +2471,12 @@ export async function fetchSlotConfig(): Promise<SlotConfig> {
       slotMinutes: parsed.slotMinutes ?? DEFAULT_SLOT_CONFIG.slotMinutes,
       capacityPerSlot: parsed.capacityPerSlot ?? DEFAULT_SLOT_CONFIG.capacityPerSlot,
       hours: { ...DEFAULT_SLOT_CONFIG.hours, ...(parsed.hours ?? {}) },
+      // Settings saved before 10 Aug 2026 won't have typeConfig at all —
+      // fall back to defaults per type rather than crashing on a missing key.
+      typeConfig: {
+        NEW: { ...DEFAULT_SLOT_CONFIG.typeConfig.NEW, ...(parsed.typeConfig?.NEW ?? {}) },
+        FOLLOWUP: { ...DEFAULT_SLOT_CONFIG.typeConfig.FOLLOWUP, ...(parsed.typeConfig?.FOLLOWUP ?? {}) },
+      },
     };
   } catch {
     return DEFAULT_SLOT_CONFIG;
@@ -2487,22 +2524,31 @@ export async function removeVipSlot(id: string) {
   await upsertSetting("vip_reserved_slots", JSON.stringify(list.filter((s) => s.id !== id)));
 }
 
-export interface SlotInfo { time: string; booked: number; capacity: number; vip: boolean; vipNote?: string; full: boolean }
+export interface SlotInfo { time: string; booked: number; capacity: number; vip: boolean; vipNote?: string; full: boolean; capReached: boolean }
 
 // Combines slot config + today's actual bookings + any VIP holds for this
-// exact date/branch into one list the New Appointment picker can render directly.
-export async function fetchSlotAvailability(date: string, branch: ApptBranch): Promise<SlotInfo[]> {
+// exact date/branch/type into one list the New Appointment picker can
+// render directly. `type` picks which duration generates the slot grid
+// (New Case slots are longer, so there are fewer of them across the same
+// operating hours) and whether the type's daily cap has already been hit —
+// once hit, every slot for that type/date/branch shows full, on top of the
+// existing per-slot capacity check.
+export async function fetchSlotAvailability(date: string, branch: ApptBranch, type: ApptType = "FOLLOWUP"): Promise<SlotInfo[]> {
   const [cfg, vip, appts] = await Promise.all([
     fetchSlotConfig(),
     fetchVipSlots(),
     fetchAppointments(date),
   ]);
   const hours = cfg.hours[branch] ?? DEFAULT_SLOT_CONFIG.hours[branch];
-  const times = generateSlots(hours.start, hours.end, cfg.slotMinutes);
+  const typeCfg = cfg.typeConfig[type] ?? DEFAULT_SLOT_CONFIG.typeConfig[type];
+  const times = generateSlots(hours.start, hours.end, typeCfg.slotMinutes);
   const activeAppts = appts.rows.filter((a) => a.branch === branch && a.status !== "Cancelled");
+  const activeOfType = activeAppts.filter((a) => (a.appointment_type ?? "FOLLOWUP") === type);
+  const dailyCap = typeCfg.dailyCap[branch];
+  const capReached = dailyCap != null && activeOfType.length >= dailyCap;
   const vipForThis = vip.filter((v) => v.date === date && v.branch === branch);
   return times.map((t) => {
-    const booked = activeAppts.filter((a) => (a.appointment_time ?? "").slice(0, 5) === t).length;
+    const booked = activeOfType.filter((a) => (a.appointment_time ?? "").slice(0, 5) === t).length;
     const vipMatch = vipForThis.find((v) => v.time === t);
     return {
       time: t,
@@ -2510,7 +2556,8 @@ export async function fetchSlotAvailability(date: string, branch: ApptBranch): P
       capacity: cfg.capacityPerSlot,
       vip: !!vipMatch,
       vipNote: vipMatch?.note,
-      full: booked >= cfg.capacityPerSlot,
+      full: capReached || booked >= cfg.capacityPerSlot,
+      capReached,
     };
   });
 }
@@ -3479,7 +3526,7 @@ export async function searchPatients(term: string) {
   const { data, error } = await supabase
     .from("patients")
     .select("*")
-    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like}`)
+    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like}`)
     .limit(30);
   if (error) return [];
   return data ?? [];

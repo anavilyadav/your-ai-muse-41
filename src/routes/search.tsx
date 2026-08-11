@@ -46,7 +46,7 @@ function SearchPage() {
         <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           autoFocus
-          placeholder="Name, mobile or YHC-ID"
+          placeholder="Name, mobile or card number"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="w-full rounded-full bg-surface border border-input pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
