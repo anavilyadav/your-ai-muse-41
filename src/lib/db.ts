@@ -21,6 +21,7 @@ export interface DBPatient {
   anniversary_date: string | null;
   profession: string | null;
   annual_income: number | null;
+  card_series: string | null;
   card_number: string | null;
   card_register: string | null;
   branch: string;
@@ -615,7 +616,7 @@ export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior
   await upsertSetting("case_dr_levels", JSON.stringify(levels));
 }
 
-const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease, card_number, card_register";
+const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease, card_series, card_number, card_register";
 
 // Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
 // case-taking (e.g. a Junior Case-DR's draft) must not vanish from the
@@ -2081,35 +2082,54 @@ export interface CaseNotesInput {
 }
 
 // ---------- Physical case-register card number ----------
-// Each doctor keeps their own physical case register and hands out
-// numbers from it — so the same number can legitimately exist under two
-// different doctors' registers, but a duplicate WITHIN the same register
-// almost always means a data-entry mistake (this was the exact "same
-// number given 2-3 times, then a/b/c suffixes, then the whole sequence
-// has to be redone" problem). Scoping the check to (number + register)
-// catches the real duplicates without false-flagging different doctors.
+// Real structure, corrected 10 Aug 2026 per Dr. Yadav (the previous
+// two-part card_number+card_register was built on a wrong assumption —
+// card_register held a doctor's name, not the real system): a Series
+// (one or two letters — A, B, K, AA, AB...), a Register number within
+// that series (~100 registers per series), and a Card number within that
+// register. Written together as e.g. "B-10-12". card_series is a new
+// column; card_register is the same column as before but now holds the
+// register NUMBER, not a doctor name; card_number is unchanged.
+//
+// The same card number can legitimately repeat across different
+// series/register combinations, but the exact same (series, register,
+// number) triple existing twice is almost always a data-entry mistake —
+// scoping the uniqueness check to all three catches that without
+// false-flagging genuinely different registers.
+export function formatCardNumber(series: string | null | undefined, register: string | null | undefined, number: string | null | undefined): string | null {
+  if (!series && !register && !number) return null;
+  return [series, register, number].filter(Boolean).join("-");
+}
+
 export async function isDuplicateCardNumber(
-  cardNumber: string,
+  cardSeries: string,
   cardRegister: string,
+  cardNumber: string,
   excludePatientId?: string,
 ): Promise<boolean> {
-  const num = cardNumber.trim();
+  const series = cardSeries.trim().toUpperCase();
   const reg = cardRegister.trim();
-  if (!num || !reg) return false;
+  const num = cardNumber.trim();
+  if (!series || !reg || !num) return false;
   let q = supabase
     .from("patients")
     .select("id", { count: "exact", head: true })
-    .eq("card_number", num)
-    .eq("card_register", reg);
+    .eq("card_series", series)
+    .eq("card_register", reg)
+    .eq("card_number", num);
   if (excludePatientId) q = q.neq("id", excludePatientId);
   const { count } = await q;
   return (count ?? 0) > 0;
 }
 
-export async function savePatientCardNumber(patientId: string, cardNumber: string, cardRegister: string) {
+export async function savePatientCardNumber(patientId: string, cardSeries: string, cardRegister: string, cardNumber: string) {
   const { error } = await supabase
     .from("patients")
-    .update({ card_number: cardNumber.trim() || null, card_register: cardRegister.trim() || null })
+    .update({
+      card_series: cardSeries.trim().toUpperCase() || null,
+      card_register: cardRegister.trim() || null,
+      card_number: cardNumber.trim() || null,
+    })
     .eq("id", patientId);
   return { success: !error, error: error?.message ?? null };
 }
@@ -3526,7 +3546,7 @@ export async function searchPatients(term: string) {
   const { data, error } = await supabase
     .from("patients")
     .select("*")
-    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like}`)
+    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`)
     .limit(30);
   if (error) return [];
   return data ?? [];

@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { useAuth } from "@/lib/auth";
 import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl, isDuplicateCardNumber, savePatientCardNumber } from "@/lib/db";
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -97,40 +96,38 @@ function CaseFormPage() {
   const { token: visitId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { user } = useAuth();
   const { data: visit, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["visit", visitId],
     queryFn: () => fetchVisitForCaseDR(visitId),
   });
 
-  const [cardNumber, setCardNumber] = useState("");
+  const [cardSeries, setCardSeries] = useState("");
   const [cardRegister, setCardRegister] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
   const [cardPrefilled, setCardPrefilled] = useState(false);
   const [dupCardWarn, setDupCardWarn] = useState(false);
   useEffect(() => {
     if (!visit || cardPrefilled) return;
     const p = visit.patient as any;
+    setCardSeries(p?.card_series || "");
+    // No longer defaults to the logged-in doctor's name — card_register is
+    // the register NUMBER within a series (e.g. "10" in B-10-12), not who
+    // took the case. Corrected 10 Aug 2026 per Dr. Yadav.
+    setCardRegister(p?.card_register || "");
     setCardNumber(p?.card_number || "");
-    setCardRegister(p?.card_register || user?.name || "");
     setCardPrefilled(true);
-  }, [visit, cardPrefilled, user]);
+  }, [visit, cardPrefilled]);
 
-  const onCardNumberChange = async (v: string) => {
-    setCardNumber(v);
-    if (v.trim() && cardRegister.trim()) {
-      setDupCardWarn(await isDuplicateCardNumber(v, cardRegister, visit?.patient?.id));
+  const checkDupCard = async (series: string, register: string, number: string) => {
+    if (series.trim() && register.trim() && number.trim()) {
+      setDupCardWarn(await isDuplicateCardNumber(series, register, number, visit?.patient?.id));
     } else {
       setDupCardWarn(false);
     }
   };
-  const onCardRegisterChange = async (v: string) => {
-    setCardRegister(v);
-    if (cardNumber.trim() && v.trim()) {
-      setDupCardWarn(await isDuplicateCardNumber(cardNumber, v, visit?.patient?.id));
-    } else {
-      setDupCardWarn(false);
-    }
-  };
+  const onCardSeriesChange = (v: string) => { setCardSeries(v); checkDupCard(v, cardRegister, cardNumber); };
+  const onCardRegisterChange = (v: string) => { setCardRegister(v); checkDupCard(cardSeries, v, cardNumber); };
+  const onCardNumberChange = (v: string) => { setCardNumber(v); checkDupCard(cardSeries, cardRegister, v); };
 
   const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);
   const [casePhotoSignedUrl, setCasePhotoSignedUrl] = useState<string | null>(null);
@@ -211,8 +208,8 @@ function CaseFormPage() {
     const notes = notesText;
     setBusy(true);
     try {
-      if (visit?.patient?.id && (cardNumber.trim() || cardRegister.trim())) {
-        await savePatientCardNumber(visit.patient.id, cardNumber, cardRegister);
+      if (visit?.patient?.id && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
+        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber);
       }
       await saveCaseNotes(visitId, {
         notes,
@@ -300,9 +297,28 @@ function CaseFormPage() {
         <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
           Card Number
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <input
-            placeholder="Register ka number"
+            placeholder="Series (e.g. B)"
+            value={cardSeries}
+            maxLength={2}
+            onChange={(e) => onCardSeriesChange(e.target.value.toUpperCase())}
+            className={cn(
+              "rounded-lg bg-background border px-3 py-2.5 text-sm uppercase",
+              dupCardWarn ? "border-destructive" : "border-input",
+            )}
+          />
+          <input
+            placeholder="Register no."
+            value={cardRegister}
+            onChange={(e) => onCardRegisterChange(e.target.value)}
+            className={cn(
+              "rounded-lg bg-background border px-3 py-2.5 text-sm",
+              dupCardWarn ? "border-destructive" : "border-input",
+            )}
+          />
+          <input
+            placeholder="Card no."
             value={cardNumber}
             onChange={(e) => onCardNumberChange(e.target.value)}
             className={cn(
@@ -310,15 +326,10 @@ function CaseFormPage() {
               dupCardWarn ? "border-destructive" : "border-input",
             )}
           />
-          <input
-            placeholder="Register (doctor name)"
-            value={cardRegister}
-            onChange={(e) => onCardRegisterChange(e.target.value)}
-            className="rounded-lg bg-background border border-input px-3 py-2.5 text-sm"
-          />
         </div>
+        <p className="text-[10px] text-muted-foreground mt-1">Series-Register-Card, e.g. B-10-12</p>
         {dupCardWarn && (
-          <p className="text-[11px] text-destructive mt-1.5">⚠ Ye number isi register mein kisi aur patient ke paas hai</p>
+          <p className="text-[11px] text-destructive mt-1.5">⚠ Ye card number isi series/register mein kisi aur patient ke paas hai</p>
         )}
       </div>
 

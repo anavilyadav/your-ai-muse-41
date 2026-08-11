@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel, dispenseQuantityLabel } from "@/lib/db";
+import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel, dispenseQuantityLabel, formatCardNumber } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
@@ -91,10 +91,9 @@ function DispensePage() {
           <Badge tone="warn">{visit.token_number ?? "—"}</Badge>
         </div>
         <div className="text-[12px] text-primary-foreground/70 mt-1">{branchLabel(visit.branch)}</div>
-        {visit.patient?.card_number && (
+        {formatCardNumber(visit.patient?.card_series, visit.patient?.card_register, visit.patient?.card_number) && (
           <div className="text-[12px] text-primary-foreground/90 mt-1 font-semibold">
-            Card No. {visit.patient.card_number}
-            {visit.patient.card_register ? ` (${visit.patient.card_register})` : ""}
+            Card No. {formatCardNumber(visit.patient?.card_series, visit.patient?.card_register, visit.patient?.card_number)}
           </div>
         )}
       </div>
