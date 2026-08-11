@@ -655,7 +655,11 @@ export async function collectPayment(input: {
   patient_id: string;
   amount_charged: number;
   amount_received: number;
-  payment_mode: "CASH" | "UPI" | "CARD";
+  // Was a fixed "CASH"|"UPI"|"CARD" union — modes are now Owner-managed
+  // (payment_modes table), so any active mode code is valid here. For a
+  // split payment this is the "primary"/summary mode stored on the
+  // payments row itself; the real breakdown lives in payment_splits.
+  payment_mode: string;
   branch: string;
   notes?: string;
   // Phase 1 #1: credit consumption now happens INSIDE this same RPC/
@@ -673,6 +677,11 @@ export async function collectPayment(input: {
   // (full payments were already accidentally protected by the DONE guard,
   // partial ones weren't). Optional so old callers keep working unchanged.
   idempotency_key?: string;
+  // Multiple payment modes in one collection (e.g. ₹2000 cash + ₹1000
+  // Paytm) — 10 Aug 2026. Must sum EXACTLY to amount_received or the RPC
+  // rejects the whole call (Dr. Yadav's decision — no rounding slack).
+  // Omitted/undefined = single-mode payment, same as before this existed.
+  splits?: { mode: string; amount: number }[];
 }) {
   // Payment insert + credit consumption + patient-totals recompute +
   // visit-status update all happen inside ONE Postgres function
@@ -693,6 +702,7 @@ export async function collectPayment(input: {
     p_branch: input.branch,
     p_notes: input.notes ?? null,
     p_credit_to_apply: input.credit_to_apply ?? 0,
+    p_splits: input.splits && input.splits.length > 0 ? input.splits : null,
   };
 
   let data: any, error: any;
@@ -735,6 +745,90 @@ export async function collectPayment(input: {
       );
     }
   }
+}
+
+// ---------- Payment modes (Owner-managed) + split breakdown ----------
+// 10 Aug 2026: payment_mode used to be a fixed CASH/UPI/CARD union baked
+// into the type system and every report. Owner can now add modes (e.g.
+// Paytm) from Settings; CASH/UPI/CARD stay as protected system defaults
+// (is_system=true) since they're still referenced as literal strings in
+// CSV-import normalization elsewhere.
+export interface PaymentMode {
+  id: string;
+  code: string;
+  label: string;
+  is_active: boolean;
+  is_system: boolean;
+  sort_order: number;
+}
+
+export async function fetchPaymentModes(activeOnly = false): Promise<PaymentMode[]> {
+  let q = supabase.from("payment_modes").select("*").order("sort_order", { ascending: true });
+  if (activeOnly) q = q.eq("is_active", true);
+  const { data, error } = await q;
+  if (error) return [];
+  return (data ?? []) as PaymentMode[];
+}
+
+export async function addPaymentMode(code: string, label: string) {
+  const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+  if (!cleanCode || !label.trim()) return { success: false, error: "Code aur label dono chahiye" };
+  const { data: existing } = await supabase.from("payment_modes").select("id").eq("code", cleanCode).maybeSingle();
+  if (existing) return { success: false, error: "Ye code already exist karta hai" };
+  const { data: maxRow } = await supabase.from("payment_modes").select("sort_order").order("sort_order", { ascending: false }).limit(1).maybeSingle();
+  const { error } = await supabase.from("payment_modes").insert({
+    code: cleanCode,
+    label: label.trim(),
+    sort_order: (maxRow?.sort_order ?? 0) + 1,
+  });
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function setPaymentModeActive(id: string, isActive: boolean) {
+  const { error } = await supabase.from("payment_modes").update({ is_active: isActive }).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// Deleting a mode that's already been used on real payments would orphan
+// payment_splits.mode values that no report could label anymore —
+// deactivating (above) is the safe removal path. This is only reachable
+// for modes that were added and then never actually used.
+export async function deletePaymentMode(id: string) {
+  const { data: mode } = await supabase.from("payment_modes").select("code, is_system").eq("id", id).maybeSingle();
+  if (!mode) return { success: false, error: "Mode nahi mila" };
+  if (mode.is_system) return { success: false, error: "Cash/UPI/Card ko delete nahi kar sakte — deactivate kar sakte ho" };
+  const { count } = await supabase.from("payment_splits").select("id", { count: "exact", head: true }).eq("mode", mode.code);
+  if ((count ?? 0) > 0) return { success: false, error: "Ye mode already use ho chuka hai — delete nahi, sirf deactivate kar sakte ho" };
+  const { error } = await supabase.from("payment_modes").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export interface ModeBreakdown { mode: string; label: string; amount: number }
+
+// Shared by every report/dashboard that shows a Cash/UPI/Card/... split.
+// Reads from payment_splits (which has one row per mode per payment, for
+// every payment — split or not, backfilled for history too — see
+// migration 0037) instead of payments.payment_mode directly, so a payment
+// split across multiple modes counts correctly in each mode's own bucket.
+// Every active mode is included even at ₹0 (so the UI always shows a
+// consistent set of rows); any mode with real history that's since been
+// deactivated/removed from payment_modes still appears using its raw code
+// as the label, so old money is never silently dropped from a report.
+export async function fetchModeBreakdown(paymentIds: string[]): Promise<ModeBreakdown[]> {
+  const modes = await fetchPaymentModes();
+  if (paymentIds.length === 0) {
+    return modes.filter((m) => m.is_active).map((m) => ({ mode: m.code, label: m.label, amount: 0 }));
+  }
+  const { data: splits, error } = await supabase.from("payment_splits").select("mode,amount").in("payment_id", paymentIds);
+  if (error) return modes.filter((m) => m.is_active).map((m) => ({ mode: m.code, label: m.label, amount: 0 }));
+  const byMode = new Map<string, number>();
+  (splits ?? []).forEach((s: any) => byMode.set(s.mode, (byMode.get(s.mode) ?? 0) + Number(s.amount ?? 0)));
+  const known = modes
+    .filter((m) => m.is_active || (byMode.get(m.code) ?? 0) > 0)
+    .map((m) => ({ mode: m.code, label: m.label, amount: byMode.get(m.code) ?? 0 }));
+  const extraCodes = [...byMode.keys()].filter((c) => !modes.some((m) => m.code === c));
+  const extra = extraCodes.map((c) => ({ mode: c, label: c, amount: byMode.get(c) ?? 0 }));
+  return [...known, ...extra];
 }
 
 // ---------- Payment Adjustments — overpayment ledger (audit P0-6) ----------
@@ -2231,12 +2325,13 @@ export async function fetchOwnerStats() {
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
       supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", istDayStart(t)),
-      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", istDayStart(monthStart)),
+      supabase.from("payments").select("id,amount_received,payment_mode,branch").gte("created_at", istDayStart(monthStart)),
       supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
       supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", t),
     ]);
   const sum = (rows: any[] | null, filt?: (r: any) => boolean) =>
     (rows ?? []).filter((r) => (filt ? filt(r) : true)).reduce((s, r) => s + Number(r.amount_received ?? 0), 0);
+  const monthByMode = await fetchModeBreakdown((monthPay.data ?? []).map((r: any) => r.id));
   return {
     todayVisits: (todayVisitsBajaj.count ?? 0) + (todayVisitsJagatpura.count ?? 0),
     todayVisitsBajaj: todayVisitsBajaj.count ?? 0,
@@ -2245,10 +2340,10 @@ export async function fetchOwnerStats() {
     todayRevenueBajaj: sum(todayPay.data, (r) => r.branch === "BAJAJ_NAGAR"),
     todayRevenueJagatpura: sum(todayPay.data, (r) => r.branch === "JAGATPURA"),
     monthRevenue: sum(monthPay.data),
-    monthCash: sum(monthPay.data, (r) => r.payment_mode === "CASH"),
-    monthUpi: sum(monthPay.data, (r) => r.payment_mode === "UPI"),
-    monthCard: sum(monthPay.data, (r) => r.payment_mode === "CARD"),
-    monthOther: sum(monthPay.data, (r) => !["CASH", "UPI", "CARD"].includes(r.payment_mode)),
+    // Was fixed monthCash/monthUpi/monthCard/monthOther fields — replaced
+    // 10 Aug 2026 with a dynamic per-mode breakdown so a newly-added
+    // Owner payment mode shows up here without another code change.
+    monthByMode,
     newToday: newToday.count ?? 0,
     followupsToday: followupsToday.count ?? 0,
   };
@@ -2339,7 +2434,7 @@ export async function fetchReports(
     start = now.getUTCFullYear() + "-01-01";
   }
 
-  let payQ = supabase.from("payments").select("amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
+  let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
   let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("created_at", istDayStart(start));
@@ -2359,21 +2454,21 @@ export async function fetchReports(
   const sum = (f: (r: any) => number) => rows.reduce((s, r) => s + f(r), 0);
   const totalRev = sum((r) => Number(r.amount_received ?? 0));
   const outstanding = sum((r) => Number(r.balance_due ?? 0));
-  const cash = sum((r) => (r.payment_mode === "CASH" ? Number(r.amount_received ?? 0) : 0));
-  const upi = sum((r) => (r.payment_mode === "UPI" ? Number(r.amount_received ?? 0) : 0));
-  const card = sum((r) => (r.payment_mode === "CARD" ? Number(r.amount_received ?? 0) : 0));
   const totalPatients = new Set((vis.data ?? []).map((v: any) => v.patient_id)).size;
   const newPatients = pat.count ?? 0;
   const avg = totalPatients ? Math.round(totalRev / totalPatients) : 0;
+  // Was fixed Cash/UPI/Card rows — 10 Aug 2026, replaced with one row per
+  // active payment mode (plus any deactivated mode with real history in
+  // this period) so a new Owner-added mode shows up here automatically.
+  const byMode = await fetchModeBreakdown(rows.map((r: any) => r.id));
+  const modeRows: [string, string][] = byMode.map((m) => [`${m.label} Collection`, `₹${m.amount.toLocaleString("en-IN")}`]);
   return {
     rows: [
       ["Total Revenue", `₹${totalRev.toLocaleString("en-IN")}`],
       ["Total Patients", String(totalPatients)],
       ["New Patients", String(newPatients)],
       ["Avg per Patient", `₹${avg.toLocaleString("en-IN")}`],
-      ["Cash Collection", `₹${cash.toLocaleString("en-IN")}`],
-      ["UPI Collection", `₹${upi.toLocaleString("en-IN")}`],
-      ["Card Collection", `₹${card.toLocaleString("en-IN")}`],
+      ...modeRows,
       ["Outstanding", `₹${outstanding.toLocaleString("en-IN")}`],
       ["Leads Converted", String(lead.count ?? 0)],
     ] as [string, string][],
@@ -3740,7 +3835,7 @@ export async function fetchDaySummary(branch?: string) {
   let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);
   let payQ = supabase
     .from("payments")
-    .select("visit_id,amount_received,amount_charged,balance_due,branch,payment_mode")
+    .select("id,visit_id,amount_received,amount_charged,balance_due,branch,payment_mode")
     .gte("created_at", istDayStart(t));
   if (branch) {
     visQ = visQ.eq("branch", branch);
@@ -3764,14 +3859,11 @@ export async function fetchDaySummary(branch?: string) {
   }
   const revenue = pays.reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const outstanding = pays.reduce((s, r: any) => s + Number(r.balance_due ?? 0), 0);
-  const cash = pays.filter((r: any) => r.payment_mode === "CASH").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
-  const upi = pays.filter((r: any) => r.payment_mode === "UPI").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
-  const card = pays.filter((r: any) => r.payment_mode === "CARD").reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
-  // Anything outside CASH/UPI/CARD (e.g. NEFT/QR from a bulk-imported
-  // historical record) still counts toward total revenue above, but
-  // wouldn't show up in any of the 3 named buckets — this bucket exists
-  // so cash+upi+card+other always adds back up to the total.
-  const other = pays.filter((r: any) => !["CASH", "UPI", "CARD"].includes(r.payment_mode)).reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
+  // Was fixed cash/upi/card/other fields — 10 Aug 2026, replaced with a
+  // dynamic per-mode breakdown (see fetchModeBreakdown) so a payment split
+  // across multiple modes, or a newly-added Owner mode, both show up
+  // correctly instead of falling into an undifferentiated "other" bucket.
+  const byMode = await fetchModeBreakdown(pays.map((r: any) => r.id));
   // "Completed today" = visits actually paid off today (balance hit 0
   // today), whether that visit was registered today or carried over from
   // an earlier day. Counting only visits.visit_status === "DONE" AND
@@ -3787,10 +3879,7 @@ export async function fetchDaySummary(branch?: string) {
     pendingPayments: visits.filter((v: any) => v.visit_status === "PAYMENT").length,
     revenue,
     outstanding,
-    cash,
-    upi,
-    card,
-    other,
+    byMode,
     bajaj: visits.filter((v: any) => v.branch === "BAJAJ_NAGAR").length,
     jagat: visits.filter((v: any) => v.branch === "JAGATPURA").length,
   };

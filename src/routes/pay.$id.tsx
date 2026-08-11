@@ -4,9 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { Plus, X } from "lucide-react";
 
 export const Route = createFileRoute("/pay/$id")({
   head: () => ({ meta: [{ title: "Collect Payment — YHC" }, { name: "robots", content: "noindex" }] }),
@@ -17,12 +18,9 @@ export const Route = createFileRoute("/pay/$id")({
   ),
 });
 
-const modes: { key: "CASH" | "UPI" | "CARD"; label: string }[] = [
-  { key: "CASH", label: "Cash" },
-  { key: "UPI", label: "UPI" },
-  { key: "CARD", label: "Card" },
-];
 const quick = [200, 300, 500, 700];
+
+interface SplitRow { mode: string; amount: string }
 
 function PayPage() {
   const { id } = Route.useParams();
@@ -41,8 +39,21 @@ function PayPage() {
 
   const [charged, setCharged] = useState<number>(0);
   const [received, setReceived] = useState<number>(0);
-  const [mode, setMode] = useState<"CASH" | "UPI" | "CARD">("CASH");
+  const [mode, setMode] = useState<string>("CASH");
   const [busy, setBusy] = useState(false);
+
+  // Split payment (10 Aug 2026, Dr. Yadav's request) — e.g. ₹2000 cash +
+  // ₹1000 Paytm in one collection. Off by default (single-mode stays the
+  // fast path for the common case); toggling on switches from the single
+  // mode-picker to a list of mode+amount rows that must sum to `received`
+  // exactly before Collect is enabled — same rigor as the rest of this
+  // screen's money handling.
+  const [isSplit, setIsSplit] = useState(false);
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([{ mode: "CASH", amount: "" }, { mode: "UPI", amount: "" }]);
+  const { data: paymentModes } = useQuery({ queryKey: ["payment-modes"], queryFn: () => fetchPaymentModes(true) });
+  const modes = paymentModes ?? [];
+  const splitTotal = splitRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const splitValid = isSplit && splitRows.some((r) => Number(r.amount) > 0) && splitTotal === received;
   // 04 Aug 2026 fix: one key per mount of this screen (not per click) —
   // reused across retries of the same submission (clinic wifi timeout,
   // a re-tap while the first request is still in flight), so a payment
@@ -141,6 +152,10 @@ function PayPage() {
     if (balance > 0 && !canPartial) {
       return toast.error("Partial payment ki permission nahi hai — Owner/Doctor se poora amount collect karwao.");
     }
+    if (isSplit && received > 0 && !splitValid) {
+      return toast.error(`Split amounts (₹${splitTotal}) received amount (₹${received}) se match nahi karte`);
+    }
+    const activeSplits = isSplit ? splitRows.filter((r) => Number(r.amount) > 0).map((r) => ({ mode: r.mode, amount: Number(r.amount) })) : undefined;
     setBusy(true);
     try {
       // Credit consumption + payment insert now happen inside ONE atomic
@@ -153,10 +168,11 @@ function PayPage() {
         patient_id: visit.patient_id,
         amount_charged: charged,
         amount_received: received,
-        payment_mode: mode,
+        payment_mode: activeSplits && activeSplits.length > 1 ? "SPLIT" : activeSplits?.[0]?.mode ?? mode,
         branch: visit.branch,
         credit_to_apply: creditToApply,
         idempotency_key: idempotencyKey,
+        splits: activeSplits,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
@@ -273,21 +289,77 @@ function PayPage() {
       </div>
 
       <div className="mt-4">
-        <div className="text-xs font-semibold text-primary uppercase mb-2">Mode</div>
-        <div className="flex gap-2">
-          {modes.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMode(m.key)}
-              className={cn(
-                "flex-1 rounded-lg py-2.5 text-sm font-semibold border",
-                mode === m.key ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold text-primary uppercase">Mode</span>
+          <button
+            type="button"
+            onClick={() => setIsSplit((v) => !v)}
+            className="text-[11px] font-semibold text-primary underline"
+          >
+            {isSplit ? "Single mode se collect karo" : "Multiple modes mein split karo"}
+          </button>
         </div>
+
+        {!isSplit ? (
+          <div className="flex gap-2">
+            {modes.map((m) => (
+              <button
+                key={m.code}
+                onClick={() => setMode(m.code)}
+                className={cn(
+                  "flex-1 rounded-lg py-2.5 text-sm font-semibold border",
+                  mode === m.code ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {splitRows.map((row, i) => (
+              <div key={i} className="flex gap-2">
+                <select
+                  value={row.mode}
+                  onChange={(e) => setSplitRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, mode: e.target.value } : r)))}
+                  className="w-28 rounded-lg bg-surface border border-input px-2 py-2.5 text-sm shrink-0"
+                >
+                  {modes.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+                </select>
+                <input
+                  inputMode="numeric"
+                  placeholder="Amount"
+                  value={row.amount}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setSplitRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, amount: v } : r)));
+                  }}
+                  className="flex-1 min-w-0 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+                />
+                {splitRows.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setSplitRows((rows) => rows.filter((_, ri) => ri !== i))}
+                    className="shrink-0 h-10 w-10 grid place-items-center rounded-lg bg-muted"
+                    aria-label="Remove row"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setSplitRows((rows) => [...rows, { mode: modes[0]?.code ?? "CASH", amount: "" }])}
+              className="w-full rounded-lg border border-dashed border-border py-2 text-xs font-semibold text-muted-foreground inline-flex items-center justify-center gap-1"
+            >
+              <Plus className="h-3.5 w-3.5" /> Aur ek mode add karo
+            </button>
+            <div className={cn("text-[11px] font-semibold text-right", splitTotal === received ? "text-success" : "text-destructive")}>
+              Split total: ₹{splitTotal.toLocaleString("en-IN")} / ₹{received.toLocaleString("en-IN")} received
+            </div>
+          </div>
+        )}
       </div>
 
       {balance > 0 && (
@@ -303,7 +375,7 @@ function PayPage() {
 
       <button
         onClick={doCollect}
-        disabled={busy || (balance > 0 && !canPartial)}
+        disabled={busy || (balance > 0 && !canPartial) || (isSplit && received > 0 && !splitValid)}
         className="mt-5 w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold disabled:opacity-60"
       >
         {busy ? "Saving…" : balance === 0 ? "Collect Payment" : "Save Partial Payment"}

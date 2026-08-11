@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -129,6 +129,11 @@ function OwnerDashboard() {
               <Wallet className="h-5 w-5 text-destructive" />
               <div className="font-bold text-primary text-sm mt-1">Payment Adjustments</div>
               <div className="text-[11px] text-muted-foreground">Overpayment refund/credit</div>
+            </Link>
+            <Link to="/owner/payment-modes" className="rounded-2xl bg-surface border border-border p-3.5">
+              <CreditCard className="h-5 w-5 text-primary" />
+              <div className="font-bold text-primary text-sm mt-1">Payment Modes</div>
+              <div className="text-[11px] text-muted-foreground">Cash/UPI/Card + custom</div>
             </Link>
             <Link to="/owner/case-tracking" className="rounded-2xl bg-surface border border-border p-3.5">
               <ClipboardList className="h-5 w-5 text-destructive" />

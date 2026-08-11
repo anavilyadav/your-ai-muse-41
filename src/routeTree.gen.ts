@@ -31,6 +31,7 @@ import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
 import { Route as OwnerImportRouteImport } from './routes/owner.import'
 import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
 import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.payment-adjustments'
+import { Route as OwnerPaymentModesRouteImport } from './routes/owner.payment-modes'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
 import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
 import { Route as OwnerWhatsappRouteImport } from './routes/owner.whatsapp'
@@ -159,6 +160,11 @@ const OwnerPaymentAdjustmentsRoute = OwnerPaymentAdjustmentsRouteImport.update({
   path: '/owner/payment-adjustments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerPaymentModesRoute = OwnerPaymentModesRouteImport.update({
+  id: '/owner/payment-modes',
+  path: '/owner/payment-modes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OwnerReportsRoute = OwnerReportsRouteImport.update({
   id: '/owner/reports',
   path: '/owner/reports',
@@ -266,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
+  '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
@@ -307,6 +314,7 @@ export interface FileRoutesByTo {
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
+  '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
@@ -349,6 +357,7 @@ export interface FileRoutesById {
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
+  '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/payment-adjustments'
+    | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
     | '/owner/whatsapp'
@@ -433,6 +443,7 @@ export interface FileRouteTypes {
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/payment-adjustments'
+    | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
     | '/owner/whatsapp'
@@ -474,6 +485,7 @@ export interface FileRouteTypes {
     | '/owner/import'
     | '/owner/incentives'
     | '/owner/payment-adjustments'
+    | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
     | '/owner/whatsapp'
@@ -516,6 +528,7 @@ export interface RootRouteChildren {
   OwnerImportRoute: typeof OwnerImportRoute
   OwnerIncentivesRoute: typeof OwnerIncentivesRoute
   OwnerPaymentAdjustmentsRoute: typeof OwnerPaymentAdjustmentsRoute
+  OwnerPaymentModesRoute: typeof OwnerPaymentModesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
   OwnerStaffRoute: typeof OwnerStaffRoute
   OwnerWhatsappRoute: typeof OwnerWhatsappRoute
@@ -693,6 +706,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerPaymentAdjustmentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/payment-modes': {
+      id: '/owner/payment-modes'
+      path: '/owner/payment-modes'
+      fullPath: '/owner/payment-modes'
+      preLoaderRoute: typeof OwnerPaymentModesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/owner/reports': {
       id: '/owner/reports'
       path: '/owner/reports'
@@ -836,6 +856,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerImportRoute: OwnerImportRoute,
   OwnerIncentivesRoute: OwnerIncentivesRoute,
   OwnerPaymentAdjustmentsRoute: OwnerPaymentAdjustmentsRoute,
+  OwnerPaymentModesRoute: OwnerPaymentModesRoute,
   OwnerReportsRoute: OwnerReportsRoute,
   OwnerStaffRoute: OwnerStaffRoute,
   OwnerWhatsappRoute: OwnerWhatsappRoute,

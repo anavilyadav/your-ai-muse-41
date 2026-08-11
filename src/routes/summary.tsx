@@ -15,6 +15,11 @@ export const Route = createFileRoute("/summary")({
   ),
 });
 
+// Cycles for however many payment modes exist (was 3 hardcoded colors for
+// fixed Cash/UPI/Card bars — modes are Owner-managed now, so this list
+// just needs to not run out, not match any specific mode).
+const PAY_BAR_COLORS = ["bg-success", "bg-primary", "bg-accent", "bg-destructive", "bg-muted-foreground"];
+
 function SummaryPage() {
   const [s, setS] = useState<Awaited<ReturnType<typeof fetchDaySummary>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,10 +83,9 @@ function SummaryPage() {
 
       <SectionTitle>Payment Modes</SectionTitle>
       <div className="rounded-xl bg-surface border border-border p-3 space-y-2.5">
-        <PayBar label="Cash" amount={s.cash} total={s.revenue || 1} color="bg-success" />
-        <PayBar label="UPI / QR" amount={s.upi} total={s.revenue || 1} color="bg-primary" />
-        <PayBar label="Card" amount={s.card} total={s.revenue || 1} color="bg-accent" />
-        {s.other > 0 && <PayBar label="Other" amount={s.other} total={s.revenue || 1} color="bg-muted-foreground" />}
+        {s.byMode.map((m, i) => (
+          <PayBar key={m.mode} label={m.label} amount={m.amount} total={s.revenue || 1} color={PAY_BAR_COLORS[i % PAY_BAR_COLORS.length]} />
+        ))}
       </div>
 
       <SectionTitle>By Branch</SectionTitle>
