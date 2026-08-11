@@ -23,7 +23,7 @@ export const Route = createFileRoute("/pharmacy/inventory")({
 // to pick which rows the list below shows.
 const TOTAL = "TOTAL" as const;
 const TABS = [...BRANCH_KEYS, TOTAL] as const;
-const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "CM", "Q"];
+const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "50M", "CM", "Q"];
 
 function isLow(row: any): boolean {
   const stock = Number(row.stock_drams ?? row.stock ?? 0);
