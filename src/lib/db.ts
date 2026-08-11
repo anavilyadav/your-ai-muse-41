@@ -3419,10 +3419,24 @@ export async function commitLeadsImport(
   return imported;
 }
 
+// Parses "B-01-01" (Series-Register-Number, per Dr. Yadav's real card
+// format, 10 Aug 2026) into its three parts. Tolerant of 1-2 letter series
+// (A, B, K, AA, AB) and any digit count, since real historical sheets
+// won't always be perfectly zero-padded.
+export function parseCardNumber(raw: string | undefined): { series: string; register: string; number: string } | null {
+  const m = (raw ?? "").trim().toUpperCase().match(/^([A-Z]{1,2})-(\d+)-(\d+)$/);
+  if (!m) return null;
+  return { series: m[1], register: m[2], number: m[3] };
+}
+
 // ----- Patients -----
 export interface ImportPatientRow {
   name: string; mobile: string; age?: string; gender?: string; city?: string;
   primary_disease?: string; branch?: string;
+  // Added 10 Aug 2026 to match Dr. Yadav's real master-sheet columns.
+  address?: string; card_no?: string; referred_by?: string; email?: string;
+  category?: string; patient_type?: string; patient_status?: string;
+  foreign_patient_info?: string;
 }
 
 export async function previewPatientsImport(rows: ImportPatientRow[], defaultBranch: string) {
@@ -3470,21 +3484,34 @@ export async function commitPatientsImport(
   let imported = 0;
   try {
     for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH).map((r, j) => ({
-        patient_code: codes[i + j],
-        name: r.name.trim(),
-        mobile: r.mobile,
-        age: r.age ? Number(r.age) || null : null,
-        gender: r.gender?.trim() || null,
-        city: r.city?.trim() || null,
-        primary_disease: r.primary_disease?.trim() || null,
-        wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
-        branch: r.branch,
-        lifetime_visits: 0,
-        lifetime_revenue: 0,
-        current_balance: 0,
-        imported_batch: batchId,
-      }));
+      const chunk = rows.slice(i, i + BATCH).map((r, j) => {
+        const card = parseCardNumber(r.card_no);
+        return {
+          patient_code: codes[i + j],
+          name: r.name.trim(),
+          mobile: r.mobile,
+          age: r.age ? Number(r.age) || null : null,
+          gender: r.gender?.trim() || null,
+          city: r.city?.trim() || null,
+          address: r.address?.trim() || null,
+          primary_disease: r.primary_disease?.trim() || null,
+          card_series: card?.series ?? null,
+          card_register: card?.register ?? null,
+          card_number: card?.number ?? null,
+          referred_by: r.referred_by?.trim() || null,
+          email: r.email?.trim() || null,
+          category: r.category?.trim() || null,
+          patient_type: r.patient_type?.trim() || null,
+          patient_status: r.patient_status?.trim() || null,
+          foreign_patient_info: r.foreign_patient_info?.trim() || null,
+          wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
+          branch: r.branch,
+          lifetime_visits: 0,
+          lifetime_revenue: 0,
+          current_balance: 0,
+          imported_batch: batchId,
+        };
+      });
       const { error } = await supabase.from("patients").insert(chunk);
       if (error) throw error;
       imported += chunk.length;
@@ -3500,6 +3527,28 @@ export async function commitPatientsImport(
 export interface ImportVisitRow {
   mobile: string; visit_date: string; chief_complaint?: string;
   amount_charged?: string; amount_received?: string; payment_mode?: string;
+  // Added 10 Aug 2026 to match Dr. Yadav's real daily-entry sheet columns.
+  branch?: string; // "CLINIC" column — per-row override, falls back to the matched patient's branch
+  medicine?: string; duration?: string; slip_no?: string; due_date?: string;
+  details?: string; reminder_call?: string;
+}
+
+// Folds the historical-record-only columns (medicine/duration/slip no./
+// due date/details/reminder call) into one readable note, instead of five
+// narrow structured columns nothing else in the app reads. due_date is
+// deliberately included here as plain text ONLY — never written to
+// visits.next_visit_date, which feeds the live WhatsApp follow-up
+// reminder engine. Writing a years-old due date there would fire a real
+// reminder to a real patient for a follow-up that's long since resolved.
+function buildVisitImportNotes(r: ImportVisitRow): string | null {
+  const parts: string[] = [];
+  if (r.medicine?.trim()) parts.push(`Medicine: ${r.medicine.trim()}`);
+  if (r.duration?.trim()) parts.push(`Duration: ${r.duration.trim()}`);
+  if (r.slip_no?.trim()) parts.push(`Slip No.: ${r.slip_no.trim()}`);
+  if (r.due_date?.trim()) parts.push(`Due Date (historical, informational only): ${r.due_date.trim()}`);
+  if (r.details?.trim()) parts.push(`Details: ${r.details.trim()}`);
+  if (r.reminder_call?.trim()) parts.push(`Reminder Call: ${r.reminder_call.trim()}`);
+  return parts.length ? parts.join(" | ") : null;
 }
 
 export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
@@ -3522,7 +3571,12 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       if (unmatchedSamples.length < 5) unmatchedSamples.push(r.mobile || "(no mobile)");
       continue;
     }
-    valid.push({ ...r, mobile, patient_id: p.id, branch: p.branch });
+    // "CLINIC" column — per-row branch override (e.g. a patient normally at
+    // one branch who was seen at the other for one visit); falls back to
+    // the matched patient's own branch when blank or not a real branch key.
+    const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
+    const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
+    valid.push({ ...r, mobile, patient_id: p.id, branch });
   }
   return { valid, unmatched, unmatchedSamples, total: rows.length };
 }
@@ -3556,6 +3610,7 @@ export async function commitVisitHistoryImport(
       visit_status: "DONE",
       branch: r.branch,
       chief_complaint: r.chief_complaint?.trim() || null,
+      import_notes: buildVisitImportNotes(r),
       imported_batch: batchId,
     }));
     const { data: inserted, error } = await supabase.from("visits").insert(visitInserts).select("id,patient_id");
@@ -3584,9 +3639,22 @@ export async function commitVisitHistoryImport(
       }
     });
     if (paymentInserts.length) {
-      const { error: pe } = await supabase.from("payments").insert(paymentInserts);
+      const { data: insertedPays, error: pe } = await supabase.from("payments").insert(paymentInserts).select("id,payment_mode,amount_received");
       if (pe) throw new Error(`${visitsImported} visits already imported, but a payments batch failed: ${pe.message}`);
       paymentsImported += paymentInserts.length;
+      // Every payment needs a payment_splits row (single-mode here, since
+      // the daily-entry sheet only has one "mode of payment" column per
+      // row) — otherwise imported history would show ₹0 in the per-mode
+      // breakdown on Owner Reports/Day Summary despite counting toward the
+      // total, since those now read from payment_splits, not
+      // payments.payment_mode directly.
+      const splitInserts = (insertedPays ?? [])
+        .filter((p: any) => Number(p.amount_received) > 0)
+        .map((p: any) => ({ payment_id: p.id, mode: p.payment_mode, amount: p.amount_received }));
+      if (splitInserts.length) {
+        const { error: se } = await supabase.from("payment_splits").insert(splitInserts);
+        if (se) console.error("payment_splits backfill for imported payments failed:", se.message);
+      }
     }
   }
 

@@ -40,19 +40,39 @@ type FieldDef = { key: string; label: string; required?: boolean };
 
 const ALIASES: Record<string, string[]> = {
   name: ["name", "patient name", "full name", "patientname"],
-  mobile: ["mobile", "phone", "contact", "mobile number", "phone number", "contact number", "mob"],
+  mobile: ["mobile", "phone", "contact", "mobile number", "phone number", "contact number", "mob", "phone no", "mobile number"],
   age: ["age"],
   gender: ["gender", "sex"],
   city: ["city", "area", "location"],
-  primary_disease: ["disease", "primary disease", "complaint", "category", "disease interest", "problem"],
-  branch: ["branch", "clinic", "location"],
+  // "category" removed 10 Aug 2026 — was colliding with the new, genuinely
+  // separate `category` field below (Dr. Yadav's real master sheet has
+  // both a DISEASE column and its own CATEGORY column, they're not the
+  // same thing).
+  primary_disease: ["disease", "primary disease", "complaint", "disease interest", "problem"],
+  branch: ["branch", "location", "clinic"],
   source: ["source", "lead source"],
   note: ["note", "notes", "remarks", "comments"],
-  visit_date: ["visit date", "date", "reg date", "registration date", "visited on"],
+  visit_date: ["visit date", "date", "timestamp", "reg date", "registration date", "visited on"],
   chief_complaint: ["complaint", "chief complaint", "diagnosis", "notes"],
-  amount_charged: ["amount charged", "fee", "total fee", "bill amount", "charged"],
+  amount_charged: ["amount charged", "fee", "total fee", "bill amount", "charged", "charges"],
   amount_received: ["amount received", "paid", "amount paid", "received"],
-  payment_mode: ["payment mode", "mode", "payment type"],
+  payment_mode: ["payment mode", "mode", "payment type", "mode of payment"],
+  // Everything below added 10 Aug 2026 to match Dr. Yadav's real daily-entry
+  // and master-sheet CSV column names exactly.
+  address: ["address"],
+  card_no: ["card no", "card number", "card no."],
+  referred_by: ["referred by", "refered by", "reference"],
+  email: ["email", "email address"],
+  category: ["category"],
+  patient_type: ["patient type"],
+  patient_status: ["active status", "status"],
+  foreign_patient_info: ["only for foreign patient", "foreign patient"],
+  medicine: ["medicine"],
+  duration: ["duration"],
+  slip_no: ["slip no", "slip no.", "slip number"],
+  due_date: ["due date"],
+  details: ["details"],
+  reminder_call: ["reminder call"],
 };
 
 function norm(s: string) {
@@ -284,7 +304,15 @@ function PatientsImportTab() {
     { key: "age", label: "Age" },
     { key: "gender", label: "Gender" },
     { key: "city", label: "City" },
-    { key: "primary_disease", label: "Primary disease" },
+    { key: "address", label: "Address" },
+    { key: "primary_disease", label: "Disease" },
+    { key: "card_no", label: "Card No. (e.g. B-01-01)" },
+    { key: "referred_by", label: "Referred by" },
+    { key: "email", label: "Email address" },
+    { key: "category", label: "Category" },
+    { key: "patient_type", label: "Patient type" },
+    { key: "patient_status", label: "Active status" },
+    { key: "foreign_patient_info", label: "Foreign patient info" },
     { key: "branch", label: "Branch (per-row, optional)" },
   ];
   const csv = useCSVImport(fields);
@@ -366,6 +394,13 @@ function VisitHistoryImportTab() {
     { key: "amount_charged", label: "Amount charged" },
     { key: "amount_received", label: "Amount received" },
     { key: "payment_mode", label: "Payment mode" },
+    { key: "branch", label: "Clinic (per-row, optional)" },
+    { key: "medicine", label: "Medicine" },
+    { key: "duration", label: "Duration" },
+    { key: "slip_no", label: "Slip No." },
+    { key: "due_date", label: "Due date (historical — informational only, doesn't trigger reminders)" },
+    { key: "details", label: "Details (advance/due)" },
+    { key: "reminder_call", label: "Reminder call" },
   ];
   const csv = useCSVImport(fields);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewVisitHistoryImport>> | null>(null);
