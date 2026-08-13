@@ -30,6 +30,7 @@ import { Route as OwnerHealthRouteImport } from './routes/owner.health'
 import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
 import { Route as OwnerImportRouteImport } from './routes/owner.import'
 import { Route as OwnerIncentivesRouteImport } from './routes/owner.incentives'
+import { Route as OwnerPatientsRouteImport } from './routes/owner.patients'
 import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.payment-adjustments'
 import { Route as OwnerPaymentModesRouteImport } from './routes/owner.payment-modes'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
@@ -155,6 +156,11 @@ const OwnerIncentivesRoute = OwnerIncentivesRouteImport.update({
   path: '/owner/incentives',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerPatientsRoute = OwnerPatientsRouteImport.update({
+  id: '/owner/patients',
+  path: '/owner/patients',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OwnerPaymentAdjustmentsRoute = OwnerPaymentAdjustmentsRouteImport.update({
   id: '/owner/payment-adjustments',
   path: '/owner/payment-adjustments',
@@ -271,6 +277,7 @@ export interface FileRoutesByFullPath {
   '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
+  '/owner/patients': typeof OwnerPatientsRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -313,6 +320,7 @@ export interface FileRoutesByTo {
   '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
+  '/owner/patients': typeof OwnerPatientsRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -356,6 +364,7 @@ export interface FileRoutesById {
   '/owner/holidays': typeof OwnerHolidaysRoute
   '/owner/import': typeof OwnerImportRoute
   '/owner/incentives': typeof OwnerIncentivesRoute
+  '/owner/patients': typeof OwnerPatientsRoute
   '/owner/payment-adjustments': typeof OwnerPaymentAdjustmentsRoute
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
+    | '/owner/patients'
     | '/owner/payment-adjustments'
     | '/owner/payment-modes'
     | '/owner/reports'
@@ -442,6 +452,7 @@ export interface FileRouteTypes {
     | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
+    | '/owner/patients'
     | '/owner/payment-adjustments'
     | '/owner/payment-modes'
     | '/owner/reports'
@@ -484,6 +495,7 @@ export interface FileRouteTypes {
     | '/owner/holidays'
     | '/owner/import'
     | '/owner/incentives'
+    | '/owner/patients'
     | '/owner/payment-adjustments'
     | '/owner/payment-modes'
     | '/owner/reports'
@@ -527,6 +539,7 @@ export interface RootRouteChildren {
   OwnerHolidaysRoute: typeof OwnerHolidaysRoute
   OwnerImportRoute: typeof OwnerImportRoute
   OwnerIncentivesRoute: typeof OwnerIncentivesRoute
+  OwnerPatientsRoute: typeof OwnerPatientsRoute
   OwnerPaymentAdjustmentsRoute: typeof OwnerPaymentAdjustmentsRoute
   OwnerPaymentModesRoute: typeof OwnerPaymentModesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
@@ -699,6 +712,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerIncentivesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/patients': {
+      id: '/owner/patients'
+      path: '/owner/patients'
+      fullPath: '/owner/patients'
+      preLoaderRoute: typeof OwnerPatientsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/owner/payment-adjustments': {
       id: '/owner/payment-adjustments'
       path: '/owner/payment-adjustments'
@@ -855,6 +875,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerHolidaysRoute: OwnerHolidaysRoute,
   OwnerImportRoute: OwnerImportRoute,
   OwnerIncentivesRoute: OwnerIncentivesRoute,
+  OwnerPatientsRoute: OwnerPatientsRoute,
   OwnerPaymentAdjustmentsRoute: OwnerPaymentAdjustmentsRoute,
   OwnerPaymentModesRoute: OwnerPaymentModesRoute,
   OwnerReportsRoute: OwnerReportsRoute,

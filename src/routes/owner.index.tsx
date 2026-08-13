@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/owner/")({
 export const OWNER_NAV: NavItem[] = [
   { to: "/owner", label: "Home", icon: LayoutDashboard, exact: true },
   { to: "/owner/staff", label: "Staff", icon: Users },
+  { to: "/owner/patients", label: "Patients", icon: BookUser },
   { to: "/owner/reports", label: "Reports", icon: TrendingUp },
   { to: "/owner/control", label: "Control", icon: Settings },
   { to: "/owner/import", label: "Import", icon: Upload },
@@ -109,6 +110,11 @@ function OwnerDashboard() {
               <Users className="h-5 w-5 text-primary" />
               <div className="font-bold text-primary text-sm mt-1">Staff ({staffCount})</div>
               <div className="text-[11px] text-muted-foreground">{activeStaff} active</div>
+            </Link>
+            <Link to="/owner/patients" className="rounded-2xl bg-surface border border-border p-3.5">
+              <BookUser className="h-5 w-5 text-primary" />
+              <div className="font-bold text-primary text-sm mt-1">Master Patient List</div>
+              <div className="text-[11px] text-muted-foreground">Browse sabhi patients, search bhi</div>
             </Link>
             <Link to="/owner/followup-rules" className="rounded-2xl bg-surface border border-border p-3.5">
               <CalendarClock className="h-5 w-5 text-accent-foreground" />

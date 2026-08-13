@@ -9,6 +9,15 @@
 //                            the x-backup-secret header. Without this, any
 //                            random request to this URL would dump every
 //                            patient's PII + every payment record.
+//
+// SELF-ALERTING ON FAILURE (10 Aug 2026): the daily-backup cron job fires
+// this via pg_net, which only confirms the HTTP call was QUEUED — it never
+// inspects this function's response body. So if a table failed to fetch, or
+// the row-paging cap was hit, or the Google Sheets POST itself failed, the
+// cron log would still say "succeeded" and nobody would ever find out. This
+// function now writes its own system_alerts row on anything short of a
+// clean success, same pattern as nightly-data-health, so it shows up on
+// Owner > Health instead of failing silently.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -76,26 +85,40 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-Deno.serve(async (req) => {
+async function raiseBackupAlert(supabaseAdmin: any, reasons: string[], context: Record<string, unknown>) {
   try {
-    const expectedSecret = Deno.env.get("BACKUP_FUNCTION_SECRET");
-    const gotSecret = req.headers.get("x-backup-secret") ?? "";
-    if (!expectedSecret || !constantTimeEqual(gotSecret, expectedSecret)) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-    }
+    await supabaseAdmin.from("system_alerts").insert({
+      type: "BACKUP_TO_SHEETS",
+      message: `Aaj ki Google Sheets backup poori tarah successful nahi hui — ${reasons.join(" • ")}`,
+      context,
+    });
+  } catch {
+    // Alert-logging must never break the response itself.
+  }
+}
 
+Deno.serve(async (req) => {
+  const expectedSecret = Deno.env.get("BACKUP_FUNCTION_SECRET");
+  const gotSecret = req.headers.get("x-backup-secret") ?? "";
+  if (!expectedSecret || !constantTimeEqual(gotSecret, expectedSecret)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  const supabaseAdmin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  try {
     const sheetsUrl = Deno.env.get("BACKUP_SHEETS_URL");
     if (!sheetsUrl) {
+      await raiseBackupAlert(supabaseAdmin, ["BACKUP_SHEETS_URL secret configure nahi hai"], {});
       return new Response(JSON.stringify({ error: "BACKUP_SHEETS_URL not configured as a secret" }), { status: 500 });
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
     const backup: Record<string, any[]> = {};
     let anyTableFailed = false;
+    const failedTables: string[] = [];
     const cappedTables: string[] = [];
     for (const { name, orderCol } of TABLES) {
       try {
@@ -105,27 +128,46 @@ Deno.serve(async (req) => {
       } catch (e: any) {
         backup[name] = [{ ERROR: e?.message ?? String(e) }];
         anyTableFailed = true;
+        failedTables.push(name);
       }
     }
 
-    const res = await fetch(sheetsUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(backup),
-    });
-    const result = await res.json().catch(() => ({}));
+    let sheetsOk = false;
+    let result: any = {};
+    try {
+      const res = await fetch(sheetsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backup),
+      });
+      result = await res.json().catch(() => ({}));
+      sheetsOk = res.ok && !!result.success;
+    } catch (e: any) {
+      result = { error: e?.message ?? String(e) };
+      sheetsOk = false;
+    }
 
     // A partial-table failure must not be reported as a clean success —
     // that would let a broken backup sit unnoticed until it's needed. A
     // capped table (hit PAGE_CAP) is also not a clean success — it means
     // pagination stopped early and some rows are missing, same as the old
     // silent-truncation bug would have caused.
-    const success = res.ok && result.success && !anyTableFailed && cappedTables.length === 0;
+    const success = sheetsOk && !anyTableFailed && cappedTables.length === 0;
+
+    if (!success) {
+      const reasons: string[] = [];
+      if (failedTables.length) reasons.push(`ye tables fetch karte waqt fail hui: ${failedTables.join(", ")}`);
+      if (cappedTables.length) reasons.push(`ye tables 50,000 row cap tak pahunch gayi (data adhoora gaya): ${cappedTables.join(", ")}`);
+      if (!sheetsOk) reasons.push(`Google Sheets tak backup pahunchane mein dikkat: ${result?.error ?? JSON.stringify(result)}`);
+      await raiseBackupAlert(supabaseAdmin, reasons, { anyTableFailed, failedTables, cappedTables, sheetsResponse: result });
+    }
+
     return new Response(
       JSON.stringify({ success, tables: Object.keys(backup), anyTableFailed, cappedTables, sheetsResponse: result }),
       { headers: { "Content-Type": "application/json" } },
     );
   } catch (e) {
+    await raiseBackupAlert(supabaseAdmin, [`backup function crash ho gayi: ${String(e)}`], { error: String(e) });
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 });

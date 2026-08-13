@@ -3715,6 +3715,28 @@ export async function searchPatients(term: string) {
   return data ?? [];
 }
 
+// Owner-only browsable master list (13 Aug 2026) — distinct from
+// searchPatients() above, which requires a query term and is what
+// Reception's /search screen uses. This one browses ALL patients with an
+// optional filter, for the Owner's Master Patient List screen.
+export interface PatientListPage {
+  rows: DBPatient[];
+  hasMore: boolean;
+}
+
+export async function fetchPatientsPage(limit: number, search?: string): Promise<PatientListPage> {
+  let q = supabase.from("patients").select("*");
+  const t = search ? sanitizeOrFilterTerm(search) : "";
+  if (t) {
+    const like = `%${t}%`;
+    q = q.or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`);
+  }
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+  if (error) return { rows: [], hasMore: false };
+  const rows = (data ?? []) as DBPatient[];
+  return { rows, hasMore: rows.length === limit };
+}
+
 export async function fetchPatientById(id: string) {
   const { data, error } = await supabase
     .from("patients")
