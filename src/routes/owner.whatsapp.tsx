@@ -59,6 +59,12 @@ const CAMPAIGN_LABEL: Record<string, string> = {
 function WhatsAppControlsPanel() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["whatsapp-controls"], queryFn: fetchWhatsAppControls });
+  // Same query as the stats cards below (React Query dedupes/shares it) —
+  // used here to show "Aaj: 3 bheja" next to each module's cap, so the cap
+  // number and how close you are to it are both visible in one place,
+  // not just an editable-but-blind input box.
+  const { data: stats } = useQuery({ queryKey: ["whatsapp-stats"], queryFn: fetchWhatsAppStats });
+  const sentTodayByCampaign = new Map((stats?.byCampaign ?? []).map((c) => [c.campaign_name, c.sentToday]));
   const [controls, setControls] = useState<WhatsAppControls>(DEFAULT_WHATSAPP_CONTROLS);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -146,43 +152,52 @@ function WhatsAppControlsPanel() {
       )}
 
       <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground pt-1">
-        Module-wise (khaali cap = unlimited)
+        Module-wise
       </div>
       {WHATSAPP_CAMPAIGNS.map((c) => {
         const mod = controls.modules[c] ?? { enabled: true, dailyCap: null };
+        const sentToday = sentTodayByCampaign.get(c) ?? 0;
+        const atCap = mod.dailyCap != null && sentToday >= mod.dailyCap;
         return (
-          <div key={c} className="flex items-center justify-between gap-2 py-1">
-            <button
-              onClick={() => toggleModule(c)}
-              disabled={saving}
-              className={cn(
-                "flex-1 text-left text-[13px] font-medium truncate",
-                mod.enabled ? "text-primary" : "text-muted-foreground line-through",
-              )}
-            >
-              {CAMPAIGN_LABEL[c] ?? c}
-            </button>
-            <input
-              type="number" min={0}
-              placeholder="—"
-              value={mod.dailyCap ?? ""}
-              onChange={(e) => setCap(c, e.target.value)}
-              disabled={saving}
-              className="w-14 rounded-lg border border-border bg-background text-[12px] px-2 py-1.5 text-center"
-            />
-            <button
-              onClick={() => toggleModule(c)}
-              disabled={saving}
-              className={cn(
-                "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border",
-                mod.enabled ? "bg-success/15 border-success/40 text-success" : "bg-surface border-border text-muted-foreground",
-              )}
-            >
-              {mod.enabled ? "ON" : "OFF"}
-            </button>
+          <div key={c} className="rounded-xl border border-border p-2.5 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className={cn("text-[13px] font-medium truncate", mod.enabled ? "text-primary" : "text-muted-foreground line-through")}>
+                {CAMPAIGN_LABEL[c] ?? c}
+              </span>
+              <button
+                onClick={() => toggleModule(c)}
+                disabled={saving}
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border",
+                  mod.enabled ? "bg-success/15 border-success/40 text-success" : "bg-surface border-border text-muted-foreground",
+                )}
+              >
+                {mod.enabled ? "ON" : "OFF"}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className={cn("text-[11px]", atCap ? "text-destructive font-semibold" : "text-muted-foreground")}>
+                Aaj bheja: {sentToday}{mod.dailyCap != null ? ` / ${mod.dailyCap}` : ""}
+                {atCap ? " — cap lag gaya" : ""}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">Daily cap</span>
+                <input
+                  type="number" min={0}
+                  placeholder="Unlimited"
+                  value={mod.dailyCap ?? ""}
+                  onChange={(e) => setCap(c, e.target.value)}
+                  disabled={saving}
+                  className="w-16 rounded-lg border border-border bg-background text-[12px] px-2 py-1.5 text-center"
+                />
+              </div>
+            </div>
           </div>
         );
       })}
+      <p className="text-[10px] text-muted-foreground px-0.5">
+        Cap ka number kabhi bhi badal sakte ho — turant apply hota hai, kisi ko dobara deploy nahi karna padta. Khaali chhodo toh unlimited.
+      </p>
 
       <button
         onClick={resetToAutomatic}

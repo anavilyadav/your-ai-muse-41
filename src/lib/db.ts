@@ -4113,7 +4113,12 @@ export interface WhatsAppStats {
   skippedWeek: number;
   disabledWeek: number;
   cappedWeek: number;
-  byCampaign: { campaign_name: string; sent: number; failed: number }[];
+  // sentToday specifically (not just week) is what the WhatsApp Controls
+  // panel shows next to each module's cap input ("Aaj: 3/5 bheja") — the
+  // whole point of Dr. Yadav's "cap ka mention nahi kiya" feedback (10 Aug
+  // 2026) was that the cap and how close you are to it weren't visible
+  // anywhere, only editable blind.
+  byCampaign: { campaign_name: string; sent: number; sentToday: number; failed: number }[];
 }
 
 export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
@@ -4134,7 +4139,7 @@ export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
 
   const todayISO = todayStart.toISOString();
   const stats = { ...empty };
-  const campaignMap = new Map<string, { sent: number; failed: number }>();
+  const campaignMap = new Map<string, { sent: number; sentToday: number; failed: number }>();
 
   for (const row of data as any[]) {
     const isToday = row.created_at >= todayISO;
@@ -4154,8 +4159,11 @@ export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
       stats.cappedWeek++;
       if (isToday) stats.cappedToday++;
     }
-    const c = campaignMap.get(row.campaign_name) ?? { sent: 0, failed: 0 };
-    if (row.status === "sent") c.sent++;
+    const c = campaignMap.get(row.campaign_name) ?? { sent: 0, sentToday: 0, failed: 0 };
+    if (row.status === "sent") {
+      c.sent++;
+      if (isToday) c.sentToday++;
+    }
     if (row.status === "failed") c.failed++;
     campaignMap.set(row.campaign_name, c);
   }

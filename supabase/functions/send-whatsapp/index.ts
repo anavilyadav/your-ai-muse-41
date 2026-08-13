@@ -44,7 +44,7 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null; dailyCap: number | null }> {
   const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
@@ -53,15 +53,15 @@ async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Prom
       controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
     } catch { /* keep defaults */ }
   }
-  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off" };
+  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off", dailyCap: null };
   const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null };
+  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off", dailyCap: mod.dailyCap };
+  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null, dailyCap: null };
   const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
   const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
   const budget = Math.max(0, mod.dailyCap - (count ?? 0));
-  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached" };
-  return { allowed: true, budget, reason: null };
+  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached", dailyCap: mod.dailyCap };
+  return { allowed: true, budget, reason: null, dailyCap: mod.dailyCap };
 }
 
 function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
@@ -175,7 +175,7 @@ Deno.serve(async (req) => {
         campaign_name: campaignName,
         destination: destination ?? null,
         status: gate.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
-        error_message: gate.reason === "master_off" ? "WhatsApp master switch OFF" : gate.reason === "module_off" ? `${campaignName} switch OFF` : "Daily send cap reached",
+        error_message: gate.reason === "master_off" ? "WhatsApp master switch OFF" : gate.reason === "module_off" ? `${campaignName} switch OFF` : `Daily cap reached (${gate.dailyCap ?? "?"}/day for ${campaignName})`,
       });
       return json({ success: false, skipped: true, error: "WhatsApp paused for this campaign right now" }, 200);
     }

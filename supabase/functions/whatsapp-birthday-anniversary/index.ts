@@ -42,7 +42,7 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null; dailyCap: number | null }> {
   const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
@@ -51,24 +51,24 @@ async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Prom
       controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
     } catch { /* keep defaults */ }
   }
-  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off" };
+  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off", dailyCap: null };
   const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null };
+  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off", dailyCap: mod.dailyCap };
+  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null, dailyCap: null };
   const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
   const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
   const budget = Math.max(0, mod.dailyCap - (count ?? 0));
-  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached" };
-  return { allowed: true, budget, reason: null };
+  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached", dailyCap: mod.dailyCap };
+  return { allowed: true, budget, reason: null, dailyCap: mod.dailyCap };
 }
-async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached" }) {
+async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached"; dailyCap?: number | null }) {
   try {
     await supabaseAdmin.from("whatsapp_log").insert({
       patient_id: row.patient_id,
       campaign_name: row.campaign_name,
       destination: row.destination,
       status: row.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
-      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : "Daily send cap reached",
+      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : `Daily cap reached (${row.dailyCap ?? "?"}/day for ${row.campaign_name})`,
     });
   } catch { /* logging must never break the skip/send response */ }
 }
@@ -241,7 +241,7 @@ Deno.serve(async (req) => {
       if (!birthdayGate.allowed && birthdayGate.reason !== "cap_reached") continue; // module/master off — not even worth logging per-patient
       if (birthdayBudget <= 0) {
         cappedOut++;
-        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "BIRTHDAY_WISH", destination: null, reason: "cap_reached" });
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "BIRTHDAY_WISH", destination: null, reason: "cap_reached", dailyCap: birthdayGate.dailyCap });
         continue;
       }
       birthdayBudget--;
@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
       if (!anniversaryGate.allowed && anniversaryGate.reason !== "cap_reached") continue;
       if (anniversaryBudget <= 0) {
         cappedOut++;
-        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "ANNIVERSARY_WISH", destination: null, reason: "cap_reached" });
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "ANNIVERSARY_WISH", destination: null, reason: "cap_reached", dailyCap: anniversaryGate.dailyCap });
         continue;
       }
       anniversaryBudget--;
