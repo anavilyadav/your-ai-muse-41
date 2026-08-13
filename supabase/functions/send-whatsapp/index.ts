@@ -34,6 +34,36 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// NOTE ON INLINED HELPER (10 Aug 2026): checkCampaignGate is inlined
+// rather than imported from ../_shared/whatsapp-gate.ts — the MCP deploy
+// path used for hotfixes couldn't resolve relative shared-module imports.
+// See whatsapp-winback/index.ts for the same note.
+interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
+const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
+function istTodayDate(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
+  if (data?.value) {
+    try {
+      const parsed = JSON.parse(data.value);
+      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
+    } catch { /* keep defaults */ }
+  }
+  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off" };
+  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
+  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off" };
+  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null };
+  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
+  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
+  const budget = Math.max(0, mod.dailyCap - (count ?? 0));
+  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached" };
+  return { allowed: true, budget, reason: null };
+}
+
 function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
   const cc = (countryCode || "+91").replace(/\D/g, "");
   const digits = (localNumber || "").replace(/\D/g, "");
@@ -134,6 +164,21 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // WhatsApp master/module switch + daily cap (Dr. Yadav, 10 Aug 2026) —
+    // checked before anything else, same as the consent check below, so a
+    // paused campaign never reaches AiSensy regardless of caller.
+    const gate = await checkCampaignGate(supabaseAdmin, campaignName);
+    if (!gate.allowed) {
+      await logWhatsApp(supabaseAdmin, {
+        patient_id: patientId ?? null,
+        campaign_name: campaignName,
+        destination: destination ?? null,
+        status: gate.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
+        error_message: gate.reason === "master_off" ? "WhatsApp master switch OFF" : gate.reason === "module_off" ? `${campaignName} switch OFF` : "Daily send cap reached",
+      });
+      return json({ success: false, skipped: true, error: "WhatsApp paused for this campaign right now" }, 200);
+    }
 
     let finalDestination = destination;
 

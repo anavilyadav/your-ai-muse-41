@@ -12,8 +12,66 @@
 // The birthday/anniversary dedup tables and `interactions` write are
 // unchanged.
 
-import { requireCronSecret } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+// NOTE ON INLINED HELPERS (10 Aug 2026): see whatsapp-winback/index.ts —
+// the MCP deploy path used for hotfixes couldn't resolve relative
+// ../_shared/ imports, so this logic is inlined here instead.
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function requireCronSecret(req: Request): Response | null {
+  const expected = Deno.env.get("CRON_FUNCTION_SECRET");
+  const got = req.headers.get("x-cron-secret") ?? "";
+  if (!expected) {
+    return new Response(JSON.stringify({ error: "Unauthorized: CRON_FUNCTION_SECRET not configured" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+  if (!constantTimeEqual(got, expected)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+  return null;
+}
+
+interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
+const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
+function istTodayDate(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
+  if (data?.value) {
+    try {
+      const parsed = JSON.parse(data.value);
+      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
+    } catch { /* keep defaults */ }
+  }
+  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off" };
+  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
+  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off" };
+  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null };
+  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
+  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
+  const budget = Math.max(0, mod.dailyCap - (count ?? 0));
+  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached" };
+  return { allowed: true, budget, reason: null };
+}
+async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached" }) {
+  try {
+    await supabaseAdmin.from("whatsapp_log").insert({
+      patient_id: row.patient_id,
+      campaign_name: row.campaign_name,
+      destination: row.destination,
+      status: row.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
+      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : "Daily send cap reached",
+    });
+  } catch { /* logging must never break the skip/send response */ }
+}
 
 function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
   const cc = (countryCode || "+91").replace(/\D/g, "");
@@ -125,8 +183,8 @@ async function sendWish(
 }
 
 Deno.serve(async (req) => {
-  // Caller check (see ../_shared/cron-auth.ts): this URL is public, so
-  // without it anyone could trigger a full run against real patients.
+  // Caller check: this URL is public, so without it anyone could trigger
+  // a full run against real patients.
   const denied = requireCronSecret(req);
   if (denied) return denied;
 
@@ -169,19 +227,41 @@ Deno.serve(async (req) => {
     const alreadyWishedBirthday = await fetchAlreadyWishedSet(supabaseAdmin, "birthday_greeting_log", year, birthdayMatches.map((p: any) => p.id));
     const alreadyWishedAnniversary = await fetchAlreadyWishedSet(supabaseAdmin, "anniversary_greeting_log", year, anniversaryMatches.map((p: any) => p.id));
 
-    let sent = 0, skipped = 0, failed = 0;
+    // WhatsApp master/module switch (Dr. Yadav, 10 Aug 2026) — checked
+    // per-campaign since Owner might turn off birthday wishes but keep
+    // anniversary wishes on (or vice versa), or cap one differently.
+    const birthdayGate = await checkCampaignGate(supabaseAdmin, "BIRTHDAY_WISH");
+    const anniversaryGate = await checkCampaignGate(supabaseAdmin, "ANNIVERSARY_WISH");
+    let birthdayBudget = birthdayGate.allowed ? birthdayGate.budget : 0;
+    let anniversaryBudget = anniversaryGate.allowed ? anniversaryGate.budget : 0;
+
+    let sent = 0, skipped = 0, failed = 0, cappedOut = 0;
     for (const patient of birthdayMatches) {
       if (alreadyWishedBirthday.has(patient.id)) { skipped++; continue; }
+      if (!birthdayGate.allowed && birthdayGate.reason !== "cap_reached") continue; // module/master off — not even worth logging per-patient
+      if (birthdayBudget <= 0) {
+        cappedOut++;
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "BIRTHDAY_WISH", destination: null, reason: "cap_reached" });
+        continue;
+      }
+      birthdayBudget--;
       const r = await sendWish(supabaseAdmin, apiKey, patient, "BIRTHDAY_WISH", "birthday_greeting_log", year);
       if (r === "sent") sent++; else failed++;
     }
     for (const patient of anniversaryMatches) {
       if (alreadyWishedAnniversary.has(patient.id)) { skipped++; continue; }
+      if (!anniversaryGate.allowed && anniversaryGate.reason !== "cap_reached") continue;
+      if (anniversaryBudget <= 0) {
+        cappedOut++;
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "ANNIVERSARY_WISH", destination: null, reason: "cap_reached" });
+        continue;
+      }
+      anniversaryBudget--;
       const r = await sendWish(supabaseAdmin, apiKey, patient, "ANNIVERSARY_WISH", "anniversary_greeting_log", year);
       if (r === "sent") sent++; else failed++;
     }
 
-    return new Response(JSON.stringify({ success: true, sent, skipped, failed }), {
+    return new Response(JSON.stringify({ success: true, sent, skipped, failed, cappedOut }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {

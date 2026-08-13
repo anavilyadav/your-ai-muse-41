@@ -4012,14 +4012,78 @@ export interface WhatsAppLogEntry {
   patient_id: string | null;
   campaign_name: string;
   destination: string | null;
-  status: "sent" | "failed" | "skipped_consent";
+  status: "sent" | "failed" | "skipped_consent" | "skipped_disabled" | "skipped_cap";
   error_message: string | null;
   created_at: string;
   patient?: { name: string; patient_code?: string | null } | null;
 }
 
+// ─── WhatsApp master/module switches + daily caps (10 Aug 2026) ────────────
+// Requested by Dr. Yadav ahead of a large historical-data import: stay
+// fully automatic day to day, but be able to instantly pause everything (or
+// just one campaign) during testing, cap per-day sends per campaign to
+// control AiSensy cost, and snap back to full-automatic in one action — with
+// every skip visible on the dashboard, never silent. The actual gate check
+// lives inline in each of the 5 sending Edge Functions (send-whatsapp +
+// the 4 crons) — see their "NOTE ON INLINED HELPERS" comments — this is
+// just the Owner-facing read/write side of the same `whatsapp_controls`
+// settings key those functions read.
+export const WHATSAPP_CAMPAIGNS = [
+  "REGISTRATION_CONFIRM",
+  "APPOINTMENT_REMINDER",
+  "FOLLOWUP_REMINDER",
+  "BIRTHDAY_WISH",
+  "ANNIVERSARY_WISH",
+  "HOLIDAY_GREETING",
+  "WINBACK",
+] as const;
+export type WhatsAppCampaign = (typeof WHATSAPP_CAMPAIGNS)[number];
+
+export interface WhatsAppModuleControl {
+  enabled: boolean;
+  dailyCap: number | null; // null = unlimited
+}
+export interface WhatsAppControls {
+  masterEnabled: boolean;
+  modules: Record<WhatsAppCampaign, WhatsAppModuleControl>;
+}
+
+export const DEFAULT_WHATSAPP_CONTROLS: WhatsAppControls = {
+  masterEnabled: true,
+  modules: Object.fromEntries(WHATSAPP_CAMPAIGNS.map((c) => [c, { enabled: true, dailyCap: null }])) as WhatsAppControls["modules"],
+};
+
+export async function fetchWhatsAppControls(): Promise<WhatsAppControls> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) console.error("fetchWhatsAppControls failed:", error.message);
+  if (!data?.value) return DEFAULT_WHATSAPP_CONTROLS;
+  try {
+    const parsed = JSON.parse(data.value);
+    return {
+      masterEnabled: parsed.masterEnabled ?? true,
+      modules: {
+        ...DEFAULT_WHATSAPP_CONTROLS.modules,
+        ...(parsed.modules ?? {}),
+      },
+    };
+  } catch {
+    return DEFAULT_WHATSAPP_CONTROLS;
+  }
+}
+
+export async function saveWhatsAppControls(controls: WhatsAppControls) {
+  await upsertSetting("whatsapp_controls", JSON.stringify(controls));
+}
+
+// One-click return to "fully automatic" — master on, every module on, no
+// caps — so pausing for a test/import doesn't turn into having to remember
+// and manually re-toggle 7 separate switches afterward.
+export async function resetWhatsAppToFullAutomatic() {
+  await saveWhatsAppControls(DEFAULT_WHATSAPP_CONTROLS);
+}
+
 export async function fetchWhatsAppLog(opts?: {
-  status?: "sent" | "failed" | "skipped_consent";
+  status?: "sent" | "failed" | "skipped_consent" | "skipped_disabled" | "skipped_cap";
   campaign?: string;
   limit?: number;
 }): Promise<WhatsAppLogEntry[]> {
@@ -4039,14 +4103,25 @@ export interface WhatsAppStats {
   sentToday: number;
   failedToday: number;
   skippedToday: number;
+  // 10 Aug 2026 — split out from the generic "skipped" bucket so a paused
+  // switch or a hit cap is visible as its own number, not lumped in with
+  // no-consent skips (which mean something operationally different).
+  disabledToday: number;
+  cappedToday: number;
   sentWeek: number;
   failedWeek: number;
   skippedWeek: number;
+  disabledWeek: number;
+  cappedWeek: number;
   byCampaign: { campaign_name: string; sent: number; failed: number }[];
 }
 
 export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
-  const empty: WhatsAppStats = { sentToday: 0, failedToday: 0, skippedToday: 0, sentWeek: 0, failedWeek: 0, skippedWeek: 0, byCampaign: [] };
+  const empty: WhatsAppStats = {
+    sentToday: 0, failedToday: 0, skippedToday: 0, disabledToday: 0, cappedToday: 0,
+    sentWeek: 0, failedWeek: 0, skippedWeek: 0, disabledWeek: 0, cappedWeek: 0,
+    byCampaign: [],
+  };
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -4072,6 +4147,12 @@ export async function fetchWhatsAppStats(): Promise<WhatsAppStats> {
     } else if (row.status === "skipped_consent") {
       stats.skippedWeek++;
       if (isToday) stats.skippedToday++;
+    } else if (row.status === "skipped_disabled") {
+      stats.disabledWeek++;
+      if (isToday) stats.disabledToday++;
+    } else if (row.status === "skipped_cap") {
+      stats.cappedWeek++;
+      if (isToday) stats.cappedToday++;
     }
     const c = campaignMap.get(row.campaign_name) ?? { sent: 0, failed: 0 };
     if (row.status === "sent") c.sent++;

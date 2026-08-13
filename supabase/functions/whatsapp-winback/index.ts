@@ -13,8 +13,70 @@
 // failed) now also writes a row to whatsapp_log for the Owner dashboard.
 // The `winback_log` dedup table and `interactions` write are unchanged.
 
-import { requireCronSecret } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+// NOTE ON INLINED HELPERS (10 Aug 2026): cron-auth + whatsapp-gate logic
+// below is inlined rather than imported from ../_shared/ — the MCP deploy
+// path used for hotfixes in this project couldn't resolve relative
+// shared-module imports (bundler looked for _shared/*.ts one level up
+// from source/ and didn't find files placed there via the files[] array,
+// confirmed live 10 Aug 2026). Same reason buildWhatsAppDestination/
+// patientWhatsAppTarget below were never shared imports either.
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function requireCronSecret(req: Request): Response | null {
+  const expected = Deno.env.get("CRON_FUNCTION_SECRET");
+  const got = req.headers.get("x-cron-secret") ?? "";
+  if (!expected) {
+    return new Response(JSON.stringify({ error: "Unauthorized: CRON_FUNCTION_SECRET not configured" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+  if (!constantTimeEqual(got, expected)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+  return null;
+}
+
+interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
+const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
+function istTodayDate(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
+  if (data?.value) {
+    try {
+      const parsed = JSON.parse(data.value);
+      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
+    } catch { /* keep defaults */ }
+  }
+  if (!controls.masterEnabled) return { allowed: false, budget: 0, reason: "master_off" };
+  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
+  if (!mod.enabled) return { allowed: false, budget: 0, reason: "module_off" };
+  if (mod.dailyCap == null) return { allowed: true, budget: Infinity, reason: null };
+  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
+  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
+  const budget = Math.max(0, mod.dailyCap - (count ?? 0));
+  if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached" };
+  return { allowed: true, budget, reason: null };
+}
+async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached" }) {
+  try {
+    await supabaseAdmin.from("whatsapp_log").insert({
+      patient_id: row.patient_id,
+      campaign_name: row.campaign_name,
+      destination: row.destination,
+      status: row.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
+      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : "Daily send cap reached",
+    });
+  } catch { /* logging must never break the skip/send response */ }
+}
 
 // Kept in sync with buildWhatsAppDestination/patientWhatsAppTarget in
 // src/lib/db.ts — edge functions are deployed separately so this can't be
@@ -51,8 +113,8 @@ function istDateNDaysAgoStr(daysAgo: number): string {
 }
 
 Deno.serve(async (req) => {
-  // Caller check (see ../_shared/cron-auth.ts): this URL is public, so
-  // without it anyone could trigger a full run against real patients.
+  // Caller check: this URL is public, so without it anyone could trigger
+  // a full run against real patients.
   const denied = requireCronSecret(req);
   if (denied) return denied;
 
@@ -66,6 +128,18 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "AISENSY_API_KEY not configured as a secret" }), { status: 500 });
     }
 
+    // WhatsApp master/module switch (Dr. Yadav, 10 Aug 2026) — if the whole
+    // WINBACK campaign is off, stop here before even querying candidates.
+    // A cap (not a full off) still needs the candidate list below to know
+    // who to actually send to vs. log as skipped_cap.
+    const gate = await checkCampaignGate(supabaseAdmin, "WINBACK");
+    if (!gate.allowed && gate.reason !== "cap_reached") {
+      return new Response(JSON.stringify({ success: true, sent: 0, skipped: 0, failed: 0, disabled: true, reason: gate.reason }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    let budget = gate.budget;
+
     const { data: tiers, error: tiersErr } = await supabaseAdmin
       .from("winback_tiers")
       .select("*")
@@ -73,7 +147,7 @@ Deno.serve(async (req) => {
       .order("days_lapsed", { ascending: true });
     if (tiersErr) return new Response(JSON.stringify({ error: tiersErr.message }), { status: 400 });
 
-    let sent = 0, skipped = 0, failed = 0;
+    let sent = 0, skipped = 0, failed = 0, cappedOut = 0;
 
     for (const tier of tiers ?? []) {
       const cutoffStr = istDateNDaysAgoStr(tier.days_lapsed);
@@ -104,6 +178,18 @@ Deno.serve(async (req) => {
 
       for (const patient of candidates) {
         if (alreadySentSet.has(patient.id)) { skipped++; continue; }
+
+        if (budget <= 0) {
+          cappedOut++;
+          await logWhatsAppSkip(supabaseAdmin, {
+            patient_id: patient.id,
+            campaign_name: "WINBACK",
+            destination: patientWhatsAppTarget(patient),
+            reason: "cap_reached",
+          });
+          continue;
+        }
+        budget--;
 
         try {
           const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
@@ -156,7 +242,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, sent, skipped, failed }), {
+    return new Response(JSON.stringify({ success: true, sent, skipped, failed, cappedOut }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
