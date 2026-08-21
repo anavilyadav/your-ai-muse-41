@@ -1,13 +1,13 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -64,7 +64,10 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
 function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [saved, setSaved] = useState<{ token: string; code: string; branch: string; name: string; visitId: string; caseChannel: "WALK_IN" | "ONLINE" } | null>(null);
+  const [saved, setSaved] = useState<{
+    token: string; code: string; branch: string; name: string; visitId: string; caseChannel: "WALK_IN" | "ONLINE";
+    paymentCollected: boolean; paymentAmount: number;
+  } | null>(null);
 
   const [f, setF] = useState({
     name: "",
@@ -110,6 +113,34 @@ function RegisterPage() {
   const [familyRelationship, setFamilyRelationship] = useState(RELATIONSHIPS[0]);
   const [customFamilyRelationship, setCustomFamilyRelationship] = useState("");
 
+  // Inline payment collection at registration (Dr. Yadav, 13 Aug 2026) —
+  // "payment pehle hota hai, baad mein entry hoti hai" (payment happens
+  // first in real life, the paperwork happens after). Reception collects
+  // cash/UPI right at the counter, so payment now gets recorded in the
+  // SAME submit as the patient/visit, instead of requiring a separate trip
+  // to the Pay screen. planMonths covers the "someone bought a 3-month
+  // plan" case in one shot instead of one payment per month.
+  const { data: feeMaster } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
+  const fees = feeMaster ?? DEFAULT_FEE_MASTER;
+  const { data: paymentModesData } = useQuery({ queryKey: ["payment-modes"], queryFn: () => fetchPaymentModes(true) });
+  const paymentModes = paymentModesData ?? [];
+  const feeKind = f.caseChannel === "ONLINE" ? "ONLINE" : "NEW";
+  const [planMonths, setPlanMonths] = useState(1);
+  const standardAmount = fees[feeKind] * planMonths;
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentAmountTouched, setPaymentAmountTouched] = useState(false);
+  const [paymentMode, setPaymentMode] = useState("CASH");
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => crypto.randomUUID());
+
+  useEffect(() => {
+    if (!paymentAmountTouched) setPaymentAmount(String(standardAmount));
+  }, [standardAmount, paymentAmountTouched]);
+
+  const pickPlan = (months: number) => {
+    setPlanMonths(months);
+    setPaymentAmountTouched(false);
+  };
+
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
     const digits = v.replace(/\D/g, "").slice(0, maxLen);
@@ -144,6 +175,8 @@ function RegisterPage() {
         name: existingPatient.name,
         visitId: visit.id,
         caseChannel: f.caseChannel,
+        paymentCollected: false,
+        paymentAmount: 0,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       toast.success(`${existingPatient.name} check-in ho gaye`);
@@ -208,6 +241,27 @@ function RegisterPage() {
         case_channel: f.caseChannel,
         lead_source: f.leadSource,
       });
+      let paymentCollected = false;
+      const amountToCollect = Number(paymentAmount) || 0;
+      if (amountToCollect > 0) {
+        try {
+          await collectPayment({
+            visit_id: visit.id,
+            patient_id: patient.id,
+            amount_charged: amountToCollect,
+            amount_received: amountToCollect,
+            payment_mode: paymentMode,
+            branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
+            notes: planMonths > 1 ? `${planMonths} Month Plan` : undefined,
+            idempotency_key: paymentIdempotencyKey,
+          });
+          paymentCollected = true;
+          qc.invalidateQueries({ queryKey: ["available-credit", patient.id] });
+        } catch (e: any) {
+          console.error("Inline payment collection failed:", e?.message ?? e);
+          toast.warning("Registration ho gaya, par payment save nahi hua — Pay screen se dobara try karo: " + (e?.message ?? ""));
+        }
+      }
       setSaved({
         token: visit.token_number ?? "T-01",
         code: patient.patient_code ?? "YHC-—",
@@ -215,6 +269,8 @@ function RegisterPage() {
         name: patient.name,
         visitId: visit.id,
         caseChannel: f.caseChannel,
+        paymentCollected,
+        paymentAmount: amountToCollect,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       if (existingPatient) {
@@ -279,12 +335,25 @@ function RegisterPage() {
             </div>
           </div>
 
-          <button
-            onClick={() => navigate({ to: "/pay/$id", params: { id: saved.visitId } })}
-            className="mt-4 w-full rounded-xl bg-accent text-accent-foreground py-3 text-sm font-bold"
+          {saved.paymentCollected ? (
+            <div className="mt-4 w-full rounded-xl bg-success/15 border border-success/40 p-3 text-success text-sm font-bold flex items-center justify-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4" /> ₹{saved.paymentAmount.toLocaleString("en-IN")} Payment Collected
+            </div>
+          ) : (
+            <button
+              onClick={() => navigate({ to: "/pay/$id", params: { id: saved.visitId } })}
+              className="mt-4 w-full rounded-xl bg-accent text-accent-foreground py-3 text-sm font-bold"
+            >
+              Payment Collect Karo
+            </button>
+          )}
+          <Link
+            to="/pay/$id"
+            params={{ id: saved.visitId }}
+            className="mt-2 block w-full text-center text-[11px] font-semibold text-muted-foreground underline"
           >
-            {saved.caseChannel === "ONLINE" ? "₹3700 Collect Karo Abhi" : "₹1000 Collect Karo Abhi"}
-          </button>
+            {saved.paymentCollected ? "Amount galat hai? Change karo" : "Split ya partial payment karna hai? Pay screen kholo"}
+          </Link>
 
           <div className="mt-3 w-full grid grid-cols-2 gap-2">
             <button
@@ -300,6 +369,11 @@ function RegisterPage() {
                 });
                 setDupWarn(false);
                 setExistingPatient(null);
+                setPlanMonths(1);
+                setPaymentAmount("");
+                setPaymentAmountTouched(false);
+                setPaymentMode("CASH");
+                setPaymentIdempotencyKey(crypto.randomUUID());
               }}
               className="rounded-lg border border-border bg-surface py-2.5 text-sm font-semibold text-primary"
             >
@@ -485,6 +559,46 @@ function RegisterPage() {
 
         <Section label="Chief Complaint">
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
+        </Section>
+
+        <Section label="Payment" hint={planMonths > 1 ? `${planMonths} Month Plan — ${fees[feeKind].toLocaleString("en-IN")} x ${planMonths}` : undefined}>
+          <div className="flex gap-1.5 mb-2">
+            {[1, 3, 6].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => pickPlan(m)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-[11px] font-semibold border",
+                  planMonths === m ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                )}
+              >
+                {m === 1 ? "1 Month" : `${m} Month Plan`}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              inputMode="numeric"
+              placeholder="Amount"
+              value={paymentAmount}
+              onChange={(e) => { setPaymentAmount(e.target.value.replace(/\D/g, "")); setPaymentAmountTouched(true); }}
+              className="flex-1 min-w-0 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+            />
+            <select
+              value={paymentMode}
+              onChange={(e) => setPaymentMode(e.target.value)}
+              className="w-28 shrink-0 rounded-lg bg-surface border border-input px-2 py-2.5 text-sm"
+            >
+              {paymentModes.length === 0 && <option value="CASH">Cash</option>}
+              {paymentModes.map((m) => (
+                <option key={m.code} value={m.code}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Payment abhi collect ho jayega registration ke saath. Khaali chhodo agar abhi collect nahi karna — baad mein Pay screen se ho jayega.
+          </p>
         </Section>
 
         <Section label="Date of Birth">
