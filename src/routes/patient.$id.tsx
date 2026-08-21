@@ -22,7 +22,7 @@ import {
   resolveDocUrl,
   updatePatientContactInfo,
   isDuplicateMobile,
-  patientWhatsAppTarget,
+  patientWaMeNumber,
   fetchPatientInteractions,
   INTERACTION_TYPE_LABELS,
   DOC_TYPES,
@@ -32,9 +32,9 @@ import {
   type PatientInteraction,
   type DBPatient,
   branchLabel as getBranchLabel,
+  RELATIONSHIPS,
 } from "@/lib/db";
 
-const RELATIONSHIPS = ["Spouse", "Son", "Daughter", "Parent", "Sibling", "Other"];
 const countryCodes = [
   { code: "+91", label: "+91 India" },
   { code: "+971", label: "+971 UAE" },
@@ -64,6 +64,7 @@ function LinkFamilyModal({
   const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [relationship, setRelationship] = useState(RELATIONSHIPS[0]);
+  const [customRelationship, setCustomRelationship] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -75,8 +76,9 @@ function LinkFamilyModal({
 
   const submit = async () => {
     if (!selected) { toast.error("Pehle patient select karo"); return; }
+    const finalRelationship = relationship === "Other" ? customRelationship.trim() || "Other" : relationship;
     setSaving(true);
-    const res = await linkFamilyMember(patientId, selected.id, relationship);
+    const res = await linkFamilyMember(patientId, selected.id, finalRelationship);
     setSaving(false);
     if (!res.success) { toast.error("Link nahi hua: " + res.error); return; }
     toast.success(`${selected.name} family mein link ho gaye`);
@@ -132,6 +134,14 @@ function LinkFamilyModal({
                 </button>
               ))}
             </div>
+            {relationship === "Other" && (
+              <input
+                value={customRelationship}
+                onChange={(e) => setCustomRelationship(e.target.value)}
+                placeholder="Relation likho (e.g. Bahnoi, Sasural)"
+                className="w-full mt-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+              />
+            )}
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Linking…" : "Link Family Member"}
@@ -550,7 +560,7 @@ function PatientProfilePage() {
           <a href={`tel:+${(patient.mobile_country_code || "+91").replace(/\D/g, "")}${patient.mobile}`} className="rounded-lg bg-success text-success-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <PhoneCall className="h-3.5 w-3.5" /> Call
           </a>
-          <a href={`https://wa.me/${patientWhatsAppTarget(patient)}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
+          <a href={`https://wa.me/${patientWaMeNumber(patient)}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
           </a>
         </div>

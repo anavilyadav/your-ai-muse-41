@@ -274,6 +274,9 @@ export function buildWhatsAppDestination(countryCode: string | null | undefined,
 // Picks WhatsApp number if the patient gave a separate one, else falls
 // back to their mobile — this is the single place every send should go
 // through so registration, reminders, follow-ups etc. all agree.
+//
+// This is for AiSensy's API ONLY. Do not reuse it for a wa.me link — see
+// patientWaMeNumber below.
 export function patientWhatsAppTarget(p: {
   mobile: string;
   mobile_country_code?: string | null;
@@ -284,6 +287,28 @@ export function patientWhatsAppTarget(p: {
     return buildWhatsAppDestination(p.whatsapp_country_code || p.mobile_country_code, p.whatsapp_number);
   }
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
+}
+
+// wa.me deep links (12 Aug 2026) — unlike buildWhatsAppDestination above,
+// which deliberately omits "91" because AiSensy's API auto-prepends it
+// itself, wa.me needs the full number with country code every time. The
+// patient detail page's WhatsApp button was reusing patientWhatsAppTarget
+// and sending bare 10-digit numbers for Indian patients (the vast
+// majority) — wa.me can't resolve that, so it opened WhatsApp with "user
+// not found" even for real, existing contacts. Every other wa.me link in
+// the app already hardcodes "91" for this reason; this is the same fix,
+// generalized to also respect a patient's separate WhatsApp number/country
+// code the way patientWhatsAppTarget does.
+export function patientWaMeNumber(p: {
+  mobile: string;
+  mobile_country_code?: string | null;
+  whatsapp_number?: string | null;
+  whatsapp_country_code?: string | null;
+}): string {
+  const cc = ((p.whatsapp_number ? p.whatsapp_country_code : null) || p.mobile_country_code || "+91").replace(/\D/g, "");
+  const digits = ((p.whatsapp_number || p.mobile) ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  return cc + digits;
 }
 
 export async function createPatientWithVisit(input: {
@@ -3799,52 +3824,76 @@ export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
   leaderboard.sort((a, b) => b.member_count - a.member_count);
   return leaderboard.slice(0, 50);
 }
+// Family linking (rebuilt 13 Aug 2026 — see supabase/sql-manual/0040): a
+// plain pairwise link table, not a shared group ID. The old model gave
+// every patient ONE family_group_id, so a patient could only ever belong
+// to a single family — real gap for e.g. a married woman who's linked to
+// both her husband's family and her own parents' family. Any patient can
+// now have any number of independent links to any number of other
+// patients, each with its own relationship label, and viewing from any
+// linked patient shows the full set of connections they're part of.
 export async function fetchFamilyMembers(patientId: string) {
-  const me = await fetchPatientById(patientId);
-  if (!me?.family_group_id) return [];
-  const { data, error } = await supabase
-    .from("patients")
-    .select("id, name, mobile, age, gender, family_relationship, last_visit_date, patient_code")
-    .eq("family_group_id", me.family_group_id)
-    .neq("id", patientId)
-    .limit(50);
-  if (error) return [];
-  return data ?? [];
-}
+  const { data: direct } = await supabase
+    .from("family_links")
+    .select("related_patient_id, relationship")
+    .eq("patient_id", patientId);
+  const { data: reverse } = await supabase
+    .from("family_links")
+    .select("patient_id, relationship")
+    .eq("related_patient_id", patientId);
 
-/**
- * Links two patients into the same family group. If neither has a group
- * yet, creates one. `relatedRelationship` describes what the OTHER patient
- * is relative to this family (e.g. "Spouse", "Son") — shown on both profiles.
- */
-export async function linkFamilyMember(patientId: string, relatedPatientId: string, relatedRelationship: string) {
-  const me = await fetchPatientById(patientId);
-  if (!me) return { success: false, error: "Patient not found" };
-
-  let groupId = me.family_group_id;
-  if (!groupId) {
-    groupId = crypto.randomUUID();
-    const { error: e1 } = await supabase
-      .from("patients")
-      .update({ family_group_id: groupId, family_relationship: me.family_relationship ?? "Head" })
-      .eq("id", patientId);
-    if (e1) return { success: false, error: e1.message };
+  const relMap = new Map<string, string>();
+  for (const r of direct ?? []) relMap.set(r.related_patient_id, r.relationship);
+  // A reverse-direction link was recorded from the OTHER patient's side, so
+  // its relationship label describes what I am to them, not what they are
+  // to me — showing it as-is here would claim the wrong thing about me.
+  // Framed neutrally instead of trying to grammatically invert every
+  // relationship (Father -> Son/Daughter depends on my own gender, and
+  // several others are similarly ambiguous without a full inversion table).
+  for (const r of reverse ?? []) {
+    if (!relMap.has(r.patient_id)) relMap.set(r.patient_id, `${r.relationship} ka rishtedar`);
   }
 
-  const { error: e2 } = await supabase
+  const allIds = [...relMap.keys()];
+  if (allIds.length === 0) return [];
+  const { data: patientsData, error } = await supabase
     .from("patients")
-    .update({ family_group_id: groupId, family_relationship: relatedRelationship })
-    .eq("id", relatedPatientId);
-  if (e2) return { success: false, error: e2.message };
+    .select("id, name, mobile, age, gender, last_visit_date, patient_code")
+    .in("id", allIds)
+    .limit(50);
+  if (error) return [];
+  return (patientsData ?? []).map((p) => ({ ...p, family_relationship: relMap.get(p.id) ?? "—" }));
+}
 
+export const RELATIONSHIPS = [
+  "Husband", "Wife", "Father", "Mother", "Son", "Daughter",
+  "Brother", "Sister", "Grandfather", "Grandmother", "Grandson", "Granddaughter",
+  "Father-in-law", "Mother-in-law", "Son-in-law", "Daughter-in-law", "Brother-in-law", "Sister-in-law",
+  "Uncle", "Aunt", "Nephew", "Niece", "Cousin", "Guardian", "Other",
+];
+
+// `relatedRelationship` describes what relatedPatientId IS to patientId
+// (e.g. linkFamilyMember(ramesh.id, sunita.id, "Wife") means Sunita is
+// Ramesh's wife). Upsert, not insert — re-linking the same pair just
+// updates the relationship label instead of erroring on the unique
+// constraint.
+export async function linkFamilyMember(patientId: string, relatedPatientId: string, relatedRelationship: string) {
+  if (patientId === relatedPatientId) return { success: false, error: "Same patient" };
+  const { error } = await supabase
+    .from("family_links")
+    .upsert({ patient_id: patientId, related_patient_id: relatedPatientId, relationship: relatedRelationship }, { onConflict: "patient_id,related_patient_id" });
+  if (error) return { success: false, error: error.message };
   return { success: true, error: null };
 }
 
-export async function unlinkFamilyMember(patientId: string) {
+// Removes the specific link between these two patients only — every other
+// link either of them has stays intact, unlike the old model where
+// unlinking cleared a patient's one-and-only group membership entirely.
+export async function unlinkFamilyMember(patientId: string, relatedPatientId: string) {
   const { error } = await supabase
-    .from("patients")
-    .update({ family_group_id: null, family_relationship: null })
-    .eq("id", patientId);
+    .from("family_links")
+    .delete()
+    .or(`and(patient_id.eq.${patientId},related_patient_id.eq.${relatedPatientId}),and(patient_id.eq.${relatedPatientId},related_patient_id.eq.${patientId})`);
   return { success: !error, error: error?.message ?? null };
 }
 

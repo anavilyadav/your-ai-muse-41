@@ -4,7 +4,7 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -107,6 +107,8 @@ function RegisterPage() {
 
   const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
+  const [familyRelationship, setFamilyRelationship] = useState(RELATIONSHIPS[0]);
+  const [customFamilyRelationship, setCustomFamilyRelationship] = useState("");
 
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
@@ -117,6 +119,7 @@ function RegisterPage() {
       const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
       setDupWarn(isDup);
       setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
+      setFamilyRelationship(RELATIONSHIPS[0]);
     } else {
       setDupWarn(false);
       setExistingPatient(null);
@@ -171,10 +174,15 @@ function RegisterPage() {
       toast.error(`Missing: ${errs.join(", ")}`);
       return;
     }
-    if (await isDuplicateMobile(f.mobile, effectiveCountryCode)) {
-      toast.error("Yeh mobile already registered hai.");
-      return;
-    }
+    // Was a hard block here — one mobile number could only ever have ONE
+    // patient in the whole system, so any family sharing a single phone
+    // (extremely common — husband/wife/kids on one number) could register
+    // their first member and then every subsequent member from the same
+    // household would be refused outright with no way through. The
+    // family_group_id/family_relationship columns and the live duplicate
+    // warning + "Check-In Instead" shortcut just above already handle the
+    // real accidental-duplicate case; this submit-time check was blocking
+    // the legitimate case on top of that, not just the mistake.
     setBusy(true);
     try {
       const { patient, visit } = await createPatientWithVisit({
@@ -209,6 +217,16 @@ function RegisterPage() {
         caseChannel: f.caseChannel,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      if (existingPatient) {
+        const finalRelationship = familyRelationship === "Other" ? customFamilyRelationship.trim() || "Other" : familyRelationship;
+        try {
+          const linkRes = await linkFamilyMember(existingPatient.id, patient.id, finalRelationship);
+          if (!linkRes.success) toast.warning("Registration ho gaya, par family group link nahi ho saka: " + linkRes.error);
+        } catch (e: any) {
+          console.error("Family link failed:", e?.message ?? e);
+          toast.warning("Registration ho gaya, par family group link nahi ho saka");
+        }
+      }
       // Guard now also lives inside autoConvertMatchingLead itself (Phase
       // 1 #6) — passing the country code here so it's checked regardless
       // of what future callers remember to do.
@@ -315,7 +333,7 @@ function RegisterPage() {
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
 
-        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Duplicate — pehle se registered hai." : isIndia ? "10 digits" : "Country code chunkar number likho"}>
+        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho." : isIndia ? "10 digits" : "Country code chunkar number likho"}>
           <div className="flex gap-2">
             <select
               value={f.countryCode}
@@ -345,9 +363,13 @@ function RegisterPage() {
         {existingPatient && (
           <div className="rounded-xl bg-accent/15 border border-accent p-3">
             <p className="text-xs font-semibold text-primary">
-              {existingPatient.name} already registered hai ({existingPatient.patient_code ?? "—"})
+              {existingPatient.name} is number se already registered hai ({existingPatient.patient_code ?? "—"})
             </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Naya patient nahi — inko aaj ke liye check-in karo.</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Agar {existingPatient.name} khud aaye hain to inko check-in karo. Agar koi aur hai — family member jo isi
+              number use karta hai — to bas neeche form bharte raho, naya register ho jayega aur dono ka family group
+              bhi yahin ban jayega.
+            </p>
             <button
               type="button"
               onClick={checkInInstead}
@@ -356,6 +378,37 @@ function RegisterPage() {
             >
               {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Check-In karo`}
             </button>
+
+            <div className="mt-3 pt-3 border-t border-accent/40">
+              <p className="text-[11px] font-semibold text-primary mb-1.5">
+                Ya, {existingPatient.name} ke family member ka naya registration ho raha hai — relation batao:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {RELATIONSHIPS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setFamilyRelationship(r)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[11px] font-semibold border",
+                      familyRelationship === r
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-surface border-border text-muted-foreground",
+                    )}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {familyRelationship === "Other" && (
+                <Field
+                  value={customFamilyRelationship}
+                  onChange={(e) => setCustomFamilyRelationship(e.target.value)}
+                  placeholder="Relation likho (e.g. Bahnoi, Sasural)"
+                  className="mt-2"
+                />
+              )}
+            </div>
           </div>
         )}
 
