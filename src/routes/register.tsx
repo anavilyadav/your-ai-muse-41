@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2, MessageCircle } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
+import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient } from "@tanstack/react-query";
@@ -103,7 +104,6 @@ function RegisterPage() {
 
   const [dupWarn, setDupWarn] = useState(false);
   const [busy, setBusy] = useState(false);
-  const maxDobDate = new Date().toISOString().slice(0, 10);
 
   const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
@@ -277,15 +277,6 @@ function RegisterPage() {
                 Branch: {branchLabel(saved.branch)}
               </div>
             </div>
-          </div>
-
-          <div className="mt-5 w-full rounded-xl bg-[#DCF8C6] border border-success/30 p-3 text-left">
-            <div className="flex items-center gap-2 text-success text-xs font-semibold">
-              <MessageCircle className="h-4 w-4" /> WhatsApp (simulated)
-            </div>
-            <p className="mt-1.5 text-sm text-foreground leading-snug">
-              Namaste {first} ji! Aapka token <b>{saved.token}</b> confirm hua. Dr. Yadav OPD chal raha hai. — YHC 🌿
-            </p>
           </div>
 
           <button
@@ -496,14 +487,12 @@ function RegisterPage() {
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
         </Section>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Section label="Date of Birth">
-            <Field type="date" max={maxDobDate} value={f.dob} onChange={(e) => set("dob", e.target.value)} />
-          </Section>
-          <Section label="Anniversary">
-            <Field type="date" max={maxDobDate} value={f.anniversary} onChange={(e) => set("anniversary", e.target.value)} />
-          </Section>
-        </div>
+        <Section label="Date of Birth">
+          <DMYDateField value={f.dob} onChange={(v) => set("dob", v)} />
+        </Section>
+        <Section label="Anniversary">
+          <DMYDateField value={f.anniversary} onChange={(v) => set("anniversary", v)} />
+        </Section>
 
         <div className="grid grid-cols-2 gap-3">
           <Section label="Profession">

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
@@ -181,7 +182,6 @@ function EditContactModal({
   const effectiveCC = countryCode === "other" ? countryCodeCustom.trim() || "+" : countryCode;
   const effectiveWaCC = waCountryCode === "other" ? waCountryCodeCustom.trim() || "+" : waCountryCode;
   const isIndia = effectiveCC === "+91";
-  const maxDobDate = new Date().toISOString().slice(0, 10);
 
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
@@ -301,15 +301,13 @@ function EditContactModal({
               <input inputMode="numeric" value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] font-bold text-muted-foreground uppercase">DOB</label>
-              <input type="date" max={maxDobDate} value={dob} onChange={(e) => setDob(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-muted-foreground uppercase">Anniversary</label>
-              <input type="date" max={maxDobDate} value={anniversary} onChange={(e) => setAnniversary(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
-            </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">DOB</label>
+            <DMYDateField value={dob} onChange={setDob} className="mt-1" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Anniversary</label>
+            <DMYDateField value={anniversary} onChange={setAnniversary} className="mt-1" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
