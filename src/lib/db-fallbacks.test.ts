@@ -23,7 +23,7 @@ vi.mock("./supabase", async (importOriginal) => {
   };
 });
 
-function setup(opts: { rpc?: Record<string, MockResult | ((args: any) => MockResult)>; table?: Record<string, MockResult> } = {}) {
+function setup(opts: { rpc?: Record<string, MockResult | ((args: any) => MockResult)>; table?: Record<string, MockResult | (() => MockResult)> } = {}) {
   state.mock = createSupabaseMock(opts);
   return state.mock;
 }
