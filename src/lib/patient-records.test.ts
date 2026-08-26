@@ -32,7 +32,8 @@ function setup(
 
 describe("updatePatientContactInfo", () => {
   it("refuses a mobile already registered on another patient", async () => {
-    const m = setup({ table: { patients: { data: { id: "other-patient" }, error: null } } });
+    // isDuplicateMobile uses a head/count query — one match means taken.
+    const m = setup({ table: { patients: { data: null, error: null, count: 1 } } });
     const { updatePatientContactInfo } = await import("./db");
     const res = await updatePatientContactInfo("p-1", { mobile: "9876543210" });
 
@@ -43,7 +44,7 @@ describe("updatePatientContactInfo", () => {
   });
 
   it("allows the edit when the number is free", async () => {
-    const m = setup({ table: { patients: { data: null, error: null } } });
+    const m = setup({ table: { patients: { data: null, error: null, count: 0 } } });
     const { updatePatientContactInfo } = await import("./db");
     await updatePatientContactInfo("p-1", { mobile: "9876543210" });
     expect(m.tableCalls.some((c) => c.table === "patients" && c.op === "update")).toBe(true);
@@ -56,7 +57,8 @@ describe("updatePatientContactInfo", () => {
     const { updatePatientContactInfo } = await import("./db");
     const res = await updatePatientContactInfo("p-1", { address: "New address", city: "Jaipur" });
     expect(res.success).toBe(true);
-    expect(m.tableCalls.filter((c) => c.table === "patients" && c.op === "select")).toHaveLength(0);
+    // Exactly one query: the update itself, no duplicate lookup.
+    expect(m.fromCalls).toEqual(["patients"]);
   });
 
   it("passes the edited fields through to the row unchanged", async () => {
@@ -98,7 +100,7 @@ describe("medicine master catalog", () => {
             ? { data: null, error: { code: "23505", message: "duplicate key" } }
             : { data: { id: "m-1", name: "Arnica", is_active: true }, error: null };
         },
-      } as any,
+      },
     });
     const { addMedicineToCatalog } = await import("./db");
     const res = await addMedicineToCatalog("Arnica");
