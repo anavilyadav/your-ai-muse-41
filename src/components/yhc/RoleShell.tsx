@@ -146,15 +146,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
                 wide && "lg:hidden",
               )}
             >
-              <ul
-                className={cn(
-                  "grid",
-                  nav.length === 2 && "grid-cols-2",
-                  nav.length === 3 && "grid-cols-3",
-                  nav.length === 4 && "grid-cols-4",
-                  nav.length === 5 && "grid-cols-5",
-                )}
-              >
+              <ul className="grid" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
                 {nav.map(({ to, label, icon: Icon, exact }) => {
                   const active = exact ? pathname === to : pathname.startsWith(to);
                   return (

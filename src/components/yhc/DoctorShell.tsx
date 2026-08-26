@@ -121,7 +121,7 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
 
           {items.length > 0 && (
             <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[clamp(430px,94vw,720px)] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
-              <ul className={cn("grid", items.length === 3 ? "grid-cols-3" : "grid-cols-2")}>
+              <ul className="grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
                 {items.map(({ to, label, icon: Icon, exact }) => {
                   const active = exact ? pathname === to : pathname.startsWith(to);
                   return (
