@@ -2468,7 +2468,31 @@ export async function fetchDoctorDashboard() {
 export async function fetchOwnerStats() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
+
+  const { data: agg, error: aggErr } = await supabase.rpc("owner_totals", {
+    p_date: t,
+    p_month_start: monthStart,
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    return {
+      todayVisits: Number(a.today_visits_bajaj ?? 0) + Number(a.today_visits_jagatpura ?? 0),
+      todayVisitsBajaj: Number(a.today_visits_bajaj ?? 0),
+      todayVisitsJagatpura: Number(a.today_visits_jagatpura ?? 0),
+      todayRevenue: Number(a.today_revenue ?? 0),
+      todayRevenueBajaj: Number(a.today_revenue_bajaj ?? 0),
+      todayRevenueJagatpura: Number(a.today_revenue_jagatpura ?? 0),
+      monthRevenue: Number(a.month_revenue ?? 0),
+      monthByMode: await labelModeBreakdown(a.by_mode),
+      newToday: Number(a.new_today ?? 0),
+      followupsToday: Number(a.followups_today ?? 0),
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("owner_totals", { note: "Run 0045_report_aggregates.sql — owner totals may be truncated" });
+
   const [todayVisitsBajaj, todayVisitsJagatpura, todayPay, monthPay, newToday, followupsToday] =
+
     await Promise.all([
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
