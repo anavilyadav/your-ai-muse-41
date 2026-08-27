@@ -2623,7 +2623,37 @@ export async function fetchReports(
     start = now.getUTCFullYear() + "-01-01";
   }
 
+  // Open-ended periods (week/month/year) have no explicit end date; the
+  // RPC takes a closed range, so "no end" means "up to today".
+  const rpcEnd = end ?? now.toISOString().slice(0, 10);
+  const { data: agg, error: aggErr } = await supabase.rpc("report_totals", {
+    p_start: start,
+    p_end: rpcEnd,
+    p_branch: branch ?? null,
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    const totalRev = Number(a.total_revenue ?? 0);
+    const totalPatients = Number(a.total_patients ?? 0);
+    const avg = totalPatients ? Math.round(totalRev / totalPatients) : 0;
+    const byMode = await labelModeBreakdown(a.by_mode);
+    return {
+      rows: [
+        ["Total Revenue", `₹${totalRev.toLocaleString("en-IN")}`],
+        ["Total Patients", String(totalPatients)],
+        ["New Patients", String(Number(a.new_patients ?? 0))],
+        ["Avg per Patient", `₹${avg.toLocaleString("en-IN")}`],
+        ...byMode.map((m) => [`${m.label} Collection`, `₹${m.amount.toLocaleString("en-IN")}`] as [string, string]),
+        ["Outstanding", `₹${Number(a.outstanding ?? 0).toLocaleString("en-IN")}`],
+        ["Leads Converted", String(Number(a.leads_converted ?? 0))],
+      ] as [string, string][],
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("report_totals", { note: "Run 0045_report_aggregates.sql — report totals may be truncated" });
+
   let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
+
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
   let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("created_at", istDayStart(start));
