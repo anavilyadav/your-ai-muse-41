@@ -118,7 +118,9 @@ describe("fetchReports — aggregate path", () => {
       table: { payment_modes: MODES },
     });
 
-    const { fetchReports, today } = await import("./db");
+    const { fetchReports } = await import("./db");
+    const { today } = await import("./supabase");
+
     await fetchReports("year");
 
     const args = mock.rpcCalls.find((c) => c.name === "report_totals")?.args as any;
