@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchPaymentModes, addPaymentMode, setPaymentModeActive, deletePaymentMode } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +61,7 @@ function AddModeModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
 
 function PaymentModesPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["payment-modes-all"], queryFn: () => fetchPaymentModes(false) });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["payment-modes-all"], queryFn: () => fetchPaymentModes(false) });
   const modes = data ?? [];
   const [showAdd, setShowAdd] = useState(false);
 
@@ -98,6 +98,8 @@ function PaymentModesPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : modes.length === 0 ? (
         <EmptyBlock label="Koi payment mode nahi mila." />
       ) : (

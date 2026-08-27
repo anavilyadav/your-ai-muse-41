@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Phone, MessageCircle, IndianRupee } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOutstandingPatients, branchLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/outstanding")({
 });
 
 function OutstandingPage() {
-  const { data, isLoading } = useQuery({ queryKey: ["outstanding"], queryFn: fetchOutstandingPatients });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["outstanding"], queryFn: fetchOutstandingPatients });
   const rows = (data ?? []) as any[];
   const total = rows.reduce((s, r) => s + Number(r.current_balance ?? 0), 0);
 
@@ -35,6 +35,8 @@ function OutstandingPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi outstanding balance nahi hai — sab clear hai." />
       ) : (

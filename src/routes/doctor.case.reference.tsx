@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { fetchReferenceRubrics, DEFAULT_REFERENCE_RUBRICS } from "@/lib/db";
 
@@ -19,7 +19,7 @@ function ReferencePage() {
   // pattern as Next Visit Options / Fee Rules. Falls back to the same 5
   // defaults if Owner hasn't touched it yet, so this screen never shows
   // empty for existing staff.
-  const { data, isLoading } = useQuery({ queryKey: ["reference-rubrics"], queryFn: fetchReferenceRubrics });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["reference-rubrics"], queryFn: fetchReferenceRubrics });
   const rubrics = data ?? DEFAULT_REFERENCE_RUBRICS;
 
   return (
@@ -30,6 +30,8 @@ function ReferencePage() {
         </div>
         {isLoading ? (
           <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
         ) : rubrics.length === 0 ? (
           <p className="text-xs text-muted-foreground py-4">Koi rubric add nahi hua abhi — Owner Control Centre se add karo.</p>
         ) : (

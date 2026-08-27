@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchFollowupTouchpoints, saveFollowupTouchpoint, deleteFollowupTouchpoint, type FollowupTouchpoint } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -127,7 +127,7 @@ function RuleModal({
 
 function FollowupRulesPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["followup-touchpoints"], queryFn: fetchFollowupTouchpoints });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["followup-touchpoints"], queryFn: fetchFollowupTouchpoints });
   const rules = data ?? [];
   const [editRule, setEditRule] = useState<Partial<FollowupTouchpoint> | null | "new">(null);
 
@@ -162,6 +162,8 @@ function FollowupRulesPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rules.length === 0 ? (
         <EmptyBlock label="Koi rule nahi hai — sab patients ko sirf ek default reminder jayega." />
       ) : (

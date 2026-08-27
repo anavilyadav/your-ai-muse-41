@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -24,7 +24,7 @@ function RxQueue() {
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
   const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["today-queue", branchScope ?? "all"],
     queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
@@ -39,6 +39,8 @@ function RxQueue() {
     <MobileShell title="Doctor — Rx Queue" subtitle="Today + any pending">
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi patient Rx ke liye pending nahi." />
       ) : (

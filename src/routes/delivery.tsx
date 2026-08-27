@@ -25,7 +25,7 @@ const partnerIcon: Record<string, typeof Truck> = {
 };
 
 function DeliveryPage() {
-  const { data, isLoading } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
   const deliveries = (data ?? []) as any[];
 
   const stats = useMemo(() => {

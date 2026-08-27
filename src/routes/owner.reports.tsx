@@ -88,7 +88,7 @@ function ReportsPage() {
   const [to, setTo] = useState(todayStr());
   const invalidRange = period === "custom" && from > to;
   const range = period === "custom" ? { from, to } : undefined;
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["reports", period, range?.from, range?.to],
     queryFn: () => fetchReports(period, undefined, range),
     enabled: !invalidRange,

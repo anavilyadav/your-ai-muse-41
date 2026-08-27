@@ -58,7 +58,7 @@ const CAMPAIGN_LABEL: Record<string, string> = {
 // next send, with no separate deploy step.
 function WhatsAppControlsPanel() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["whatsapp-controls"], queryFn: fetchWhatsAppControls });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["whatsapp-controls"], queryFn: fetchWhatsAppControls });
   // Same query as the stats cards below (React Query dedupes/shares it) —
   // used here to show "Aaj: 3 bheja" next to each module's cap, so the cap
   // number and how close you are to it are both visible in one place,

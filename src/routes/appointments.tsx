@@ -54,7 +54,7 @@ function SlotPicker({
 }: {
   date: string; branch: ApptBranch; type: ApptType; value: string; onChange: (t: string) => void; isOwner: boolean;
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["slot-availability", date, branch, type],
     queryFn: () => fetchSlotAvailability(date, branch, type),
   });
@@ -449,7 +449,7 @@ function AppointmentsPage() {
   // appointment ever booked (past + future, unbounded) despite the page
   // saying "Today's schedule". Now genuinely scoped to a date, defaulting
   // to today, with a picker so reception can still check other days.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["appointments", selectedDate],
     queryFn: () => fetchAppointments(selectedDate),
   });

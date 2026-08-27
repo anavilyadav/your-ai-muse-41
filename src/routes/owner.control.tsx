@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
@@ -943,7 +943,7 @@ function PlannedModules() {
 
 
 function ControlPage() {
-  const { data, isLoading } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
   const [showBackupModal, setShowBackupModal] = useState(false);
 
   const backupCfg: BackupDoctorConfig | null = (() => {
@@ -972,6 +972,8 @@ function ControlPage() {
     >
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : (
         <div className="space-y-4">
           {showBackupModal && <BackupDoctorModal onClose={() => setShowBackupModal(false)} />}

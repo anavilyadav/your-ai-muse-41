@@ -70,7 +70,7 @@ function daysSince(iso: string | null | undefined): number {
 
 function LeadsPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["leads"], queryFn: fetchLeads });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["leads"], queryFn: fetchLeads });
   const leads = (data?.rows ?? []) as any[];
   const leadsTruncated = data?.truncated ?? false;
   const [filter, setFilter] = useState<Filter>("All");

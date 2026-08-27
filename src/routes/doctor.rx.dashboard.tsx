@@ -25,7 +25,7 @@ function formatRevenue(n: number): string {
 function DashboardPage() {
   const session = useDoctorSession();
   const [showRev, setShowRev] = useState(false);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["doctor-dashboard"],
     queryFn: fetchDoctorDashboard,
     refetchInterval: 60_000,

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchPendingPaymentAdjustments, resolvePaymentAdjustment } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/owner/payment-adjustments")({
 function PaymentAdjustmentsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["payment-adjustments-pending"],
     queryFn: fetchPendingPaymentAdjustments,
   });
@@ -47,6 +47,8 @@ function PaymentAdjustmentsPage() {
       </p>
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : items.length === 0 ? (
         <EmptyBlock label="Koi pending overpayment nahi hai." />
       ) : (
