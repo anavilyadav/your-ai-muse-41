@@ -791,7 +791,7 @@ export async function fetchPaymentModes(activeOnly = false): Promise<PaymentMode
   let q = supabase.from("payment_modes").select("*").order("sort_order", { ascending: true });
   if (activeOnly) q = q.eq("is_active", true);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PaymentMode[];
 }
 
@@ -887,7 +887,7 @@ export async function fetchPendingPaymentAdjustments(): Promise<PaymentAdjustmen
     .select("*, patient:patients(name, mobile, patient_code)")
     .eq("status", "PENDING")
     .order("created_at", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PaymentAdjustment[];
 }
 
@@ -961,7 +961,7 @@ export async function fetchInventorySearch(term: string, branch?: string) {
   const { data, error } = clean
     ? await q.ilike("medicine_name", `%${clean}%`)
     : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1033,7 +1033,7 @@ export async function fetchPatientInteractions(patientId: string, limit = 50): P
     .eq("patient_id", patientId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PatientInteraction[];
 }
 
@@ -1210,7 +1210,7 @@ export async function fetchPendingCases(): Promise<PendingCase[]> {
     .is("case_discussed_at", null)
     .order("created_at", { ascending: true })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PendingCase[];
 }
 
@@ -1270,7 +1270,7 @@ export async function fetchSystemAlerts(): Promise<SystemAlert[]> {
     .eq("resolved", false)
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as SystemAlert[];
 }
 
@@ -1304,7 +1304,7 @@ export interface Holiday {
 
 export async function fetchHolidays(): Promise<Holiday[]> {
   const { data, error } = await supabase.from("holidays").select("*").order("date", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as Holiday[];
 }
 
@@ -1335,7 +1335,7 @@ export interface WinbackTier {
 
 export async function fetchWinbackTiers(): Promise<WinbackTier[]> {
   const { data, error } = await supabase.from("winback_tiers").select("*").order("days_lapsed", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as WinbackTier[];
 }
 
@@ -1383,7 +1383,7 @@ export async function fetchFollowupTouchpoints(): Promise<FollowupTouchpoint[]> 
     .select("*")
     .order("min_gap_days", { ascending: true })
     .order("days_before_due", { ascending: false });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as FollowupTouchpoint[];
 }
 
@@ -1506,7 +1506,7 @@ export async function fetchFollowups() {
     .lte("due_date", upperStr)
     .order("due_date", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1535,7 +1535,7 @@ export async function fetchInteractions(target: { leadId?: string; patientId?: s
   if (target.leadId) q = q.eq("lead_id", target.leadId);
   if (target.patientId) q = q.eq("patient_id", target.patientId);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as Interaction[];
 }
 
@@ -1603,7 +1603,7 @@ export async function searchLeads(term: string) {
     .or(`name.ilike.${like},mobile.ilike.${like},lead_source.ilike.${like}`)
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1941,7 +1941,7 @@ export async function fetchMedicinesCatalog(search?: string, includeInactive = t
   if (!includeInactive) q = q.eq("is_active", true);
   const clean = search ? sanitizeIlikeTerm(search) : "";
   const { data, error } = clean ? await q.ilike("name", `%${clean}%`) : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as DBMedicine[];
 }
 
@@ -2013,7 +2013,7 @@ export async function fetchInStockMedicines(term: string, branch?: string) {
   let q = supabase.from("inventory").select("*").eq("is_deleted", false).gt("stock_drams", 0).limit(20);
   if (branch) q = q.eq("branch", branch);
   const { data, error } = clean ? await q.ilike("medicine_name", `%${clean}%`) : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2723,7 +2723,7 @@ export async function fetchDeliveries() {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2756,7 +2756,7 @@ export async function fetchStockIssues(limit = 10) {
     .eq("action", "STOCK_ISSUE")
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2777,7 +2777,7 @@ export async function fetchOutstandingPatients() {
     .gt("current_balance", 0)
     .order("current_balance", { ascending: false })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2788,7 +2788,7 @@ export async function fetchStaff() {
     .eq("is_deleted", false)
     .order("role", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2850,7 +2850,7 @@ export async function fetchStaleOpenVisits() {
     .lt("visit_date", thirtyDaysAgo())
     .order("visit_date", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3736,7 +3736,7 @@ export async function searchPatients(term: string) {
     .select("*")
     .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`)
     .limit(30);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3768,14 +3768,14 @@ export async function fetchPatientById(id: string) {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return null;
+  if (error) throw dataLoadError(error);
   return data as DBPatient | null;
 }
 
 export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; name: string; patient_code: string | null }[]> {
   if (ids.length === 0) return [];
   const { data, error } = await supabase.from("patients").select("id,name,patient_code").in("id", ids);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3800,7 +3800,7 @@ export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
     .select("id, name, patient_code, family_group_id, family_relationship, created_at")
     .not("family_group_id", "is", null)
     .order("created_at", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
 
   const groups = new Map<string, { name: string; patient_code: string | null; family_relationship: string | null }[]>();
   (data ?? []).forEach((p: any) => {
@@ -3861,7 +3861,7 @@ export async function fetchFamilyMembers(patientId: string) {
     .select("id, name, mobile, age, gender, last_visit_date, patient_code")
     .in("id", allIds)
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (patientsData ?? []).map((p) => ({ ...p, family_relationship: relMap.get(p.id) ?? "—" }));
 }
 
@@ -3960,7 +3960,7 @@ export async function fetchPatientDocuments(patientId: string): Promise<PatientD
     .select("*")
     .eq("patient_id", patientId)
     .order("created_at", { ascending: false });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -4166,7 +4166,7 @@ export async function fetchWhatsAppLog(opts?: {
   if (opts?.status) q = q.eq("status", opts.status);
   if (opts?.campaign) q = q.eq("campaign_name", opts.campaign);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
 }
 
@@ -4260,7 +4260,7 @@ export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChan
     .select("id, patient_id, old_value, new_value, changed_at, patients(name)")
     .order("changed_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
 }
 
@@ -4307,7 +4307,7 @@ export async function fetchAuditLog(opts?: {
   if (opts?.action) q = q.eq("action", opts.action);
   if (opts?.recordId) q = q.eq("record_id", opts.recordId);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as unknown as AuditLogEntry[];
 }
 
