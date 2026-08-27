@@ -2562,6 +2562,22 @@ export async function fetchWeekRevenue() {
     days.push({ d, label: labels[istWeekday(d)] });
   }
   const start = days[0].d;
+  const end = days[days.length - 1].d;
+
+  const { data: agg, error: aggErr } = await supabase.rpc("week_revenue", {
+    p_start: start,
+    p_end: end,
+  });
+  if (!aggErr && agg) {
+    const byDay = new Map<string, number>();
+    for (const r of (agg ?? []) as any[]) {
+      byDay.set(String(r.day).slice(0, 10), Number(r.total ?? 0));
+    }
+    return days.map((day) => [day.label, byDay.get(day.d) ?? 0] as [string, number]);
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("week_revenue", { note: "Run 0045_report_aggregates.sql — week chart may be truncated" });
+
   const { data } = await supabase
     .from("payments")
     .select("amount_received,created_at")
@@ -2573,6 +2589,7 @@ export async function fetchWeekRevenue() {
     return [day.label, total] as [string, number];
   });
 }
+
 
 export type ReportPeriod = "today" | "week" | "month" | "lastMonth" | "year" | "custom";
 
