@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import type { Role } from "@/lib/supabase";
 import { roleHome } from "@/lib/supabase";
+import { readErrorMessage } from "@/lib/db";
 
 /**
  * Wraps role-restricted pages. Redirects to /login if not signed in,
