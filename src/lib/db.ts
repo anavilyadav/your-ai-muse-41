@@ -1433,7 +1433,14 @@ export async function fetchFollowupTouchpoints(): Promise<FollowupTouchpoint[]> 
     .select("*")
     .order("min_gap_days", { ascending: true })
     .order("days_before_due", { ascending: false });
-  if (error) throw dataLoadError(error);
+  // DELIBERATELY best-effort, unlike every other read here: the follow-up
+  // scheduler falls back to a DEFAULT 30-day row when no rules load, so a
+  // rules-table failure must degrade to "no custom rules", not to "this
+  // patient gets no follow-up at all". Logged, never silent.
+  if (error) {
+    console.error("[db] followup_touchpoints read failed, using DEFAULT schedule:", error.message);
+    return [];
+  }
   return (data ?? []) as FollowupTouchpoint[];
 }
 
