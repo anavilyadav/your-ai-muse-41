@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffectiveRole } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

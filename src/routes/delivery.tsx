@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Truck } from "lucide-react";

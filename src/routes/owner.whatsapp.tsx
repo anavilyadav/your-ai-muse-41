@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Power, RotateCcw } from "lucide-react";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import {
   fetchWhatsAppLog,
