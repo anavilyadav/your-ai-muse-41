@@ -126,6 +126,7 @@ function WhatsAppControlsPanel() {
     }
   };
 
+  if (isError) return <ErrorBlock error={error} onRetry={() => void refetch()} />;
   if (isLoading) return null;
 
   return (

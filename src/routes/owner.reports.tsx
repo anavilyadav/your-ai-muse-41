@@ -166,6 +166,8 @@ function ReportsPage() {
       )}
       {invalidRange ? null : isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : (
         <div className="mt-3 rounded-2xl bg-surface border border-border p-1.5">
           {rows.map(([k, v], i) => (

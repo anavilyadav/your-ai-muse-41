@@ -546,6 +546,8 @@ function AppointmentsPage() {
 
       {isLoading ? (
         <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : (
       <ul className="mt-3 space-y-2">
         {filtered.length === 0 && (

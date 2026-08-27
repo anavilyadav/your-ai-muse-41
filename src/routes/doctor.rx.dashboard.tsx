@@ -31,6 +31,14 @@ function DashboardPage() {
     refetchInterval: 60_000,
   });
 
+  if (isError) {
+    return (
+      <DoctorShell title="Doctor Dashboard" subtitle={session?.name} nav="rx">
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
+      </DoctorShell>
+    );
+  }
+
   if (isLoading || !data) {
     return (
       <DoctorShell title="Doctor Dashboard" subtitle={session?.name} nav="rx">

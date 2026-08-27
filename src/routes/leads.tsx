@@ -293,6 +293,8 @@ function LeadsPage() {
 
       {displayLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : displayList.length === 0 ? (
         <EmptyBlock label={isSearching ? "Koi lead is naam/mobile se nahi mila." : "Koi lead nahi mila."} />
       ) : (

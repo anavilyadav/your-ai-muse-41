@@ -47,6 +47,8 @@ function DeliveryPage() {
 
       {isLoading ? (
         <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : deliveries.length === 0 ? (
         <div className="text-center text-sm text-muted-foreground py-8">Koi active delivery nahi hai.</div>
       ) : (
