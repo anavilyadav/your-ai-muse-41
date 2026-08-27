@@ -1,5 +1,55 @@
 import { supabase, today, istNow } from "./supabase";
 
+// ---------- Read failures must be LOUD, not empty ----------
+// Every read in this file used to do `if (error) return []`, which made a
+// permission denial, an expired session or a dropped network call render
+// exactly like "there is genuinely nothing here". On a clinic screen that
+// means an empty queue nobody questions, ₹0 outstanding nobody chases, and
+// a revenue report that silently under-reports a real day's takings.
+// Reads now throw; React Query turns that into `isError` and the screen
+// shows "Couldn't load — Retry" instead of a plausible-looking blank.
+export class DataLoadError extends Error {
+  readonly code: string | null;
+  readonly detail: string | null;
+  constructor(message: string, code: string | null, detail: string | null) {
+    super(message);
+    this.name = "DataLoadError";
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+interface SupabaseishError {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+}
+
+export function dataLoadError(error: unknown): DataLoadError {
+  const e = (error ?? {}) as SupabaseishError;
+  const code = e.code ?? null;
+  const detail = e.message ?? null;
+  // Map the handful of codes staff can actually act on; everything else
+  // gets the generic retry wording plus the raw message for the console.
+  let message = "Data load nahi ho paaya. Dobara try karein.";
+  if (code === "42501" || code === "PGRST301") {
+    message = "Is data ka access nahi hai. Dobara login karke try karein.";
+  } else if (code === "PGRST116") {
+    message = "Record nahi mila.";
+  } else if (detail && /fetch|network|timeout/i.test(detail)) {
+    message = "Network problem. Connection check karke retry karein.";
+  }
+  if (detail) console.error("[db] read failed:", code ?? "-", detail);
+  return new DataLoadError(message, code, detail);
+}
+
+// Safe to show to staff — never leaks a raw Postgres string into the UI.
+export function readErrorMessage(error: unknown): string {
+  if (error instanceof DataLoadError) return error.message;
+  return "Data load nahi ho paaya. Dobara try karein.";
+}
+
 // ---------- Types (loose — matches DB shape) ----------
 export interface DBPatient {
   id: string;
