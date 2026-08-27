@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { today } from "@/lib/supabase";
@@ -35,7 +35,7 @@ function CaseBoardPage() {
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
   const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     // A dedicated "casedr" segment, not just branchScope, is deliberate:
     // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,
     // no address — Hidden Identity Mode), while every other role's
@@ -100,6 +100,8 @@ function CaseBoardPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi case pending nahi." />
       ) : (

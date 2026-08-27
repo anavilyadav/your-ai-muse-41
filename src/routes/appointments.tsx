@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffectiveRole } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,7 +54,7 @@ function SlotPicker({
 }: {
   date: string; branch: ApptBranch; type: ApptType; value: string; onChange: (t: string) => void; isOwner: boolean;
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["slot-availability", date, branch, type],
     queryFn: () => fetchSlotAvailability(date, branch, type),
   });
@@ -449,7 +449,7 @@ function AppointmentsPage() {
   // appointment ever booked (past + future, unbounded) despite the page
   // saying "Today's schedule". Now genuinely scoped to a date, defaulting
   // to today, with a picker so reception can still check other days.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["appointments", selectedDate],
     queryFn: () => fetchAppointments(selectedDate),
   });
@@ -546,6 +546,8 @@ function AppointmentsPage() {
 
       {isLoading ? (
         <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : (
       <ul className="mt-3 space-y-2">
         {filtered.length === 0 && (

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Truck } from "lucide-react";
@@ -25,7 +25,7 @@ const partnerIcon: Record<string, typeof Truck> = {
 };
 
 function DeliveryPage() {
-  const { data, isLoading } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
   const deliveries = (data ?? []) as any[];
 
   const stats = useMemo(() => {
@@ -47,6 +47,8 @@ function DeliveryPage() {
 
       {isLoading ? (
         <div className="text-center text-sm text-muted-foreground py-8">Loading…</div>
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : deliveries.length === 0 ? (
         <div className="text-center text-sm text-muted-foreground py-8">Koi active delivery nahi hai.</div>
       ) : (

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, MessageCircle, CheckCircle2, History } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { fetchFollowups, markFollowupDone, logWhatsAppInteraction } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/follow-up")({
 
 function FollowUpPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["followups"], queryFn: fetchFollowups });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["followups"], queryFn: fetchFollowups });
   const rows = (data ?? []) as any[];
   const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
 
@@ -49,6 +49,8 @@ function FollowUpPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi pending follow-up nahi." />
       ) : (

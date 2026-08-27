@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
 import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -200,7 +200,7 @@ function InventoryPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>(BRANCH_KEYS[0]);
   const [f, setF] = useState<"All" | "Low Stock">("All");
   const [showAdd, setShowAdd] = useState(false);
-  const { data, isLoading } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
   const queryClient = useQueryClient();
   const allRows = (data?.rows ?? []) as any[];
   const inventoryTruncated = data?.truncated ?? false;
@@ -285,6 +285,8 @@ function InventoryPage() {
       </div>
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : list.length === 0 ? (
         <EmptyBlock label={tab === TOTAL ? "Inventory khaali hai." : `${branchLabel(tab)} mein stock khaali hai.`} />
       ) : (

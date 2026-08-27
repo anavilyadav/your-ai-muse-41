@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -53,7 +53,7 @@ function QueuePage() {
     setToday(new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
   }, []);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["today-queue", branchScope ?? "all"],
     queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
@@ -134,6 +134,8 @@ function QueuePage() {
 
       {isLoading ? (
         <LoadingBlock label="Queue load ho rahi hai…" />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : filtered.length === 0 ? (
         <EmptyBlock label="Aaj koi patient nahi mila." />
       ) : (

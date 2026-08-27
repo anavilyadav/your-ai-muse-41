@@ -1,5 +1,55 @@
 import { supabase, today, istNow } from "./supabase";
 
+// ---------- Read failures must be LOUD, not empty ----------
+// Every read in this file used to do `if (error) return []`, which made a
+// permission denial, an expired session or a dropped network call render
+// exactly like "there is genuinely nothing here". On a clinic screen that
+// means an empty queue nobody questions, ₹0 outstanding nobody chases, and
+// a revenue report that silently under-reports a real day's takings.
+// Reads now throw; React Query turns that into `isError` and the screen
+// shows "Couldn't load — Retry" instead of a plausible-looking blank.
+export class DataLoadError extends Error {
+  readonly code: string | null;
+  readonly detail: string | null;
+  constructor(message: string, code: string | null, detail: string | null) {
+    super(message);
+    this.name = "DataLoadError";
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+interface SupabaseishError {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+}
+
+export function dataLoadError(error: unknown): DataLoadError {
+  const e = (error ?? {}) as SupabaseishError;
+  const code = e.code ?? null;
+  const detail = e.message ?? null;
+  // Map the handful of codes staff can actually act on; everything else
+  // gets the generic retry wording plus the raw message for the console.
+  let message = "Data load nahi ho paaya. Dobara try karein.";
+  if (code === "42501" || code === "PGRST301") {
+    message = "Is data ka access nahi hai. Dobara login karke try karein.";
+  } else if (code === "PGRST116") {
+    message = "Record nahi mila.";
+  } else if (detail && /fetch|network|timeout/i.test(detail)) {
+    message = "Network problem. Connection check karke retry karein.";
+  }
+  if (detail) console.error("[db] read failed:", code ?? "-", detail);
+  return new DataLoadError(message, code, detail);
+}
+
+// Safe to show to staff — never leaks a raw Postgres string into the UI.
+export function readErrorMessage(error: unknown): string {
+  if (error instanceof DataLoadError) return error.message;
+  return "Data load nahi ho paaya. Dobara try karein.";
+}
+
 // ---------- Types (loose — matches DB shape) ----------
 export interface DBPatient {
   id: string;
@@ -791,7 +841,7 @@ export async function fetchPaymentModes(activeOnly = false): Promise<PaymentMode
   let q = supabase.from("payment_modes").select("*").order("sort_order", { ascending: true });
   if (activeOnly) q = q.eq("is_active", true);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PaymentMode[];
 }
 
@@ -887,7 +937,7 @@ export async function fetchPendingPaymentAdjustments(): Promise<PaymentAdjustmen
     .select("*, patient:patients(name, mobile, patient_code)")
     .eq("status", "PENDING")
     .order("created_at", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PaymentAdjustment[];
 }
 
@@ -961,7 +1011,7 @@ export async function fetchInventorySearch(term: string, branch?: string) {
   const { data, error } = clean
     ? await q.ilike("medicine_name", `%${clean}%`)
     : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1033,7 +1083,7 @@ export async function fetchPatientInteractions(patientId: string, limit = 50): P
     .eq("patient_id", patientId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PatientInteraction[];
 }
 
@@ -1210,7 +1260,7 @@ export async function fetchPendingCases(): Promise<PendingCase[]> {
     .is("case_discussed_at", null)
     .order("created_at", { ascending: true })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as PendingCase[];
 }
 
@@ -1270,7 +1320,7 @@ export async function fetchSystemAlerts(): Promise<SystemAlert[]> {
     .eq("resolved", false)
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as SystemAlert[];
 }
 
@@ -1304,7 +1354,7 @@ export interface Holiday {
 
 export async function fetchHolidays(): Promise<Holiday[]> {
   const { data, error } = await supabase.from("holidays").select("*").order("date", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as Holiday[];
 }
 
@@ -1335,7 +1385,7 @@ export interface WinbackTier {
 
 export async function fetchWinbackTiers(): Promise<WinbackTier[]> {
   const { data, error } = await supabase.from("winback_tiers").select("*").order("days_lapsed", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as WinbackTier[];
 }
 
@@ -1383,7 +1433,14 @@ export async function fetchFollowupTouchpoints(): Promise<FollowupTouchpoint[]> 
     .select("*")
     .order("min_gap_days", { ascending: true })
     .order("days_before_due", { ascending: false });
-  if (error) return [];
+  // DELIBERATELY best-effort, unlike every other read here: the follow-up
+  // scheduler falls back to a DEFAULT 30-day row when no rules load, so a
+  // rules-table failure must degrade to "no custom rules", not to "this
+  // patient gets no follow-up at all". Logged, never silent.
+  if (error) {
+    console.error("[db] followup_touchpoints read failed, using DEFAULT schedule:", error.message);
+    return [];
+  }
   return (data ?? []) as FollowupTouchpoint[];
 }
 
@@ -1506,7 +1563,7 @@ export async function fetchFollowups() {
     .lte("due_date", upperStr)
     .order("due_date", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1535,7 +1592,7 @@ export async function fetchInteractions(target: { leadId?: string; patientId?: s
   if (target.leadId) q = q.eq("lead_id", target.leadId);
   if (target.patientId) q = q.eq("patient_id", target.patientId);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as Interaction[];
 }
 
@@ -1603,7 +1660,7 @@ export async function searchLeads(term: string) {
     .or(`name.ilike.${like},mobile.ilike.${like},lead_source.ilike.${like}`)
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -1941,7 +1998,7 @@ export async function fetchMedicinesCatalog(search?: string, includeInactive = t
   if (!includeInactive) q = q.eq("is_active", true);
   const clean = search ? sanitizeIlikeTerm(search) : "";
   const { data, error } = clean ? await q.ilike("name", `%${clean}%`) : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as DBMedicine[];
 }
 
@@ -2013,7 +2070,7 @@ export async function fetchInStockMedicines(term: string, branch?: string) {
   let q = supabase.from("inventory").select("*").eq("is_deleted", false).gt("stock_drams", 0).limit(20);
   if (branch) q = q.eq("branch", branch);
   const { data, error } = clean ? await q.ilike("medicine_name", `%${clean}%`) : await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2290,9 +2347,74 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
 // scoping isn't possible here — reporting the whole clinic is accurate,
 // not fabricated). Top-complaint bucketing is a plain frequency count over
 // this month's chief_complaint strings; nothing is normalized/synonyms-merged.
+// ---------- Report aggregation (migration 0045) ----------
+// These four functions used to pull raw payment/visit rows into the browser
+// and sum them with .reduce(). PostgREST caps a response at its max-rows
+// setting, so once a period held more rows than that cap the browser summed
+// a TRUNCATED set — the total looked perfectly normal and was silently LOW.
+// The arithmetic now happens in Postgres, where all the rows are.
+//
+// The old client-side path stays as a fallback for exactly one case: the
+// 0045 migration not being applied yet. That's the same degraded-mode
+// pattern as 0024/0025 — the clinic keeps working, and Owner Health gets a
+// loud alert instead of nobody noticing for months.
+function isMissingRpc(error: any): boolean {
+  const code = error?.code ?? "";
+  const msg = String(error?.message ?? "");
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    /could not find the function|does not exist/i.test(msg)
+  );
+}
+
+// Turns the RPC's raw [{mode, amount}] into the same labelled shape
+// fetchModeBreakdown returns, so callers/UI don't have to care which path
+// produced it. Active modes still appear at ₹0, and a deactivated mode with
+// real history in the period keeps showing so old money is never dropped.
+async function labelModeBreakdown(raw: any): Promise<ModeBreakdown[]> {
+  const modes = await fetchPaymentModes();
+  const byMode = new Map<string, number>();
+  for (const r of (Array.isArray(raw) ? raw : []) as any[]) {
+    byMode.set(String(r.mode), (byMode.get(String(r.mode)) ?? 0) + Number(r.amount ?? 0));
+  }
+  const known = modes
+    .filter((m) => m.is_active || (byMode.get(m.code) ?? 0) > 0)
+    .map((m) => ({ mode: m.code, label: m.label, amount: byMode.get(m.code) ?? 0 }));
+  const extra = [...byMode.keys()]
+    .filter((c) => !modes.some((m) => m.code === c))
+    .map((c) => ({ mode: c, label: c, amount: byMode.get(c) ?? 0 }));
+  return [...known, ...extra];
+}
+
 export async function fetchDoctorDashboard() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
+
+  const { data: agg, error: aggErr } = await supabase.rpc("doctor_totals", {
+    p_date: t,
+    p_month_start: monthStart,
+    p_since: thirtyDaysAgo(),
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    return {
+      todaySeen: Number(a.today_seen ?? 0),
+      todayNew: Number(a.today_new ?? 0),
+      todayFollowupsDone: Number(a.today_followups_done ?? 0),
+      monthPatients: Number(a.month_patients ?? 0),
+      monthRevenue: Number(a.month_revenue ?? 0),
+      topComplaints: ((a.top_complaints ?? []) as any[]).map(
+        (c) => [
+          String(c.label ?? "").charAt(0).toUpperCase() + String(c.label ?? "").slice(1),
+          Number(c.count ?? 0),
+        ] as [string, number],
+      ),
+      awaitingRx: Number(a.awaiting_rx ?? 0),
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("doctor_totals", { note: "Run 0045_report_aggregates.sql — dashboard totals may be truncated" });
 
   const [
     todaySeen,
@@ -2340,12 +2462,37 @@ export async function fetchDoctorDashboard() {
   };
 }
 
+
 // ---------- Owner ----------
 
 export async function fetchOwnerStats() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
+
+  const { data: agg, error: aggErr } = await supabase.rpc("owner_totals", {
+    p_date: t,
+    p_month_start: monthStart,
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    return {
+      todayVisits: Number(a.today_visits_bajaj ?? 0) + Number(a.today_visits_jagatpura ?? 0),
+      todayVisitsBajaj: Number(a.today_visits_bajaj ?? 0),
+      todayVisitsJagatpura: Number(a.today_visits_jagatpura ?? 0),
+      todayRevenue: Number(a.today_revenue ?? 0),
+      todayRevenueBajaj: Number(a.today_revenue_bajaj ?? 0),
+      todayRevenueJagatpura: Number(a.today_revenue_jagatpura ?? 0),
+      monthRevenue: Number(a.month_revenue ?? 0),
+      monthByMode: await labelModeBreakdown(a.by_mode),
+      newToday: Number(a.new_today ?? 0),
+      followupsToday: Number(a.followups_today ?? 0),
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("owner_totals", { note: "Run 0045_report_aggregates.sql — owner totals may be truncated" });
+
   const [todayVisitsBajaj, todayVisitsJagatpura, todayPay, monthPay, newToday, followupsToday] =
+
     await Promise.all([
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
@@ -2415,6 +2562,22 @@ export async function fetchWeekRevenue() {
     days.push({ d, label: labels[istWeekday(d)] });
   }
   const start = days[0].d;
+  const end = days[days.length - 1].d;
+
+  const { data: agg, error: aggErr } = await supabase.rpc("week_revenue", {
+    p_start: start,
+    p_end: end,
+  });
+  if (!aggErr && agg) {
+    const byDay = new Map<string, number>();
+    for (const r of (agg ?? []) as any[]) {
+      byDay.set(String(r.day).slice(0, 10), Number(r.total ?? 0));
+    }
+    return days.map((day) => [day.label, byDay.get(day.d) ?? 0] as [string, number]);
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("week_revenue", { note: "Run 0045_report_aggregates.sql — week chart may be truncated" });
+
   const { data } = await supabase
     .from("payments")
     .select("amount_received,created_at")
@@ -2426,6 +2589,7 @@ export async function fetchWeekRevenue() {
     return [day.label, total] as [string, number];
   });
 }
+
 
 export type ReportPeriod = "today" | "week" | "month" | "lastMonth" | "year" | "custom";
 
@@ -2459,7 +2623,37 @@ export async function fetchReports(
     start = now.getUTCFullYear() + "-01-01";
   }
 
+  // Open-ended periods (week/month/year) have no explicit end date; the
+  // RPC takes a closed range, so "no end" means "up to today".
+  const rpcEnd = end ?? now.toISOString().slice(0, 10);
+  const { data: agg, error: aggErr } = await supabase.rpc("report_totals", {
+    p_start: start,
+    p_end: rpcEnd,
+    p_branch: branch ?? null,
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    const totalRev = Number(a.total_revenue ?? 0);
+    const totalPatients = Number(a.total_patients ?? 0);
+    const avg = totalPatients ? Math.round(totalRev / totalPatients) : 0;
+    const byMode = await labelModeBreakdown(a.by_mode);
+    return {
+      rows: [
+        ["Total Revenue", `₹${totalRev.toLocaleString("en-IN")}`],
+        ["Total Patients", String(totalPatients)],
+        ["New Patients", String(Number(a.new_patients ?? 0))],
+        ["Avg per Patient", `₹${avg.toLocaleString("en-IN")}`],
+        ...byMode.map((m) => [`${m.label} Collection`, `₹${m.amount.toLocaleString("en-IN")}`] as [string, string]),
+        ["Outstanding", `₹${Number(a.outstanding ?? 0).toLocaleString("en-IN")}`],
+        ["Leads Converted", String(Number(a.leads_converted ?? 0))],
+      ] as [string, string][],
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("report_totals", { note: "Run 0045_report_aggregates.sql — report totals may be truncated" });
+
   let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
+
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
   let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("created_at", istDayStart(start));
@@ -2723,7 +2917,7 @@ export async function fetchDeliveries() {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2756,7 +2950,7 @@ export async function fetchStockIssues(limit = 10) {
     .eq("action", "STOCK_ISSUE")
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2777,7 +2971,7 @@ export async function fetchOutstandingPatients() {
     .gt("current_balance", 0)
     .order("current_balance", { ascending: false })
     .limit(500);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2788,7 +2982,7 @@ export async function fetchStaff() {
     .eq("is_deleted", false)
     .order("role", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -2850,7 +3044,7 @@ export async function fetchStaleOpenVisits() {
     .lt("visit_date", thirtyDaysAgo())
     .order("visit_date", { ascending: true })
     .limit(200);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3736,7 +3930,7 @@ export async function searchPatients(term: string) {
     .select("*")
     .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`)
     .limit(30);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3768,14 +3962,14 @@ export async function fetchPatientById(id: string) {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return null;
+  if (error) throw dataLoadError(error);
   return data as DBPatient | null;
 }
 
 export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; name: string; patient_code: string | null }[]> {
   if (ids.length === 0) return [];
   const { data, error } = await supabase.from("patients").select("id,name,patient_code").in("id", ids);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -3800,7 +3994,7 @@ export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
     .select("id, name, patient_code, family_group_id, family_relationship, created_at")
     .not("family_group_id", "is", null)
     .order("created_at", { ascending: true });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
 
   const groups = new Map<string, { name: string; patient_code: string | null; family_relationship: string | null }[]>();
   (data ?? []).forEach((p: any) => {
@@ -3861,7 +4055,7 @@ export async function fetchFamilyMembers(patientId: string) {
     .select("id, name, mobile, age, gender, last_visit_date, patient_code")
     .in("id", allIds)
     .limit(50);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (patientsData ?? []).map((p) => ({ ...p, family_relationship: relMap.get(p.id) ?? "—" }));
 }
 
@@ -3960,7 +4154,7 @@ export async function fetchPatientDocuments(patientId: string): Promise<PatientD
     .select("*")
     .eq("patient_id", patientId)
     .order("created_at", { ascending: false });
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return data ?? [];
 }
 
@@ -4166,7 +4360,7 @@ export async function fetchWhatsAppLog(opts?: {
   if (opts?.status) q = q.eq("status", opts.status);
   if (opts?.campaign) q = q.eq("campaign_name", opts.campaign);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
 }
 
@@ -4260,7 +4454,7 @@ export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChan
     .select("id, patient_id, old_value, new_value, changed_at, patients(name)")
     .order("changed_at", { ascending: false })
     .limit(limit);
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []).map((r: any) => ({ ...r, patient: r.patients ?? null }));
 }
 
@@ -4307,7 +4501,7 @@ export async function fetchAuditLog(opts?: {
   if (opts?.action) q = q.eq("action", opts.action);
   if (opts?.recordId) q = q.eq("record_id", opts.recordId);
   const { data, error } = await q;
-  if (error) return [];
+  if (error) throw dataLoadError(error);
   return (data ?? []) as unknown as AuditLogEntry[];
 }
 

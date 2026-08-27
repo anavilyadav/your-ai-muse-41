@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchHolidays, saveHoliday, deleteHoliday, type Holiday } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +69,7 @@ function HolidayModal({
 
 function HolidaysPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["holidays"], queryFn: fetchHolidays });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["holidays"], queryFn: fetchHolidays });
   const holidays = data ?? [];
   const [editHoliday, setEditHoliday] = useState<Partial<Holiday> | null | "new">(null);
 
@@ -97,6 +97,8 @@ function HolidaysPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : holidays.length === 0 ? (
         <EmptyBlock label="Koi holiday add nahi kiya abhi tak." />
       ) : (

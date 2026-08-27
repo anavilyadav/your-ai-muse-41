@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
@@ -25,11 +25,19 @@ function formatRevenue(n: number): string {
 function DashboardPage() {
   const session = useDoctorSession();
   const [showRev, setShowRev] = useState(false);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["doctor-dashboard"],
     queryFn: fetchDoctorDashboard,
     refetchInterval: 60_000,
   });
+
+  if (isError) {
+    return (
+      <DoctorShell title="Doctor Dashboard" subtitle={session?.name} nav="rx">
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
+      </DoctorShell>
+    );
+  }
 
   if (isLoading || !data) {
     return (

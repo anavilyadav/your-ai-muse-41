@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { List, Package, BookOpen } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import type { NavItem } from "@/components/yhc/RoleShell";
 import { fetchTodayQueue, branchLabel } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -29,7 +29,7 @@ function PharmacyQueue() {
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
   const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["today-queue", branchScope ?? "all"],
     queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
@@ -41,6 +41,8 @@ function PharmacyQueue() {
     <MobileShell title="Pharmacy Queue" subtitle="Today">
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyBlock label="Koi patient dispense ke liye pending nahi." />
       ) : (

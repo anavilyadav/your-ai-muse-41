@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchReports, fetchReferralLeaderboard, BRANCH_LABELS } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
@@ -88,7 +88,7 @@ function ReportsPage() {
   const [to, setTo] = useState(todayStr());
   const invalidRange = period === "custom" && from > to;
   const range = period === "custom" ? { from, to } : undefined;
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["reports", period, range?.from, range?.to],
     queryFn: () => fetchReports(period, undefined, range),
     enabled: !invalidRange,
@@ -166,6 +166,8 @@ function ReportsPage() {
       )}
       {invalidRange ? null : isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : (
         <div className="mt-3 rounded-2xl bg-surface border border-border p-1.5">
           {rows.map(([k, v], i) => (

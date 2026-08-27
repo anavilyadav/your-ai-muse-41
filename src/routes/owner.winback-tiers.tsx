@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchWinbackTiers, saveWinbackTier, deleteWinbackTier, type WinbackTier } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +68,7 @@ function TierModal({
 
 function WinbackTiersPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["winback-tiers"], queryFn: fetchWinbackTiers });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["winback-tiers"], queryFn: fetchWinbackTiers });
   const tiers = data ?? [];
   const [editTier, setEditTier] = useState<Partial<WinbackTier> | null | "new">(null);
 
@@ -96,6 +96,8 @@ function WinbackTiersPage() {
 
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : tiers.length === 0 ? (
         <EmptyBlock label="Koi tier nahi hai — win-back messages nahi jayenge." />
       ) : (

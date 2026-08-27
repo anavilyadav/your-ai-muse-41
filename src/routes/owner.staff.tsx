@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchStaff, branchLabel, addStaffProfile, updateStaffProfile, fetchCaseDrLevels, saveCaseDrLevels, unlockStaffLogin } from "@/lib/db";
 import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { OWNER_NAV } from "./owner.index";
@@ -280,7 +280,7 @@ function capFor(role: string): string {
 }
 
 function StaffPage() {
-  const { data, isLoading } = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
   const { data: levels } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
@@ -363,6 +363,8 @@ function StaffPage() {
       </div>
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : staff.length === 0 ? (
         <EmptyBlock label="No staff found." />
       ) : (

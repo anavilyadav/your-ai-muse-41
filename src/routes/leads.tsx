@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, PhoneCall, UserPlus, Search, X, History, BellOff, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
 import { cn } from "@/lib/utils";
 import {
@@ -70,7 +70,7 @@ function daysSince(iso: string | null | undefined): number {
 
 function LeadsPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["leads"], queryFn: fetchLeads });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["leads"], queryFn: fetchLeads });
   const leads = (data?.rows ?? []) as any[];
   const leadsTruncated = data?.truncated ?? false;
   const [filter, setFilter] = useState<Filter>("All");
@@ -293,6 +293,8 @@ function LeadsPage() {
 
       {displayLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : displayList.length === 0 ? (
         <EmptyBlock label={isSearching ? "Koi lead is naam/mobile se nahi mila." : "Koi lead nahi mila."} />
       ) : (

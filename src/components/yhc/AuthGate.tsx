@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import type { Role } from "@/lib/supabase";
 import { roleHome } from "@/lib/supabase";
+import { readErrorMessage } from "@/lib/db";
 
 /**
  * Wraps role-restricted pages. Redirects to /login if not signed in,
@@ -90,4 +91,27 @@ export function LoadingBlock({ label = "Loading…" }: { label?: string }) {
 
 export function EmptyBlock({ label }: { label: string }) {
   return <div className="py-12 text-center text-sm text-muted-foreground">{label}</div>;
+}
+
+// Shown when a read FAILED — deliberately distinct from EmptyBlock so a
+// permission/network failure can never be mistaken for "no records".
+export function ErrorBlock({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="my-6 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-6 text-center"
+    >
+      <p className="text-sm font-semibold text-destructive">Load nahi ho paaya</p>
+      <p className="mt-1 text-xs text-muted-foreground">{readErrorMessage(error)}</p>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-3 rounded-lg border border-destructive/40 px-4 py-1.5 text-xs font-semibold text-destructive"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
 }
