@@ -2347,9 +2347,74 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
 // scoping isn't possible here — reporting the whole clinic is accurate,
 // not fabricated). Top-complaint bucketing is a plain frequency count over
 // this month's chief_complaint strings; nothing is normalized/synonyms-merged.
+// ---------- Report aggregation (migration 0045) ----------
+// These four functions used to pull raw payment/visit rows into the browser
+// and sum them with .reduce(). PostgREST caps a response at its max-rows
+// setting, so once a period held more rows than that cap the browser summed
+// a TRUNCATED set — the total looked perfectly normal and was silently LOW.
+// The arithmetic now happens in Postgres, where all the rows are.
+//
+// The old client-side path stays as a fallback for exactly one case: the
+// 0045 migration not being applied yet. That's the same degraded-mode
+// pattern as 0024/0025 — the clinic keeps working, and Owner Health gets a
+// loud alert instead of nobody noticing for months.
+function isMissingRpc(error: any): boolean {
+  const code = error?.code ?? "";
+  const msg = String(error?.message ?? "");
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    /could not find the function|does not exist/i.test(msg)
+  );
+}
+
+// Turns the RPC's raw [{mode, amount}] into the same labelled shape
+// fetchModeBreakdown returns, so callers/UI don't have to care which path
+// produced it. Active modes still appear at ₹0, and a deactivated mode with
+// real history in the period keeps showing so old money is never dropped.
+async function labelModeBreakdown(raw: any): Promise<ModeBreakdown[]> {
+  const modes = await fetchPaymentModes();
+  const byMode = new Map<string, number>();
+  for (const r of (Array.isArray(raw) ? raw : []) as any[]) {
+    byMode.set(String(r.mode), (byMode.get(String(r.mode)) ?? 0) + Number(r.amount ?? 0));
+  }
+  const known = modes
+    .filter((m) => m.is_active || (byMode.get(m.code) ?? 0) > 0)
+    .map((m) => ({ mode: m.code, label: m.label, amount: byMode.get(m.code) ?? 0 }));
+  const extra = [...byMode.keys()]
+    .filter((c) => !modes.some((m) => m.code === c))
+    .map((c) => ({ mode: c, label: c, amount: byMode.get(c) ?? 0 }));
+  return [...known, ...extra];
+}
+
 export async function fetchDoctorDashboard() {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
+
+  const { data: agg, error: aggErr } = await supabase.rpc("doctor_totals", {
+    p_date: t,
+    p_month_start: monthStart,
+    p_since: thirtyDaysAgo(),
+  });
+  if (!aggErr && agg) {
+    const a = agg as any;
+    return {
+      todaySeen: Number(a.today_seen ?? 0),
+      todayNew: Number(a.today_new ?? 0),
+      todayFollowupsDone: Number(a.today_followups_done ?? 0),
+      monthPatients: Number(a.month_patients ?? 0),
+      monthRevenue: Number(a.month_revenue ?? 0),
+      topComplaints: ((a.top_complaints ?? []) as any[]).map(
+        (c) => [
+          String(c.label ?? "").charAt(0).toUpperCase() + String(c.label ?? "").slice(1),
+          Number(c.count ?? 0),
+        ] as [string, number],
+      ),
+      awaitingRx: Number(a.awaiting_rx ?? 0),
+    };
+  }
+  if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
+  void logDegradedModeAlert("doctor_totals", { note: "Run 0045_report_aggregates.sql — dashboard totals may be truncated" });
 
   const [
     todaySeen,
@@ -2396,6 +2461,7 @@ export async function fetchDoctorDashboard() {
     awaitingRx: awaitingRx.count ?? 0,
   };
 }
+
 
 // ---------- Owner ----------
 
