@@ -17,6 +17,14 @@
 -- with an explicit +05:30 offset, matching istDayStart/istDayEnd in db.ts.
 -- Comparing against a bare date would silently shift the 12:00am–5:30am IST
 -- window into the previous day.
+--
+-- FIX (13 Aug 2026, applying this migration): the original draft referenced
+-- followups.updated_at, which doesn't exist on this table -- the actual
+-- column is modified_at (same created_at/modified_at/modified_by convention
+-- used everywhere else in this schema). Caught because CREATE OR REPLACE
+-- rolled the whole batch back on the first attempt (nothing partial was
+-- left behind), fixed, and re-verified live with real test calls to all
+-- four functions before being treated as done.
 
 -- ---------------------------------------------------------------- helpers
 create or replace function public.ist_day_start(p_date date)
@@ -155,7 +163,7 @@ as $$
   select json_build_object(
     'today_seen',           (select count(*) from visits where visit_date = p_date and visit_status = 'DONE'),
     'today_new',            (select count(*) from patients where created_at >= public.ist_day_start(p_date) and created_at <= public.ist_day_end(p_date)),
-    'today_followups_done', (select count(*) from followups where status = 'DONE' and updated_at >= public.ist_day_start(p_date)),
+    'today_followups_done', (select count(*) from followups where status = 'DONE' and modified_at >= public.ist_day_start(p_date)),
     'month_patients',       (select count(distinct patient_id) from visits where visit_date >= p_month_start),
     'month_revenue',        coalesce((select sum(amount_received) from payments where created_at >= public.ist_day_start(p_month_start)), 0),
     'awaiting_rx',          (select count(*) from visits where visit_status in ('WAITING_DOCTOR','CASE_TAKING','REGISTERED') and visit_date >= p_since),
