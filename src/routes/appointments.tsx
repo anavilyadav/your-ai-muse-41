@@ -164,7 +164,7 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">New Appointment</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-1.5">
@@ -328,7 +328,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Appointment Slot Settings</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">

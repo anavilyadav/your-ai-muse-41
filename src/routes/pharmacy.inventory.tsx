@@ -137,7 +137,7 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-extrabold text-primary text-lg">Add Stock — Bulk</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         {sessionCount > 0 && (
           <div className="text-[12px] text-success font-semibold mb-3">✓ {sessionCount} medicine{sessionCount > 1 ? "s" : ""} stocked is session mein</div>

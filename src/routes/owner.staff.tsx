@@ -85,7 +85,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Add Staff</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div>
@@ -164,7 +164,7 @@ function EditStaffModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Edit Staff</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div>
@@ -244,7 +244,7 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-extrabold text-primary text-lg">{s.name} — Login Email</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <p className="text-[12px] text-muted-foreground mb-3">
           {needsPin ? "Abhi is staff ka login bana nahi hai — email + PIN daalo." : "Login pehle se hai — sirf email badal rahe ho, PIN wahi rahega."}
