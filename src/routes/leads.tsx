@@ -179,6 +179,7 @@ function LeadsPage() {
   const displayList = isSearching ? (searchQ.data ?? []) : filtered;
   const displayLoading = isSearching ? searchQ.isLoading : isLoading;
   const [manageId, setManageId] = useState<string | null>(null);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
 
   return (
     <MobileShell
@@ -261,7 +262,7 @@ function LeadsPage() {
           className="w-full rounded-xl border border-border bg-surface pl-9 pr-9 py-2.5 text-sm"
         />
         {searchTerm && (
-          <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded-full bg-muted">
+          <button onClick={() => setSearchTerm("")} aria-label="Search clear karo" className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded-full bg-muted">
             <X className="h-3 w-3" />
           </button>
         )}
@@ -448,14 +449,23 @@ function LeadsPage() {
                       <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
                     </a>
                     <button
+                      disabled={convertingId !== null}
+                      aria-label={`${l.name} ko patient mein convert karo`}
                       onClick={async () => {
-                        await doStage(l.id, "CONVERTED");
-                        toast.success(`${l.name} converted → Register`);
-                        navigate({ to: "/register", replace: true });
+                        if (convertingId) return;
+                        setConvertingId(l.id);
+                        try {
+                          await doStage(l.id, "CONVERTED");
+                          toast.success(`${l.name} converted → Register`);
+                          navigate({ to: "/register", replace: true });
+                        } catch (e) {
+                          toast.error("Convert nahi ho paaya. Dobara try karein.");
+                          setConvertingId(null);
+                        }
                       }}
-                      className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-semibold"
+                      className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-semibold disabled:opacity-50"
                     >
-                      <UserPlus className="h-3.5 w-3.5" /> Convert
+                      <UserPlus className="h-3.5 w-3.5" /> {convertingId === l.id ? "…" : "Convert"}
                     </button>
                   </div>
                 )}
@@ -567,7 +577,7 @@ function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () =
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-extrabold text-primary text-lg">Naya Lead</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div>

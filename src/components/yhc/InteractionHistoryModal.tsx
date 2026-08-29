@@ -64,7 +64,7 @@ export function InteractionHistoryModal({
             <h2 className="font-extrabold text-primary text-lg">History</h2>
             <p className="text-[11px] text-muted-foreground">{name}</p>
           </div>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="rounded-xl bg-surface border border-border p-3">

@@ -46,7 +46,7 @@ function HolidayModal({
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">{holiday?.id ? "Edit Holiday" : "Naya Holiday"}</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div>
@@ -75,12 +75,21 @@ function HolidaysPage() {
 
   const reload = () => qc.invalidateQueries({ queryKey: ["holidays"] });
 
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const remove = async (id: string) => {
+    if (removingId) return;
     if (!window.confirm("Ye holiday delete karein?")) return;
-    const res = await deleteHoliday(id);
-    if (!res.success) { toast.error("Delete nahi hua: " + res.error); return; }
-    toast.success("Holiday delete ho gaya");
-    reload();
+    setRemovingId(id);
+    try {
+      const res = await deleteHoliday(id);
+      if (!res.success) { toast.error("Delete nahi hua: " + res.error); return; }
+      toast.success("Holiday delete ho gaya");
+      reload();
+    } catch {
+      toast.error("Delete nahi ho paaya. Dobara try karein.");
+    } finally {
+      setRemovingId(null);
+    }
   };
 
   return (
@@ -110,10 +119,10 @@ function HolidaysPage() {
                 <span className="text-muted-foreground text-xs"> — {new Date(h.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
               </div>
               <div className="flex gap-1.5">
-                <button onClick={() => setEditHoliday(h)} className="h-7 w-7 grid place-items-center rounded-full bg-accent/20 text-accent-foreground">
+                <button onClick={() => setEditHoliday(h)} aria-label="Holiday edit karo" className="h-7 w-7 grid place-items-center rounded-full bg-accent/20 text-accent-foreground">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
-                <button onClick={() => remove(h.id)} className="h-7 w-7 grid place-items-center rounded-full bg-destructive/15 text-destructive">
+                <button onClick={() => remove(h.id)} disabled={removingId !== null} aria-label="Holiday delete karo" className="h-7 w-7 disabled:opacity-50 grid place-items-center rounded-full bg-destructive/15 text-destructive">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>

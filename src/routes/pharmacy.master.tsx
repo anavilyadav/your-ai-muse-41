@@ -53,7 +53,7 @@ function AddMedicineModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Add New Medicine</h2>
-          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
           <div>
@@ -122,7 +122,7 @@ function EditRow({
               autoFocus
               className="flex-1 rounded-lg border border-accent bg-background px-2.5 py-1.5 text-sm font-bold text-primary"
             />
-            <button onClick={saveRename} disabled={busy} className="h-8 w-8 grid place-items-center rounded-full bg-success/15 text-success shrink-0">
+            <button onClick={saveRename} disabled={busy} aria-label="Naam save karo" className="h-8 w-8 grid place-items-center rounded-full bg-success/15 text-success shrink-0">
               <Check className="h-4 w-4" />
             </button>
           </div>
@@ -143,10 +143,10 @@ function EditRow({
         )}
         {!editing && (
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setEditing(true)} className="h-8 w-8 grid place-items-center rounded-full bg-muted text-primary">
+            <button onClick={() => setEditing(true)} aria-label="Medicine ka naam edit karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted text-primary">
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            <button onClick={toggleActive} disabled={busy} className="h-8 w-8 grid place-items-center rounded-full bg-muted text-primary">
+            <button onClick={toggleActive} disabled={busy} aria-label="Medicine active/inactive karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted text-primary">
               {med.is_active ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
             </button>
           </div>

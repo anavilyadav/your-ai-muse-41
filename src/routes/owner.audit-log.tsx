@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { fetchAuditLog, diffAuditFields, auditRowLabel, AUDIT_TABLES, type AuditLogEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -80,14 +80,20 @@ function AuditLogPage() {
         ))}
       </div>
 
-      <ul className="mt-3 space-y-2">
-        {(log.data ?? []).map((entry) => (
-          <AuditRow key={entry.id} entry={entry} expanded={expanded === entry.id} onToggle={() => setExpanded(expanded === entry.id ? null : entry.id)} />
-        ))}
-        {log.data && log.data.length === 0 && (
-          <div className="text-center text-[12px] text-muted-foreground py-8">Koi record nahi mila</div>
-        )}
-      </ul>
+      {log.isLoading ? (
+        <div className="mt-3"><LoadingBlock label="Audit log load ho raha hai…" /></div>
+      ) : log.isError ? (
+        <div className="mt-3"><ErrorBlock error={log.error} onRetry={() => void log.refetch()} /></div>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {(log.data ?? []).map((entry) => (
+            <AuditRow key={entry.id} entry={entry} expanded={expanded === entry.id} onToggle={() => setExpanded(expanded === entry.id ? null : entry.id)} />
+          ))}
+          {log.data && log.data.length === 0 && (
+            <div className="text-center text-[12px] text-muted-foreground py-8">Koi record nahi mila</div>
+          )}
+        </ul>
+      )}
     </RoleShell>
   );
 }
