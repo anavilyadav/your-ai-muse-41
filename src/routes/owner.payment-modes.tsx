@@ -76,12 +76,21 @@ function PaymentModesPage() {
     reload();
   };
 
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const remove = async (id: string) => {
+    if (removingId) return;
     if (!window.confirm("Ye payment mode delete karein?")) return;
-    const res = await deletePaymentMode(id);
-    if (!res.success) { toast.error("Delete nahi hua: " + res.error); return; }
-    toast.success("Delete ho gaya");
-    reload();
+    setRemovingId(id);
+    try {
+      const res = await deletePaymentMode(id);
+      if (!res.success) { toast.error("Delete nahi hua: " + res.error); return; }
+      toast.success("Delete ho gaya");
+      reload();
+    } catch {
+      toast.error("Delete nahi ho paaya. Dobara try karein.");
+    } finally {
+      setRemovingId(null);
+    }
   };
 
   return (
@@ -126,7 +135,7 @@ function PaymentModesPage() {
                   {m.is_active ? "Active" : "Inactive"}
                 </button>
                 {!m.is_system && (
-                  <button onClick={() => remove(m.id)} className="h-7 w-7 grid place-items-center rounded-full bg-destructive/15 text-destructive">
+                  <button onClick={() => remove(m.id)} disabled={removingId !== null} aria-label="Payment mode delete karo" className="h-7 w-7 disabled:opacity-50 grid place-items-center rounded-full bg-destructive/15 text-destructive">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
