@@ -80,14 +80,20 @@ function AuditLogPage() {
         ))}
       </div>
 
-      <ul className="mt-3 space-y-2">
-        {(log.data ?? []).map((entry) => (
-          <AuditRow key={entry.id} entry={entry} expanded={expanded === entry.id} onToggle={() => setExpanded(expanded === entry.id ? null : entry.id)} />
-        ))}
-        {log.data && log.data.length === 0 && (
-          <div className="text-center text-[12px] text-muted-foreground py-8">Koi record nahi mila</div>
-        )}
-      </ul>
+      {log.isLoading ? (
+        <div className="mt-3"><LoadingBlock label="Audit log load ho raha hai…" /></div>
+      ) : log.isError ? (
+        <div className="mt-3"><ErrorBlock error={log.error} onRetry={() => void log.refetch()} /></div>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {(log.data ?? []).map((entry) => (
+            <AuditRow key={entry.id} entry={entry} expanded={expanded === entry.id} onToggle={() => setExpanded(expanded === entry.id ? null : entry.id)} />
+          ))}
+          {log.data && log.data.length === 0 && (
+            <div className="text-center text-[12px] text-muted-foreground py-8">Koi record nahi mila</div>
+          )}
+        </ul>
+      )}
     </RoleShell>
   );
 }
