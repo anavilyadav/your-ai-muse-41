@@ -52,6 +52,18 @@ function HealthPage() {
 
   return (
     <RoleShell wide title="System Health" subtitle="Live Supabase checks" showBack>
+      {(alerts.isLoading || issues.isLoading || stale.isLoading) && (
+        <div className="mb-3"><LoadingBlock label="Health data load ho raha hai…" /></div>
+      )}
+      {alerts.isError && (
+        <div className="mb-3"><ErrorBlock error={alerts.error} onRetry={() => void alerts.refetch()} /></div>
+      )}
+      {issues.isError && (
+        <div className="mb-3"><ErrorBlock error={issues.error} onRetry={() => void issues.refetch()} /></div>
+      )}
+      {stale.isError && (
+        <div className="mb-3"><ErrorBlock error={stale.error} onRetry={() => void stale.refetch()} /></div>
+      )}
       {alerts.data && alerts.data.length > 0 && (
         <div className="mb-4">
           <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-2 text-[11px] text-destructive font-semibold">
