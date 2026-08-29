@@ -179,6 +179,7 @@ function LeadsPage() {
   const displayList = isSearching ? (searchQ.data ?? []) : filtered;
   const displayLoading = isSearching ? searchQ.isLoading : isLoading;
   const [manageId, setManageId] = useState<string | null>(null);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
 
   return (
     <MobileShell
