@@ -32,13 +32,19 @@ function HealthPage() {
   };
 
   const run = async () => {
+    if (running) return;
     setRunning(true);
-    const r = await runHealthChecks();
-    setResults(r);
-    setRunning(false);
-    const failCount = r.filter((x) => !x.ok).length;
-    if (failCount === 0) toast.success("Sab checks pass ho gaye");
-    else toast.error(`${failCount} check(s) fail hue`);
+    try {
+      const r = await runHealthChecks();
+      setResults(r);
+      const failCount = r.filter((x) => !x.ok).length;
+      if (failCount === 0) toast.success("Sab checks pass ho gaye");
+      else toast.error(`${failCount} check(s) fail hue`);
+    } catch {
+      toast.error("Health check chal nahi paaya. Dobara try karein.");
+    } finally {
+      setRunning(false);
+    }
   };
 
   const okCount = results?.filter((h) => h.ok).length ?? 0;
