@@ -449,14 +449,23 @@ function LeadsPage() {
                       <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
                     </a>
                     <button
+                      disabled={convertingId !== null}
+                      aria-label={`${l.name} ko patient mein convert karo`}
                       onClick={async () => {
-                        await doStage(l.id, "CONVERTED");
-                        toast.success(`${l.name} converted → Register`);
-                        navigate({ to: "/register", replace: true });
+                        if (convertingId) return;
+                        setConvertingId(l.id);
+                        try {
+                          await doStage(l.id, "CONVERTED");
+                          toast.success(`${l.name} converted → Register`);
+                          navigate({ to: "/register", replace: true });
+                        } catch (e) {
+                          toast.error("Convert nahi ho paaya. Dobara try karein.");
+                          setConvertingId(null);
+                        }
                       }}
-                      className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-semibold"
+                      className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-semibold disabled:opacity-50"
                     >
-                      <UserPlus className="h-3.5 w-3.5" /> Convert
+                      <UserPlus className="h-3.5 w-3.5" /> {convertingId === l.id ? "…" : "Convert"}
                     </button>
                   </div>
                 )}
