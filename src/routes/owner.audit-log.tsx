@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { fetchAuditLog, diffAuditFields, auditRowLabel, AUDIT_TABLES, type AuditLogEntry } from "@/lib/db";
 import { cn } from "@/lib/utils";
