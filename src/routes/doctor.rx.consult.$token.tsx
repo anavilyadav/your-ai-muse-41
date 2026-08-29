@@ -571,7 +571,7 @@ function RxRowEditor({
           )}
         </div>
         {onDelete && (
-          <button onClick={onDelete} className="h-9 w-9 grid place-items-center rounded-lg border border-border text-destructive">
+          <button onClick={onDelete} aria-label="Ye medicine hatao" className="h-9 w-9 grid place-items-center rounded-lg border border-border text-destructive">
             <Trash2 className="h-4 w-4" />
           </button>
         )}

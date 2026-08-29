@@ -262,7 +262,7 @@ function LeadsPage() {
           className="w-full rounded-xl border border-border bg-surface pl-9 pr-9 py-2.5 text-sm"
         />
         {searchTerm && (
-          <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded-full bg-muted">
+          <button onClick={() => setSearchTerm("")} aria-label="Search clear karo" className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded-full bg-muted">
             <X className="h-3 w-3" />
           </button>
         )}
