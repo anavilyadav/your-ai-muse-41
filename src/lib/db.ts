@@ -210,6 +210,7 @@ export async function findPatientByMobile(mobile: string, countryCode: string = 
     .select("id, name, patient_code")
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode)
+    .eq("is_deleted", false)
     .maybeSingle();
   // A failed lookup is NOT the same as "genuinely no such patient" — the
   // caller (registration's duplicate-check hint) would otherwise silently
@@ -3956,6 +3957,7 @@ export async function searchPatients(term: string) {
     .from("patients")
     .select("*")
     .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`)
+    .eq("is_deleted", false)
     .limit(30);
   if (error) throw dataLoadError(error);
   return data ?? [];
@@ -3971,7 +3973,7 @@ export interface PatientListPage {
 }
 
 export async function fetchPatientsPage(limit: number, search?: string): Promise<PatientListPage> {
-  let q = supabase.from("patients").select("*");
+  let q = supabase.from("patients").select("*").eq("is_deleted", false);
   const t = search ? sanitizeOrFilterTerm(search) : "";
   if (t) {
     const like = `%${t}%`;
@@ -4116,6 +4118,22 @@ export async function unlinkFamilyMember(patientId: string, relatedPatientId: st
     .delete()
     .or(`and(patient_id.eq.${patientId},related_patient_id.eq.${relatedPatientId}),and(patient_id.eq.${relatedPatientId},related_patient_id.eq.${patientId})`);
   return { success: !error, error: error?.message ?? null };
+}
+
+// Patient merge (Owner-only — enforced in the UI via AuthGate/role check,
+// not by the RPC itself, matching this app's existing pattern where role
+// gating lives in the app layer). Reassigns every child record (visits,
+// payments, prescriptions, follow-ups, WhatsApp logs, family links, etc.)
+// from the duplicate to the primary inside one locked transaction — see
+// merge_patients_atomic (0047) for the full table list. The duplicate is
+// retired (is_deleted, a note), never hard-deleted.
+export async function mergePatients(primaryId: string, duplicateId: string) {
+  const { data, error } = await supabase.rpc("merge_patients_atomic", {
+    p_primary_id: primaryId,
+    p_duplicate_id: duplicateId,
+  });
+  if (error) return { success: false, error: error.message, result: null };
+  return { success: true, error: null, result: data as { primary_id: string; duplicate_id: string; lifetime_visits: number; lifetime_revenue: number; current_balance: number } };
 }
 
 // ---------- Patient Documents (general staff upload — follow-up notes, new case notes, reports) ----------

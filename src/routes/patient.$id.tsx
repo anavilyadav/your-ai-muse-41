@@ -3,7 +3,7 @@ import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart } from "lucide-react";
+import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart, GitMerge } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { useAuth } from "@/lib/auth";
@@ -28,6 +28,7 @@ import {
   INTERACTION_TYPE_LABELS,
   DOC_TYPES,
   formatCardNumber,
+  mergePatients,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
@@ -146,6 +147,119 @@ function LinkFamilyModal({
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Linking…" : "Link Family Member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Owner-only (16 Sep 2026, Dr. Yadav: "sirf woh main kar sakta hoon, koi
+// bhi staff nahi kar sakta") — visibility is gated by the caller, not this
+// modal itself, same pattern as everywhere else in this app. `patientId`
+// is the record staying alive (the one this modal was opened from); the
+// searched-and-selected patient is the duplicate that gets retired and
+// folded into it.
+function MergePatientModal({
+  patientId,
+  patientName,
+  onClose,
+  onMerged,
+}: {
+  patientId: string;
+  patientName: string;
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
+  const [results, setResults] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (debouncedQ.trim().length < 2) { setResults([]); return; }
+    let cancelled = false;
+    searchPatients(debouncedQ).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
+    return () => { cancelled = true; };
+  }, [debouncedQ, patientId]);
+
+  const expectedConfirm = selected?.name ?? "";
+  const confirmed = selected && confirmText.trim().toLowerCase() === expectedConfirm.trim().toLowerCase();
+
+  const submit = async () => {
+    if (!selected || !confirmed) return;
+    setSaving(true);
+    const res = await mergePatients(patientId, selected.id);
+    setSaving(false);
+    if (!res.success) { toast.error("Merge nahi hua: " + res.error); return; }
+    toast.success(`${selected.name} ka poora data ${patientName} mein merge ho gaya`);
+    onMerged();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Duplicate Patient Merge Karo</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-[12px] text-muted-foreground">
+            Purana/duplicate patient dhoondo — uska poora history (visits, payments, prescriptions, WhatsApp log,
+            sab kuch) <b>{patientName}</b> mein aa jayega, aur woh record retire ho jayega (delete nahi hoga).
+          </p>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Duplicate patient dhoondo</label>
+            <input
+              value={selected ? `${selected.name} — ${selected.mobile}` : q}
+              onChange={(e) => { setSelected(null); setConfirmText(""); setQ(e.target.value); }}
+              placeholder="Naam ya mobile"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+            {!selected && results.length > 0 && (
+              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
+                {results.map((p: any) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => { setSelected(p); setQ(""); setResults([]); }}
+                      className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
+                    >
+                      {p.name} — {p.mobile} {p.patient_code ? `(${p.patient_code})` : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {selected && (
+            <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+              <p className="text-[12px] text-destructive font-semibold">
+                Pakka? {selected.name} ka record retire ho jayega, {patientName} mein merge ho jayega — yeh wapas
+                is screen se undo nahi ho sakta.
+              </p>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase mt-2 block">
+                Confirm karne ke liye "{selected.name}" type karo
+              </label>
+              <input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={selected.name}
+                className="w-full mt-1 rounded-xl border border-destructive/40 bg-surface px-3 py-2.5 text-sm"
+              />
+            </div>
+          )}
+
+          <button
+            onClick={submit}
+            disabled={!confirmed || saving}
+            className="mt-2 w-full rounded-full bg-destructive text-destructive-foreground font-bold py-3 text-sm disabled:opacity-50"
+          >
+            {saving ? "Merge ho raha hai…" : "Merge Karo"}
           </button>
         </div>
       </div>
@@ -446,6 +560,8 @@ export const Route = createFileRoute("/patient/$id")({
 
 function PatientProfilePage() {
   const { id } = Route.useParams();
+  const { user } = useAuth();
+  const isOwner = user?.role === "OWNER";
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
@@ -458,6 +574,7 @@ function PatientProfilePage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -533,6 +650,14 @@ function PatientProfilePage() {
       )}
       {showLogModal && (
         <LogInteractionModal patientId={id} onClose={() => setShowLogModal(false)} onLogged={reload} />
+      )}
+      {showMergeModal && isOwner && (
+        <MergePatientModal
+          patientId={id}
+          patientName={patient.name}
+          onClose={() => setShowMergeModal(false)}
+          onMerged={reload}
+        />
       )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
@@ -623,6 +748,20 @@ function PatientProfilePage() {
           </ul>
         )}
       </div>
+
+      {isOwner && (
+        <div className="mt-5">
+          <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 px-1 mb-2">
+            <GitMerge className="h-3 w-3" /> Duplicate Record
+          </h2>
+          <button
+            onClick={() => setShowMergeModal(true)}
+            className="w-full rounded-xl bg-surface border border-border p-3 text-left text-[12px] text-muted-foreground"
+          >
+            Agar yeh patient ka koi purana/duplicate record hai, usse yahan merge karo — sirf Owner kar sakta hai.
+          </button>
+        </div>
+      )}
 
       <div className="mt-5">
         <div className="flex items-center justify-between px-1 mb-2">
