@@ -33,10 +33,17 @@ function setup(
   return state.mock;
 }
 
-/** A payment that leaves nothing owed, so the visit closes. */
-const paidInFull = { data: { balance: 0, next_visit_date: null }, error: null };
+/** A payment that leaves nothing owed AND the visit had already left
+ * REGISTERED before this payment (real consultation happened) — this is
+ * the only case collect_payment_atomic reports visit_status: "DONE". */
+const paidInFull = { data: { balance: 0, visit_status: "DONE", next_visit_date: null }, error: null };
 /** A payment that still leaves a balance — visit stays open, no follow-up. */
-const partiallyPaid = { data: { balance: 500, next_visit_date: null }, error: null };
+const partiallyPaid = { data: { balance: 500, visit_status: "PAYMENT", next_visit_date: null }, error: null };
+/** Full payment collected at REGISTRATION time (16 Sep 2026 bug) — balance
+ * reaches 0, but the visit never left REGISTERED, so no doctor has seen
+ * the patient yet. Regression test for 520 phantom follow-ups created
+ * across 52 never-consulted patients before this was caught. */
+const paidInFullAtRegistration = { data: { balance: 0, visit_status: "REGISTERED", next_visit_date: null }, error: null };
 
 const baseInput = {
   visit_id: "v-1",
@@ -230,8 +237,21 @@ describe("collectPayment — idempotency (migration 0025)", () => {
 });
 
 describe("collectPayment — downstream follow-up scheduling", () => {
-  it("schedules follow-ups only once the balance actually reaches zero", async () => {
+  it("does not schedule follow-ups when a balance is still owed", async () => {
     const m = setup({ rpc: { collect_payment_atomic: partiallyPaid } });
+    const { collectPayment } = await import("./db");
+    await collectPayment(baseInput);
+    expect(m.rpcCalls.map((c) => c.name)).not.toContain("reschedule_followups_atomic");
+  });
+
+  it("does NOT schedule follow-ups when payment is collected at registration, before any consultation", async () => {
+    // The bug: this used to key off balance === 0 alone, which was safe
+    // back when a full payment could only happen AFTER a consultation.
+    // Once payment-at-registration shipped, a full payment on a still-
+    // REGISTERED visit also hits balance === 0, and this test is what
+    // would have caught it — scheduling a follow-up sequence for a
+    // patient the doctor has never seen.
+    const m = setup({ rpc: { collect_payment_atomic: paidInFullAtRegistration } });
     const { collectPayment } = await import("./db");
     await collectPayment(baseInput);
     expect(m.rpcCalls.map((c) => c.name)).not.toContain("reschedule_followups_atomic");

@@ -810,7 +810,23 @@ export async function collectPayment(input: {
   // never rolls back a payment that was already accepted from the
   // patient. It's still surfaced (not silently swallowed) so staff know
   // to check the follow-up queue manually if it fails.
-  if (data?.balance === 0) {
+  //
+  // BUG FIX (16 Sep 2026): this used to key off `data?.balance === 0`,
+  // which was correct back when a full payment could only ever happen
+  // AFTER a real consultation (visit already past REGISTERED). Once
+  // inline payment-at-registration shipped, collect_payment_atomic was
+  // changed to leave a REGISTERED visit's status alone on a full payment
+  // (0044/13 Aug) instead of jumping it to DONE — but this check was never
+  // updated to match, so every registration with payment collected up
+  // front scheduled a full follow-up sequence for a patient the doctor had
+  // never seen. 520 phantom follow-up rows across 52 patients resulted,
+  // 95 of which had already sent a real WhatsApp reminder for a visit that
+  // never happened, before this was caught (cleanup: see
+  // 0046_cancel_phantom_followups.sql). Gate on the RPC's own
+  // visit_status instead — it only reports DONE when the visit had
+  // already left REGISTERED before this payment, i.e. real clinical work
+  // actually happened.
+  if (data?.visit_status === "DONE") {
     try {
       await generateFollowupSchedule(input.patient_id, input.visit_id, data?.next_visit_date ?? null);
     } catch (e: any) {
