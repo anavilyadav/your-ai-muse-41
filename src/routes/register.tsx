@@ -118,15 +118,21 @@ function RegisterPage() {
   // first in real life, the paperwork happens after). Reception collects
   // cash/UPI right at the counter, so payment now gets recorded in the
   // SAME submit as the patient/visit, instead of requiring a separate trip
-  // to the Pay screen. planMonths covers the "someone bought a 3-month
-  // plan" case in one shot instead of one payment per month.
+  // to the Pay screen.
+  //
+  // Registration-time amount is a FLAT fee, not a multiplier (16 Sep 2026
+  // correction) — the real flow is walk-in pays ₹1000 registration here,
+  // then the ₹2500 consultation fee (and any multi-month medicine package)
+  // SEPARATELY once they actually arrive and are seen, via the Pay screen.
+  // Online patients pay the full bundle (reg + consultation + courier) in
+  // one shot here, which is genuinely a single upfront payment. There is
+  // no "N month plan" decision at registration for either case — that
+  // choice only gets made at the consultation, not before it.
   const { data: feeMaster } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
   const fees = feeMaster ?? DEFAULT_FEE_MASTER;
   const { data: paymentModesData } = useQuery({ queryKey: ["payment-modes"], queryFn: () => fetchPaymentModes(true) });
   const paymentModes = paymentModesData ?? [];
-  const feeKind = f.caseChannel === "ONLINE" ? "ONLINE" : "NEW";
-  const [planMonths, setPlanMonths] = useState(1);
-  const standardAmount = fees[feeKind] * planMonths;
+  const standardAmount = f.caseChannel === "ONLINE" ? fees.ONLINE : fees.REGISTRATION;
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentAmountTouched, setPaymentAmountTouched] = useState(false);
   const [paymentMode, setPaymentMode] = useState("CASH");
@@ -135,11 +141,6 @@ function RegisterPage() {
   useEffect(() => {
     if (!paymentAmountTouched) setPaymentAmount(String(standardAmount));
   }, [standardAmount, paymentAmountTouched]);
-
-  const pickPlan = (months: number) => {
-    setPlanMonths(months);
-    setPaymentAmountTouched(false);
-  };
 
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
@@ -252,7 +253,7 @@ function RegisterPage() {
             amount_received: amountToCollect,
             payment_mode: paymentMode,
             branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
-            notes: planMonths > 1 ? `${planMonths} Month Plan` : undefined,
+            notes: f.caseChannel === "ONLINE" ? "Online bundle (reg + consult + courier)" : "Registration fee",
             idempotency_key: paymentIdempotencyKey,
           });
           paymentCollected = true;
@@ -369,7 +370,6 @@ function RegisterPage() {
                 });
                 setDupWarn(false);
                 setExistingPatient(null);
-                setPlanMonths(1);
                 setPaymentAmount("");
                 setPaymentAmountTouched(false);
                 setPaymentMode("CASH");
@@ -561,22 +561,14 @@ function RegisterPage() {
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
         </Section>
 
-        <Section label="Payment" hint={planMonths > 1 ? `${planMonths} Month Plan — ${fees[feeKind].toLocaleString("en-IN")} x ${planMonths}` : undefined}>
-          <div className="flex gap-1.5 mb-2">
-            {[1, 3, 6].map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => pickPlan(m)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-[11px] font-semibold border",
-                  planMonths === m ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
-                )}
-              >
-                {m === 1 ? "1 Month" : `${m} Month Plan`}
-              </button>
-            ))}
-          </div>
+        <Section
+          label="Payment"
+          hint={
+            f.caseChannel === "ONLINE"
+              ? "Online bundle — registration + consultation + courier, ek saath"
+              : "Sirf registration fee — consultation ka payment baad mein, aane par"
+          }
+        >
           <div className="flex gap-2">
             <input
               inputMode="numeric"

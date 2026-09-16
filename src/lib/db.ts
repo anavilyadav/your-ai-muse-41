@@ -3181,14 +3181,24 @@ export async function upsertSetting(key: string, value: string) {
 // Consultation fees live in the settings table so the Owner can change them
 // without a deploy, but they ALWAYS have a hard-coded default so the Payment
 // screen can prefill even if settings hasn't been touched yet / fails to load.
-export type FeeMaster = { NEW: number; FOLLOWUP: number; ONLINE: number };
+// REGISTRATION (16 Sep 2026) — the real walk-in flow is two SEPARATE
+// payments: ₹1000 registration collected up front, then the ₹2500 "New
+// case" consultation fee collected separately once the patient actually
+// arrives and is seen (or more, if they take a multi-month medicine
+// package -- decided and paid then, not at registration). The inline
+// payment step on the registration form was defaulting to the full NEW
+// fee (₹3500), silently collecting the consultation fee before any
+// consultation happened. ONLINE stays a single upfront bundle (registration
+// + consultation + courier) since that's genuinely paid all at once.
+export type FeeMaster = { REGISTRATION: number; NEW: number; FOLLOWUP: number; ONLINE: number };
 
-export const DEFAULT_FEE_MASTER: FeeMaster = { NEW: 3500, FOLLOWUP: 2500, ONLINE: 3700 };
+export const DEFAULT_FEE_MASTER: FeeMaster = { REGISTRATION: 1000, NEW: 3500, FOLLOWUP: 2500, ONLINE: 3700 };
 
 export const FEE_LABELS: Record<keyof FeeMaster, string> = {
-  NEW: "New case",
+  REGISTRATION: "Registration (walk-in, upfront)",
+  NEW: "New case (consultation, on arrival)",
   FOLLOWUP: "Follow-up",
-  ONLINE: "Online case",
+  ONLINE: "Online case (full bundle)",
 };
 
 export async function fetchFeeMaster(): Promise<FeeMaster> {
@@ -3199,6 +3209,7 @@ export async function fetchFeeMaster(): Promise<FeeMaster> {
     const parsed = JSON.parse(data.value) as Partial<FeeMaster>;
     // Merge over defaults so a partially-saved blob can never yield ₹0/NaN.
     return {
+      REGISTRATION: Number(parsed.REGISTRATION) > 0 ? Number(parsed.REGISTRATION) : DEFAULT_FEE_MASTER.REGISTRATION,
       NEW: Number(parsed.NEW) > 0 ? Number(parsed.NEW) : DEFAULT_FEE_MASTER.NEW,
       FOLLOWUP: Number(parsed.FOLLOWUP) > 0 ? Number(parsed.FOLLOWUP) : DEFAULT_FEE_MASTER.FOLLOWUP,
       ONLINE: Number(parsed.ONLINE) > 0 ? Number(parsed.ONLINE) : DEFAULT_FEE_MASTER.ONLINE,
