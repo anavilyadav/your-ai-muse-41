@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchOwnerStats, fetchWeekRevenue, fetchStaff } from "@/lib/db";
+import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders } from "@/lib/db";
 import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
 export const Route = createFileRoute("/owner/")({
@@ -34,6 +34,8 @@ function OwnerDashboard() {
   const stats = useQuery({ queryKey: ["owner-stats"], queryFn: fetchOwnerStats, refetchInterval: 30_000 });
   const week = useQuery({ queryKey: ["owner-week"], queryFn: fetchWeekRevenue });
   const staff = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
+  const purchaseOrders = useQuery({ queryKey: ["purchase-orders"], queryFn: fetchPurchaseOrders });
+  const pendingPoCount = (purchaseOrders.data ?? []).filter((po) => po.status === "PENDING" || po.status === "PARTIAL").length;
   const s = stats.data;
   const w = week.data ?? [];
   const max = Math.max(1, ...w.map((x) => x[1]));
@@ -135,6 +137,11 @@ function OwnerDashboard() {
               <Wallet className="h-5 w-5 text-destructive" />
               <div className="font-bold text-primary text-sm mt-1">Payment Adjustments</div>
               <div className="text-[11px] text-muted-foreground">Overpayment refund/credit</div>
+            </Link>
+            <Link to="/purchase-orders" className="rounded-2xl bg-surface border border-border p-3.5">
+              <Package className="h-5 w-5 text-accent-foreground" />
+              <div className="font-bold text-primary text-sm mt-1">Purchase Orders{pendingPoCount > 0 ? ` (${pendingPoCount})` : ""}</div>
+              <div className="text-[11px] text-muted-foreground">Vendor se mangwana — pending/partial</div>
             </Link>
             <Link to="/owner/payment-modes" className="rounded-2xl bg-surface border border-border p-3.5">
               <CreditCard className="h-5 w-5 text-primary" />

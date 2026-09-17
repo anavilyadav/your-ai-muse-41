@@ -4043,6 +4043,85 @@ export async function fetchWhatsAppDeliveryHealth(patientId: string): Promise<Wh
   return { totalSent: data.length, delivered, read, failed, lastFailedReason, lastFailedAt };
 }
 
+// ---------- Purchase Orders (#10, Dr. Yadav's spec 04 Sep 2026) ----------
+// Any staff member raises a PO; Owner sees it on the dashboard and gets a
+// WhatsApp ping. Status is always derived server-side from the item rows
+// by receive_po_item_atomic (see 0050_purchase_orders.sql) — never set
+// directly here, so it can't drift from what was actually received.
+export interface PurchaseOrderItem {
+  id: string;
+  po_id: string;
+  item_name: string;
+  quantity_requested: number;
+  quantity_received: number;
+  unit: string | null;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  branch: string | null;
+  status: "PENDING" | "PARTIAL" | "COMPLETE" | "CANCELLED";
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  items: PurchaseOrderItem[];
+}
+
+export async function fetchPurchaseOrders(): Promise<PurchaseOrder[]> {
+  const { data, error } = await supabase
+    .from("purchase_orders")
+    .select("*, items:purchase_order_items(*)")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw dataLoadError(error);
+  return (data ?? []) as PurchaseOrder[];
+}
+
+export async function createPurchaseOrder(
+  branch: string | null,
+  notes: string,
+  items: { item_name: string; quantity_requested: number; unit?: string }[],
+): Promise<{ success: boolean; error: string | null; poId: string | null }> {
+  const { data, error } = await supabase.rpc("create_purchase_order_atomic", {
+    p_branch: branch,
+    p_notes: notes || null,
+    p_items: items,
+  });
+  if (error) return { success: false, error: error.message, poId: null };
+  const poId = (data as { po_id: string })?.po_id ?? null;
+
+  // Owner WhatsApp ping — best-effort, never blocks the PO itself. Needs
+  // an approved AiSensy API Campaign named "PURCHASE_ORDER_ALERT" and an
+  // OWNER row in `users` with a real mobile number.
+  try {
+    const { data: owner } = await supabase.from("users").select("mobile, mobile_country_code, name").eq("role", "OWNER").eq("is_active", true).limit(1).maybeSingle();
+    if (owner?.mobile) {
+      await supabase.functions.invoke("send-whatsapp", {
+        body: {
+          campaignName: "PURCHASE_ORDER_ALERT",
+          destination: buildWhatsAppDestination((owner as any).mobile_country_code, owner.mobile),
+          userName: owner.name ?? "Owner",
+          templateParams: [owner.name ?? "Owner", String(items.length)],
+          consentConfirmed: true,
+        },
+      });
+    }
+  } catch {
+    // Non-critical — the PO already saved; Owner still sees it on the dashboard.
+  }
+
+  return { success: true, error: null, poId };
+}
+
+export async function receivePoItem(itemId: string, quantityReceived: number): Promise<{ success: boolean; error: string | null; status: string | null }> {
+  const { data, error } = await supabase.rpc("receive_po_item_atomic", {
+    p_item_id: itemId,
+    p_quantity_received: quantityReceived,
+  });
+  if (error) return { success: false, error: error.message, status: null };
+  return { success: true, error: null, status: (data as { status: string })?.status ?? null };
+}
+
 // ---------- Family linking ----------
 export interface ReferralGroup {
   family_group_id: string;
