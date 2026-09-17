@@ -105,9 +105,21 @@ DECLARE
   ];
   -- Written only by edge functions / cron (service_role). Staff may read
   -- them for the health & WhatsApp log screens.
+  --
+  -- FIX (17 Sep 2026, applying this migration): anniversary_greeting_log
+  -- and birthday_greeting_log were missing -- holiday_greeting_log's
+  -- sibling tables, same write pattern, left out by oversight when this
+  -- was first drafted. daily_token_counters didn't exist yet when this
+  -- file was written; it's the atomic per-branch-per-day token counter
+  -- (next_token_for_day RPC) -- SECURITY DEFINER, so RLS here doesn't
+  -- affect that RPC's own writes, only direct browser access, which
+  -- nothing in the app does. Caught by diffing this array against the
+  -- live table list before applying, not assumed correct from the date
+  -- on the file.
   ro_tables text[] := ARRAY[
     'users', 'whatsapp_log', 'winback_log', 'wa_consent_log',
-    'holiday_greeting_log', 'webhook_hits'
+    'holiday_greeting_log', 'webhook_hits',
+    'anniversary_greeting_log', 'birthday_greeting_log', 'daily_token_counters'
   ];
 BEGIN
   FOREACH t IN ARRAY rw_tables LOOP

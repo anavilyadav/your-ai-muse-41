@@ -267,18 +267,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // offline gateway). Without this the whole app was unusable: the browser
   // never reached the function and every attempt showed the generic
   // "Network issue — dobara try karo".
+  //
+  // FIX (17 Sep 2026, RLS rollout): this used to look up the staff
+  // member's real auth email from `users` first, falling back to the
+  // conventional `${mobile}@yhcos.in` pattern only if that query failed.
+  // Now that `users` requires an authenticated session to read (0043) —
+  // which is exactly what this function is still trying to establish —
+  // that lookup can never succeed here and would just silently no-op
+  // through the catch block every time. Every staff account is
+  // provisioned with the conventional email by create-staff-login, so
+  // going straight to it is both correct and one less doomed network
+  // call in an already-degraded path.
   const signInDirect = async (cleaned: string, pin: string) => {
-    let email = `${cleaned}@yhcos.in`;
-    try {
-      const { data } = await withTimeout(
-        Promise.resolve(supabase.from("users").select("email").eq("mobile", cleaned).maybeSingle()),
-        10_000,
-        "Email lookup",
-      );
-      if ((data as any)?.email) email = (data as any).email;
-    } catch {
-      // fall through with the conventional email
-    }
+    const email = `${cleaned}@yhcos.in`;
     const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password: pin });
     if (error || !signInData?.session) {
       // A genuine connectivity failure surfaces as a fetch/network error,
