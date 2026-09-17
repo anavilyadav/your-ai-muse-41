@@ -3027,13 +3027,23 @@ export interface NewStaffInput {
  * running this, the login account must be created once via the
  * create-staff-login Edge Function (see supabase/functions/create-staff-login)
  * or manually in the Supabase dashboard, matching mobile@yhcos.in + PIN.
+ *
+ * Routes through upsert_staff_profile_atomic (0054) rather than a direct
+ * insert — `users` deliberately has no INSERT/UPDATE RLS policy for
+ * authenticated (it's read-sensitive: PINs, roles), so a direct write here
+ * used to throw an RLS violation for every caller, including the real
+ * Owner. The RPC checks the caller's real role server-side and writes as
+ * its SECURITY DEFINER owner, the same pattern already used for
+ * merge_patients_atomic/resolve_payment_adjustment/restore_trashed_row.
  */
 export async function addStaffProfile(input: NewStaffInput) {
-  const { data, error } = await supabase
-    .from("users")
-    .insert({ name: input.name, mobile: input.mobile, role: input.role, branch: input.branch })
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("upsert_staff_profile_atomic", {
+    p_id: null,
+    p_name: input.name,
+    p_mobile: input.mobile,
+    p_role: input.role,
+    p_branch: input.branch,
+  });
   if (error) return { success: false, error: error.message, data: null };
   return { success: true, error: null, data };
 }
@@ -3050,11 +3060,21 @@ export interface UpdateStaffInput {
 // email or PIN, that stays on the create-staff-login Edge Function path
 // (EditEmailModal in owner.staff.tsx) since changing a login email needs
 // the service-role key.
+//
+// Same RPC as addStaffProfile above, same reason: the old direct
+// `.update()` had no matching RLS policy either, so it silently affected 0
+// rows (Postgres doesn't error on a 0-row UPDATE) and this function never
+// checked the row count — Owner saw a false "success" while nothing
+// actually changed. The RPC raises an explicit error if the id doesn't
+// resolve to a real, updated row, so a failure can no longer look like success.
 export async function updateStaffProfile(input: UpdateStaffInput) {
-  const { error } = await supabase
-    .from("users")
-    .update({ name: input.name, mobile: input.mobile, role: input.role, branch: input.branch })
-    .eq("id", input.id);
+  const { error } = await supabase.rpc("upsert_staff_profile_atomic", {
+    p_id: input.id,
+    p_name: input.name,
+    p_mobile: input.mobile,
+    p_role: input.role,
+    p_branch: input.branch,
+  });
   return { success: !error, error: error?.message ?? null };
 }
 
@@ -3084,7 +3104,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0053_schema_version_lock";
+export const EXPECTED_SCHEMA_VERSION = "0054_staff_profile_rpc_and_settings_owner_write";
 
 export interface SchemaMigrationRow {
   filename: string;
