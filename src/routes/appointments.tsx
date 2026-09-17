@@ -473,10 +473,28 @@ function AppointmentsPage() {
   }, [appts]);
 
   const setStatus = async (a: any, status: string) => {
+    const previousStatus = a.status;
     const res = await updateAppointmentStatus(a.id, status);
     if (res.success) {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
-      status === "Arrived" ? toast.success(`${a.patient_name} marked arrived`) : toast.error(`${a.patient_name} cancelled`);
+      if (status === "Arrived") {
+        toast.success(`${a.patient_name} marked arrived`);
+      } else {
+        toast.error(`${a.patient_name} cancelled`, {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              const undoRes = await updateAppointmentStatus(a.id, previousStatus);
+              if (undoRes.success) {
+                queryClient.invalidateQueries({ queryKey: ["appointments"] });
+                toast.success("Cancel undo ho gaya");
+              } else {
+                toast.error("Undo nahi hua: " + undoRes.error);
+              }
+            },
+          },
+        });
+      }
     } else {
       toast.error("Update nahi hua: " + res.error);
     }

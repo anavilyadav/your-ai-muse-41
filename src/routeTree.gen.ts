@@ -36,6 +36,7 @@ import { Route as OwnerPaymentAdjustmentsRouteImport } from './routes/owner.paym
 import { Route as OwnerPaymentModesRouteImport } from './routes/owner.payment-modes'
 import { Route as OwnerReportsRouteImport } from './routes/owner.reports'
 import { Route as OwnerStaffRouteImport } from './routes/owner.staff'
+import { Route as OwnerTrashRouteImport } from './routes/owner.trash'
 import { Route as OwnerWhatsappRouteImport } from './routes/owner.whatsapp'
 import { Route as OwnerWinbackTiersRouteImport } from './routes/owner.winback-tiers'
 import { Route as PatientIdRouteImport } from './routes/patient.$id'
@@ -187,6 +188,11 @@ const OwnerStaffRoute = OwnerStaffRouteImport.update({
   path: '/owner/staff',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerTrashRoute = OwnerTrashRouteImport.update({
+  id: '/owner/trash',
+  path: '/owner/trash',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OwnerWhatsappRoute = OwnerWhatsappRouteImport.update({
   id: '/owner/whatsapp',
   path: '/owner/whatsapp',
@@ -289,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/trash': typeof OwnerTrashRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
@@ -333,6 +340,7 @@ export interface FileRoutesByTo {
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/trash': typeof OwnerTrashRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
@@ -378,6 +386,7 @@ export interface FileRoutesById {
   '/owner/payment-modes': typeof OwnerPaymentModesRoute
   '/owner/reports': typeof OwnerReportsRoute
   '/owner/staff': typeof OwnerStaffRoute
+  '/owner/trash': typeof OwnerTrashRoute
   '/owner/whatsapp': typeof OwnerWhatsappRoute
   '/owner/winback-tiers': typeof OwnerWinbackTiersRoute
   '/patient/$id': typeof PatientIdRoute
@@ -424,6 +433,7 @@ export interface FileRouteTypes {
     | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/trash'
     | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
@@ -468,6 +478,7 @@ export interface FileRouteTypes {
     | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/trash'
     | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
@@ -512,6 +523,7 @@ export interface FileRouteTypes {
     | '/owner/payment-modes'
     | '/owner/reports'
     | '/owner/staff'
+    | '/owner/trash'
     | '/owner/whatsapp'
     | '/owner/winback-tiers'
     | '/patient/$id'
@@ -557,6 +569,7 @@ export interface RootRouteChildren {
   OwnerPaymentModesRoute: typeof OwnerPaymentModesRoute
   OwnerReportsRoute: typeof OwnerReportsRoute
   OwnerStaffRoute: typeof OwnerStaffRoute
+  OwnerTrashRoute: typeof OwnerTrashRoute
   OwnerWhatsappRoute: typeof OwnerWhatsappRoute
   OwnerWinbackTiersRoute: typeof OwnerWinbackTiersRoute
   PatientIdRoute: typeof PatientIdRoute
@@ -767,6 +780,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerStaffRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/trash': {
+      id: '/owner/trash'
+      path: '/owner/trash'
+      fullPath: '/owner/trash'
+      preLoaderRoute: typeof OwnerTrashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/owner/whatsapp': {
       id: '/owner/whatsapp'
       path: '/owner/whatsapp'
@@ -901,6 +921,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerPaymentModesRoute: OwnerPaymentModesRoute,
   OwnerReportsRoute: OwnerReportsRoute,
   OwnerStaffRoute: OwnerStaffRoute,
+  OwnerTrashRoute: OwnerTrashRoute,
   OwnerWhatsappRoute: OwnerWhatsappRoute,
   OwnerWinbackTiersRoute: OwnerWinbackTiersRoute,
   PatientIdRoute: PatientIdRoute,

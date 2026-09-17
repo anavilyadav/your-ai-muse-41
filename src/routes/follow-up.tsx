@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
-import { fetchFollowups, markFollowupDone, logWhatsAppInteraction } from "@/lib/db";
+import { fetchFollowups, markFollowupDone, reopenFollowup, logWhatsAppInteraction } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/follow-up")({
@@ -27,10 +27,24 @@ function FollowUpPage() {
   const today = new Date().toISOString().slice(0, 10);
   const daysDiff = (d: string) => Math.floor((Date.parse(today) - Date.parse(d)) / 86_400_000);
 
-  const done = async (id: string) => {
+  const done = async (row: any) => {
     try {
-      await markFollowupDone(id);
+      await markFollowupDone(row.id);
       qc.invalidateQueries({ queryKey: ["followups"] });
+      toast.success(`${row.patient?.name ?? "Follow-up"} — done mark ho gaya`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await reopenFollowup(row.id);
+              qc.invalidateQueries({ queryKey: ["followups"] });
+              toast.success("Undo ho gaya — wapas pending mein hai");
+            } catch (e: any) {
+              toast.error("Undo nahi hua: " + (e?.message ?? "unknown error"));
+            }
+          },
+        },
+      });
     } catch (e: any) {
       toast.error("Update nahi hua: " + (e?.message ?? "unknown error"));
     }
@@ -108,7 +122,7 @@ function FollowUpPage() {
                         </a>
                       </>
                     )}
-                    <button onClick={() => done(r.id)} className="h-8 w-8 grid place-items-center rounded-full bg-accent text-accent-foreground">
+                    <button onClick={() => done(r)} className="h-8 w-8 grid place-items-center rounded-full bg-accent text-accent-foreground">
                       <CheckCircle2 className="h-4 w-4" />
                     </button>
                   </div>

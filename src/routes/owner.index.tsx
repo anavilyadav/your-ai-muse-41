@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2 } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders } from "@/lib/db";
+import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash } from "@/lib/db";
 import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
 export const Route = createFileRoute("/owner/")({
@@ -36,6 +36,8 @@ function OwnerDashboard() {
   const staff = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
   const purchaseOrders = useQuery({ queryKey: ["purchase-orders"], queryFn: fetchPurchaseOrders });
   const pendingPoCount = (purchaseOrders.data ?? []).filter((po) => po.status === "PENDING" || po.status === "PARTIAL").length;
+  const trash = useQuery({ queryKey: ["trash"], queryFn: fetchActiveTrash });
+  const trashCount = (trash.data ?? []).length;
   const s = stats.data;
   const w = week.data ?? [];
   const max = Math.max(1, ...w.map((x) => x[1]));
@@ -162,6 +164,11 @@ function OwnerDashboard() {
               <ShieldCheck className="h-5 w-5 text-primary" />
               <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
               <div className="text-[11px] text-muted-foreground">Har change ka record</div>
+            </Link>
+            <Link to="/owner/trash" className="rounded-2xl bg-surface border border-border p-3.5">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              <div className="font-bold text-primary text-sm mt-1">Trash{trashCount > 0 ? ` (${trashCount})` : ""}</div>
+              <div className="text-[11px] text-muted-foreground">Aaj delete hui cheezein — restore karo</div>
             </Link>
           </div>
         </>

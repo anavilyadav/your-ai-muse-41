@@ -891,8 +891,7 @@ export async function deletePaymentMode(id: string) {
   if (mode.is_system) return { success: false, error: "Cash/UPI/Card ko delete nahi kar sakte — deactivate kar sakte ho" };
   const { count } = await supabase.from("payment_splits").select("id", { count: "exact", head: true }).eq("mode", mode.code);
   if ((count ?? 0) > 0) return { success: false, error: "Ye mode already use ho chuka hai — delete nahi, sirf deactivate kar sakte ho" };
-  const { error } = await supabase.from("payment_modes").delete().eq("id", id);
-  return { success: !error, error: error?.message ?? null };
+  return softDeleteRow("payment_modes", id);
 }
 
 export interface ModeBreakdown { mode: string; label: string; amount: number }
@@ -1384,8 +1383,7 @@ export async function saveHoliday(input: Partial<Holiday> & { name: string; date
 }
 
 export async function deleteHoliday(id: string) {
-  const { error } = await supabase.from("holidays").delete().eq("id", id);
-  return { success: !error, error: error?.message ?? null };
+  return softDeleteRow("holidays", id);
 }
 
 // ---------- Win-back tiers (owner-configurable) ----------
@@ -1415,8 +1413,7 @@ export async function saveWinbackTier(input: Partial<WinbackTier> & { label: str
 }
 
 export async function deleteWinbackTier(id: string) {
-  const { error } = await supabase.from("winback_tiers").delete().eq("id", id);
-  return { success: !error, error: error?.message ?? null };
+  return softDeleteRow("winback_tiers", id);
 }
 
 // ---------- Follow-up sequence engine (owner-configurable) ----------
@@ -1472,8 +1469,7 @@ export async function saveFollowupTouchpoint(
 }
 
 export async function deleteFollowupTouchpoint(id: string) {
-  const { error } = await supabase.from("followup_touchpoints").delete().eq("id", id);
-  return { success: !error, error: error?.message ?? null };
+  return softDeleteRow("followup_touchpoints", id);
 }
 
 // Generates every reminder row for one visit's next-visit date, based on
@@ -1586,6 +1582,14 @@ export async function fetchFollowups() {
 
 export async function markFollowupDone(id: string) {
   const { error } = await supabase.from("followups").update({ status: "DONE" }).eq("id", id);
+  if (error) throw error;
+}
+
+// Undo for the "Undo" toast right after markFollowupDone — a plain status
+// flip back to PENDING, not a trash-table restore, since nothing was ever
+// deleted here.
+export async function reopenFollowup(id: string) {
+  const { error } = await supabase.from("followups").update({ status: "PENDING" }).eq("id", id);
   if (error) throw error;
 }
 
@@ -4122,6 +4126,54 @@ export async function receivePoItem(itemId: string, quantityReceived: number): P
   return { success: true, error: null, status: (data as { status: string })?.status ?? null };
 }
 
+// ---------- Trash / undo window (#12, Dr. Yadav's spec 17 Sep 2026) ----------
+// Deleting a patient document, a payment mode, a holiday, a win-back tier
+// or a follow-up touchpoint rule now goes through soft_delete_row instead
+// of a plain .delete() — the row is snapshotted into `trash` and only
+// actually removed from its real table, recoverable until the end of that
+// IST day. Restoring is Owner-only, enforced inside restore_trashed_row
+// itself (see 0051_trash_undo_window.sql), not just at this call site.
+export type TrashableTable = "patient_documents" | "payment_modes" | "holidays" | "winback_tiers" | "followup_touchpoints";
+
+export async function softDeleteRow(table: TrashableTable, id: string): Promise<{ success: boolean; error: string | null }> {
+  const { error } = await supabase.rpc("soft_delete_row", { p_table: table, p_record_id: id });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}
+
+export interface TrashEntry {
+  id: string;
+  table_name: TrashableTable;
+  record_id: string;
+  record_data: Record<string, any>;
+  deleted_by: string | null;
+  deleted_by_role: string | null;
+  deleted_at: string;
+  restored_at: string | null;
+  restored_by: string | null;
+  expires_at: string;
+}
+
+// Owner's Trash screen shows only what's still restorable — already
+// restored or already past its window is just noise there (the DB row
+// itself sticks around a little longer until the nightly purge cron runs).
+export async function fetchActiveTrash(): Promise<TrashEntry[]> {
+  const { data, error } = await supabase
+    .from("trash")
+    .select("*")
+    .is("restored_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("deleted_at", { ascending: false });
+  if (error) throw dataLoadError(error);
+  return (data ?? []) as TrashEntry[];
+}
+
+export async function restoreTrashedRow(trashId: string): Promise<{ success: boolean; error: string | null }> {
+  const { error } = await supabase.rpc("restore_trashed_row", { p_trash_id: trashId });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null };
+}
+
 // ---------- Family linking ----------
 export interface ReferralGroup {
   family_group_id: string;
@@ -4324,8 +4376,7 @@ export async function fetchPatientDocuments(patientId: string): Promise<PatientD
 }
 
 export async function deletePatientDocument(id: string) {
-  const { error } = await supabase.from("patient_documents").delete().eq("id", id);
-  return { success: !error, error: error?.message ?? null };
+  return softDeleteRow("patient_documents", id);
 }
 
 export async function fetchDaySummary(branch?: string) {
