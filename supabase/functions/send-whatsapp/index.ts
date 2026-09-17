@@ -82,9 +82,30 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
+// AiSensy's send-response message-id field isn't confirmed from their
+// public docs (unlike the webhook payload shape, which IS Meta's stable,
+// documented format) -- tries every plausible path a WhatsApp Cloud API
+// wrapper commonly uses. If none match, message_id stays null and that
+// specific send can only be correlated to a later delivery webhook via
+// the destination+recency fallback in aisensy-whatsapp-status, not
+// exactly. provider_response is stored in full regardless, so the real
+// field can be confirmed by looking at one live row and this can be
+// tightened later.
+function extractMessageId(data: any): string | null {
+  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
+}
+
 async function logWhatsApp(
   supabaseAdmin: ReturnType<typeof createClient>,
-  row: { patient_id: string | null; campaign_name: string; destination: string | null; status: "sent" | "failed" | "skipped_consent"; error_message?: string | null },
+  row: {
+    patient_id: string | null;
+    campaign_name: string;
+    destination: string | null;
+    status: "sent" | "failed" | "skipped_consent" | "skipped_disabled" | "skipped_cap";
+    error_message?: string | null;
+    message_id?: string | null;
+    provider_response?: unknown;
+  },
 ) {
   try {
     await supabaseAdmin.from("whatsapp_log").insert(row);
@@ -182,8 +203,6 @@ Deno.serve(async (req) => {
 
     let finalDestination = destination;
 
-
-
     if (patientId) {
       const { data: patient, error: pErr } = await supabaseAdmin
         .from("patients")
@@ -212,7 +231,6 @@ Deno.serve(async (req) => {
         400,
       );
     }
-
 
     if (!finalDestination) {
       return json({ error: "destination required" }, 400);
@@ -245,6 +263,7 @@ Deno.serve(async (req) => {
         destination: finalDestination,
         status: "failed",
         error_message: data?.message ?? "AiSensy send failed",
+        provider_response: data,
       });
       return json({ error: data?.message ?? "AiSensy send failed" }, 400);
     }
@@ -254,10 +273,11 @@ Deno.serve(async (req) => {
       campaign_name: campaignName,
       destination: finalDestination,
       status: "sent",
+      message_id: extractMessageId(data),
+      provider_response: data,
     });
     return json({ success: true, data });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
-
 });

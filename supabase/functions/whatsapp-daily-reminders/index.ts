@@ -6,20 +6,7 @@
 // FOLLOWUP_REMINDER via AiSensy, then marks them as sent so they're never
 // messaged twice.
 //
-// 04 Aug 2026: added the channel filter — followup_touchpoints/followups
-// now distinguish CALL (manual worklist only, e.g. the staged Day 0/5/14/
-// 25 post-due chase) from WHATSAPP (also auto-sent here, e.g. Day 2/9/19).
-// Before this, every row got an automated WhatsApp regardless of its
-// intended channel.
-//
 // Needs an approved AiSensy API Campaign named exactly "FOLLOWUP_REMINDER".
-//
-// DELIVERY LOGGING (Phase 3 #26, 01 Aug 2026): previously only successful
-// sends were recorded, into the generic `interactions` table (no status/
-// campaign columns, so a real dashboard couldn't be built off it) —
-// failures and no-consent skips were counted in-memory and lost. Every
-// outcome now also writes a row to whatsapp_log. The `interactions` write
-// is kept as-is (patient timeline / InteractionHistoryModal still reads it).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -82,9 +69,6 @@ async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | n
   } catch { /* logging must never break the skip/send response */ }
 }
 
-// Kept in sync with buildWhatsAppDestination/patientWhatsAppTarget in
-// src/lib/db.ts — edge functions are deployed separately so this can't be
-// a shared import, but the logic must match.
 function buildWhatsAppDestination(countryCode: string | null | undefined, localNumber: string | null | undefined): string {
   const cc = (countryCode || "+91").replace(/\D/g, "");
   const digits = (localNumber || "").replace(/\D/g, "");
@@ -101,6 +85,11 @@ function patientWhatsAppTarget(p: {
     return buildWhatsAppDestination(p.whatsapp_country_code || p.mobile_country_code, p.whatsapp_number);
   }
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
+}
+
+// See the matching comment in send-whatsapp/index.ts.
+function extractMessageId(data: any): string | null {
+  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
 }
 
 Deno.serve(async (req) => {
@@ -186,6 +175,7 @@ Deno.serve(async (req) => {
           }),
         });
         if (res.ok) {
+          const okData = await res.json().catch(() => ({}));
           await supabaseAdmin.from("followups").update({ reminder_sent_at: new Date().toISOString() }).eq("id", f.id);
           await supabaseAdmin.from("interactions").insert({
             patient_id: f.patient_id,
@@ -197,6 +187,8 @@ Deno.serve(async (req) => {
             campaign_name: "FOLLOWUP_REMINDER",
             destination: patientWhatsAppTarget(patient),
             status: "sent",
+            message_id: extractMessageId(okData),
+            provider_response: okData,
           });
           sent++;
         } else {
@@ -207,6 +199,7 @@ Deno.serve(async (req) => {
             destination: patientWhatsAppTarget(patient),
             status: "failed",
             error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+            provider_response: errData,
           });
           failed++;
         }

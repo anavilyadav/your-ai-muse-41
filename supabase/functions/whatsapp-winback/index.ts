@@ -99,6 +99,13 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
+// See the matching comment in send-whatsapp/index.ts -- not confirmed
+// from AiSensy's public docs, best-effort; provider_response is stored in
+// full regardless so the real field can be confirmed from a live row.
+function extractMessageId(data: any): string | null {
+  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
+}
+
 // Edge Functions run in UTC. India has no DST, so IST is always exactly
 // UTC+5:30 -- shift the clock by that fixed offset before reading date
 // parts, instead of trusting the server's own local calendar date. Without
@@ -152,10 +159,6 @@ Deno.serve(async (req) => {
     for (const tier of tiers ?? []) {
       const cutoffStr = istDateNDaysAgoStr(tier.days_lapsed);
 
-      // Candidates: last visit was on/before the cutoff date, so they've
-      // crossed this tier's threshold. (last_visit_date null = never had
-      // a completed visit yet — not a lapsed patient, skip naturally
-      // since the filter won't match null.)
       const { data: candidates, error: candErr } = await supabaseAdmin
         .from("patients")
         .select("id, name, mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent, last_visit_date")
@@ -164,10 +167,6 @@ Deno.serve(async (req) => {
       if (candErr) continue;
       if (!candidates || candidates.length === 0) continue;
 
-      // Was one dedup query PER candidate (N+1 — e.g. 500 patients in a
-      // tier meant 500 round trips just to check "already sent?"). Now one
-      // query for the whole tier: fetch every patient_id already sent this
-      // tier, from just the candidate set, and check membership in memory.
       const candidateIds = candidates.map((p: any) => p.id);
       const { data: alreadySent } = await supabaseAdmin
         .from("winback_log")
@@ -206,6 +205,7 @@ Deno.serve(async (req) => {
             }),
           });
           if (res.ok) {
+            const okData = await res.json().catch(() => ({}));
             await supabaseAdmin.from("winback_log").insert({ patient_id: patient.id, tier_days: tier.days_lapsed });
             await supabaseAdmin.from("interactions").insert({
               patient_id: patient.id,
@@ -217,6 +217,8 @@ Deno.serve(async (req) => {
               campaign_name: "WINBACK",
               destination: patientWhatsAppTarget(patient),
               status: "sent",
+              message_id: extractMessageId(okData),
+              provider_response: okData,
             });
             sent++;
           } else {
@@ -227,6 +229,7 @@ Deno.serve(async (req) => {
               destination: patientWhatsAppTarget(patient),
               status: "failed",
               error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+              provider_response: errData,
             });
             failed++;
           }

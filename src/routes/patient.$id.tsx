@@ -3,7 +3,7 @@ import { AuthGate } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart, GitMerge } from "lucide-react";
+import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart, GitMerge, AlertTriangle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { useAuth } from "@/lib/auth";
@@ -29,10 +29,12 @@ import {
   DOC_TYPES,
   formatCardNumber,
   mergePatients,
+  fetchWhatsAppDeliveryHealth,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
   type DBPatient,
+  type WhatsAppDeliveryHealth,
   branchLabel as getBranchLabel,
   RELATIONSHIPS,
 } from "@/lib/db";
@@ -575,21 +577,24 @@ function PatientProfilePage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [waHealth, setWaHealth] = useState<WhatsAppDeliveryHealth | null>(null);
 
   const reload = async () => {
     setLoading(true);
-    const [p, vs, fam, docs, ints] = await Promise.all([
+    const [p, vs, fam, docs, ints, wa] = await Promise.all([
       fetchPatientById(id),
       fetchPatientHistory(id, 20),
       fetchFamilyMembers(id),
       fetchPatientDocuments(id),
       fetchPatientInteractions(id),
+      fetchWhatsAppDeliveryHealth(id),
     ]);
     setPatient(p);
     setVisits(vs);
     setFamily(fam);
     setDocuments(docs);
     setInteractions(ints);
+    setWaHealth(wa);
     setLoading(false);
   };
 
@@ -710,6 +715,18 @@ function PatientProfilePage() {
           <Row icon={FileText} label="Card No." value={formatCardNumber(patient.card_series, patient.card_register, patient.card_number)!} />
         )}
       </div>
+
+      {waHealth && waHealth.failed > 0 && (
+        <div className="mt-4 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs">
+          <div className="flex items-center gap-1.5 font-bold text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5" /> WhatsApp deliver nahi ho raha
+          </div>
+          <p className="mt-1 text-destructive/90">
+            Last {waHealth.totalSent} messages me se {waHealth.failed} fail hue is number pe
+            {waHealth.lastFailedReason ? ` — "${waHealth.lastFailedReason}"` : ""}.
+          </p>
+        </div>
+      )}
 
       <div className="mt-5">
         <div className="flex items-center justify-between px-1 mb-2">

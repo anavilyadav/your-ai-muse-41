@@ -4002,6 +4002,47 @@ export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; n
   return data ?? [];
 }
 
+// WhatsApp delivery health for a patient's own profile (10 Sep 2026) — a
+// per-patient view over whatsapp_log's delivered_at/read_at/
+// delivery_failed_at columns (added in 0048_whatsapp_delivery_tracking.sql).
+// Looks at the last 20 sent messages so one old failure doesn't permanently
+// flag a number that has since started receiving messages fine.
+export interface WhatsAppDeliveryHealth {
+  totalSent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  lastFailedReason: string | null;
+  lastFailedAt: string | null;
+}
+
+export async function fetchWhatsAppDeliveryHealth(patientId: string): Promise<WhatsAppDeliveryHealth | null> {
+  const { data, error } = await supabase
+    .from("whatsapp_log")
+    .select("status, delivered_at, read_at, delivery_failed_at, delivery_failed_reason, created_at")
+    .eq("patient_id", patientId)
+    .eq("status", "sent")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error || !data || data.length === 0) return null;
+
+  let delivered = 0, read = 0, failed = 0;
+  let lastFailedReason: string | null = null;
+  let lastFailedAt: string | null = null;
+  for (const row of data) {
+    if (row.read_at) read++;
+    if (row.delivered_at) delivered++;
+    if (row.delivery_failed_at) {
+      failed++;
+      if (!lastFailedAt || row.delivery_failed_at > lastFailedAt) {
+        lastFailedAt = row.delivery_failed_at;
+        lastFailedReason = row.delivery_failed_reason;
+      }
+    }
+  }
+  return { totalSent: data.length, delivered, read, failed, lastFailedReason, lastFailedAt };
+}
+
 // ---------- Family linking ----------
 export interface ReferralGroup {
   family_group_id: string;

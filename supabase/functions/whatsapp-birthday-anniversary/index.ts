@@ -1,16 +1,10 @@
 // Runs on a schedule (Supabase Cron / pg_cron — daily).
 // Finds patients whose dob or anniversary_date matches today's
 // month+day (year ignored), sends a WhatsApp wish, and logs it so the
-// same person doesn't get wished twice in the same year even if the
-// cron runs more than once.
+// same person doesn't get wished twice in the same year.
 //
 // Needs two approved AiSensy API Campaigns: "BIRTHDAY_WISH" and
 // "ANNIVERSARY_WISH".
-//
-// DELIVERY LOGGING (Phase 3 #26, 01 Aug 2026): every send attempt (sent or
-// failed) now also writes a row to whatsapp_log for the Owner dashboard.
-// The birthday/anniversary dedup tables and `interactions` write are
-// unchanged.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -91,12 +85,11 @@ function patientWhatsAppTarget(p: {
   return buildWhatsAppDestination(p.mobile_country_code, p.mobile);
 }
 
-// Edge Functions run in UTC. India has no DST, so IST is always exactly
-// UTC+5:30 -- shift the clock by that fixed offset before reading month/
-// day/year, instead of trusting the server's own local calendar date.
-// Without this, a cron that fires in the IST 12:00am-5:29am window reads
-// a date that's still "yesterday" in UTC, and birthdays/anniversaries
-// falling on that boundary day get missed (or matched a day late).
+// See the matching comment in send-whatsapp/index.ts.
+function extractMessageId(data: any): string | null {
+  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
+}
+
 function istTodayParts(): { mm: string; dd: string; year: number } {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   const ist = new Date(Date.now() + IST_OFFSET_MS);
@@ -111,9 +104,6 @@ function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
 
-// Was one dedup count() query PER matching patient PER wish type — N+1.
-// Now: caller passes the full candidate id list once, this returns the
-// Set of ids already wished this year, checked in memory per patient.
 async function fetchAlreadyWishedSet(supabaseAdmin: any, logTable: string, year: number, patientIds: string[]): Promise<Set<string>> {
   if (patientIds.length === 0) return new Set();
   const { data } = await supabaseAdmin
@@ -154,9 +144,11 @@ async function sendWish(
         destination,
         status: "failed",
         error_message: errData?.message ?? `AiSensy HTTP ${res.status}`,
+        provider_response: errData,
       });
       return "failed";
     }
+    const okData = await res.json().catch(() => ({}));
     await supabaseAdmin.from(logTable).insert({ patient_id: patient.id, year });
     await supabaseAdmin.from("interactions").insert({
       patient_id: patient.id,
@@ -168,6 +160,8 @@ async function sendWish(
       campaign_name: campaignName,
       destination,
       status: "sent",
+      message_id: extractMessageId(okData),
+      provider_response: okData,
     });
     return "sent";
   } catch (e) {
@@ -200,19 +194,11 @@ Deno.serve(async (req) => {
 
     const { mm, dd, year } = istTodayParts();
 
-    // Phase 1 #10: someone born/married on Feb 29 would otherwise only
-    // ever get wished once every 4 years, since "today" never equals
-    // "02-29" in a non-leap year. Convention used here: wish them on
-    // Feb 28 instead, in years where Feb 29 doesn't exist. matchDays is
-    // normally just today's own month-day, with "02-29" added to it
-    // specifically when today is Feb 28 of a non-leap year.
     const matchDays = [`${mm}-${dd}`];
     if (mm === "02" && dd === "28" && !isLeapYear(year)) {
       matchDays.push("02-29");
     }
 
-    // dob/anniversary_date are stored as full dates (YYYY-MM-DD) — match
-    // on month+day only, year is irrelevant for a recurring wish.
     const { data: patients, error } = await supabaseAdmin
       .from("patients")
       .select("id, name, mobile, mobile_country_code, whatsapp_number, whatsapp_country_code, wa_consent, dob, anniversary_date")
@@ -222,8 +208,6 @@ Deno.serve(async (req) => {
     const birthdayMatches = (patients ?? []).filter((p: any) => p.dob && matchDays.includes(p.dob.slice(5, 10)));
     const anniversaryMatches = (patients ?? []).filter((p: any) => p.anniversary_date && matchDays.includes(p.anniversary_date.slice(5, 10)));
 
-    // Two batched dedup queries total (one per log table) instead of one
-    // count() query per matching patient per wish type.
     const alreadyWishedBirthday = await fetchAlreadyWishedSet(supabaseAdmin, "birthday_greeting_log", year, birthdayMatches.map((p: any) => p.id));
     const alreadyWishedAnniversary = await fetchAlreadyWishedSet(supabaseAdmin, "anniversary_greeting_log", year, anniversaryMatches.map((p: any) => p.id));
 
@@ -238,7 +222,7 @@ Deno.serve(async (req) => {
     let sent = 0, skipped = 0, failed = 0, cappedOut = 0;
     for (const patient of birthdayMatches) {
       if (alreadyWishedBirthday.has(patient.id)) { skipped++; continue; }
-      if (!birthdayGate.allowed && birthdayGate.reason !== "cap_reached") continue; // module/master off — not even worth logging per-patient
+      if (!birthdayGate.allowed && birthdayGate.reason !== "cap_reached") continue;
       if (birthdayBudget <= 0) {
         cappedOut++;
         await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "BIRTHDAY_WISH", destination: null, reason: "cap_reached", dailyCap: birthdayGate.dailyCap });
