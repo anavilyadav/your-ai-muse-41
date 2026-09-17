@@ -3,6 +3,8 @@ import { ArrowLeft, ClipboardList, ListChecks, LogOut, Search, UserPlus } from "
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
+import { LanguageToggle } from "./LanguageToggle";
 
 interface Props {
   title: string;
@@ -44,6 +46,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, signOut } = useAuth();
+  const t = useT();
 
   const doLogout = async () => {
     await signOut();
@@ -81,7 +84,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
               className="mt-auto flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
             >
               <LogOut className="h-[18px] w-[18px]" />
-              Logout
+              {t("Logout")}
             </button>
           )}
         </aside>
@@ -110,6 +113,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
                 )}
               </div>
               <div className="shrink-0 flex items-center gap-2">
+                <LanguageToggle />
                 {right}
                 {user && (
                   <button

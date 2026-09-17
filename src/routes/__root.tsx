@@ -12,6 +12,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { LanguageProvider } from "@/lib/i18n";
 import { ViewAsBanner, BackupDoctorBanner } from "@/components/yhc/RoleSwitcher";
 import { InstallPrompt } from "@/components/yhc/InstallPrompt";
 import { PendingSyncBanner } from "@/components/yhc/PendingSyncBanner";
@@ -176,16 +177,18 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ViewAsBanner />
-        <BackupDoctorBanner />
-        <GlobalAuthGuard>
-          <Outlet />
-        </GlobalAuthGuard>
-        <InstallPrompt />
-        <PendingSyncBanner />
-        <Toaster position="top-center" richColors />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <ViewAsBanner />
+          <BackupDoctorBanner />
+          <GlobalAuthGuard>
+            <Outlet />
+          </GlobalAuthGuard>
+          <InstallPrompt />
+          <PendingSyncBanner />
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { roleHome } from "@/lib/supabase";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Login — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const { user, signIn, loading, profileLoadFailed, retryLoadProfile } = useAuth();
   const navigate = useNavigate();
+  const t = useT();
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,13 +43,13 @@ function LoginPage() {
       <div className="min-h-screen w-full bg-background flex justify-center">
         <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col items-center justify-center px-6 shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]">
           <div className="text-center max-w-xs">
-            <div className="text-sm font-semibold text-foreground mb-1">Login ho gaya, connection slow hai</div>
-            <div className="text-xs text-muted-foreground mb-4">Profile load nahi ho paya — network check karke dobara try karo.</div>
+            <div className="text-sm font-semibold text-foreground mb-1">{t("Login ho gaya, connection slow hai")}</div>
+            <div className="text-xs text-muted-foreground mb-4">{t("Profile load nahi ho paya — network check karke dobara try karo.")}</div>
             <button
               onClick={retryLoadProfile}
               className="rounded-full bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold"
             >
-              Dobara try karo
+              {t("Dobara try karo")}
             </button>
           </div>
         </div>
@@ -95,10 +97,10 @@ function LoginPage() {
             disabled={busy}
             className="w-full rounded-xl bg-success text-success-foreground py-3.5 text-sm font-bold shadow-md active:scale-[0.99] transition disabled:opacity-60"
           >
-            {busy ? "Login ho raha hai..." : "Login"}
+            {busy ? t("Login ho raha hai...") : "Login"}
           </button>
           <p className="text-center text-[11px] text-muted-foreground pt-2">
-            YHC OS • Only registered staff. Bhool gaye PIN? Owner se milein.
+            {t("YHC OS • Only registered staff. Bhool gaye PIN? Owner se milein.")}
           </p>
         </form>
       </div>

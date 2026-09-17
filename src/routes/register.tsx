@@ -11,6 +11,7 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { enqueueAction, isNetworkError, registerSubmitter } from "@/lib/offlineQueue";
+import { useT } from "@/lib/i18n";
 
 // #14 offline register — registered once at module load (not inside the
 // component) so it's ready the moment the offline queue tries to replay a
@@ -83,6 +84,7 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
 function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const t = useT();
   const [saved, setSaved] = useState<{
     token: string; code: string; branch: string; name: string; visitId: string; caseChannel: "WALK_IN" | "ONLINE";
     paymentCollected: boolean; paymentAmount: number;
@@ -363,21 +365,20 @@ function RegisterPage() {
 
   if (queuedOffline) {
     return (
-      <MobileShell title="Saved Offline" showBack>
+      <MobileShell title={t("Saved Offline")} showBack>
         <div className="mt-2 flex flex-col items-center text-center">
           <div className="h-16 w-16 rounded-full bg-accent grid place-items-center shadow-lg">
             <CheckCircle2 className="h-9 w-9 text-accent-foreground" />
           </div>
-          <h2 className="mt-4 text-lg font-bold text-primary">{f.name.trim()} ka data save ho gaya</h2>
+          <h2 className="mt-4 text-lg font-bold text-primary">{f.name.trim()} {t("ka data save ho gaya")}</h2>
           <p className="mt-2 text-sm text-muted-foreground max-w-xs">
-            Internet nahi hai abhi — registration (aur payment agar collect kiya tha) is device pe safe hai.
-            Connection wapas aate hi automatically clinic ke system mein chala jaayega. Token/Patient ID tabhi milega.
+            {t("Internet nahi hai abhi — registration (aur payment agar collect kiya tha) is device pe safe hai. Connection wapas aate hi automatically clinic ke system mein chala jaayega. Token/Patient ID tabhi milega.")}
           </p>
           <button
             onClick={() => navigate({ to: "/", replace: true })}
             className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3 font-bold"
           >
-            Home
+            {t("Home")}
           </button>
         </div>
       </MobileShell>
@@ -387,13 +388,13 @@ function RegisterPage() {
   if (saved) {
     const first = saved.name.split(" ")[0];
     return (
-      <MobileShell title="Registration Successful" showBack>
+      <MobileShell title={t("Registration Successful")} showBack>
         <div className="mt-2 flex flex-col items-center text-center">
           <div className="h-16 w-16 rounded-full bg-success grid place-items-center shadow-lg">
             <CheckCircle2 className="h-9 w-9 text-success-foreground" />
           </div>
           <h2 className="mt-4 text-lg font-bold text-primary">Welcome, {first}!</h2>
-          <p className="text-sm text-muted-foreground">Registered at YHC Jaipur</p>
+          <p className="text-sm text-muted-foreground">{t("Registered at YHC Jaipur")}</p>
 
           <div className="mt-5 w-full grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-primary text-primary-foreground p-4">
@@ -411,14 +412,14 @@ function RegisterPage() {
 
           {saved.paymentCollected ? (
             <div className="mt-4 w-full rounded-xl bg-success/15 border border-success/40 p-3 text-success text-sm font-bold flex items-center justify-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4" /> ₹{saved.paymentAmount.toLocaleString("en-IN")} Payment Collected
+              <CheckCircle2 className="h-4 w-4" /> ₹{saved.paymentAmount.toLocaleString("en-IN")} {t("Payment Collected")}
             </div>
           ) : (
             <button
               onClick={() => navigate({ to: "/pay/$id", params: { id: saved.visitId } })}
               className="mt-4 w-full rounded-xl bg-accent text-accent-foreground py-3 text-sm font-bold"
             >
-              Payment Collect Karo
+              {t("Payment Collect Karo")}
             </button>
           )}
           <Link
@@ -426,7 +427,7 @@ function RegisterPage() {
             params={{ id: saved.visitId }}
             className="mt-2 block w-full text-center text-[11px] font-semibold text-muted-foreground underline"
           >
-            {saved.paymentCollected ? "Amount galat hai? Change karo" : "Split ya partial payment karna hai? Pay screen kholo"}
+            {saved.paymentCollected ? t("Amount galat hai? Change karo") : t("Split ya partial payment karna hai? Pay screen kholo")}
           </Link>
 
           <div className="mt-3 w-full grid grid-cols-2 gap-2">
@@ -465,13 +466,13 @@ function RegisterPage() {
   }
 
   return (
-    <MobileShell title="New Patient Registration" subtitle="Reception" showBack>
+    <MobileShell title={t("New Patient Registration")} subtitle="Reception" showBack>
       <form onSubmit={submit} className="space-y-5">
         <Section label="Full Name *">
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
 
-        <Section label="Mobile Number *" hint={dupWarn ? "⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho." : isIndia ? "10 digits" : "Country code chunkar number likho"}>
+        <Section label="Mobile Number *" hint={dupWarn ? t("⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho.") : isIndia ? "10 digits" : t("Country code chunkar number likho")}>
           <div className="flex gap-2">
             <select
               value={f.countryCode}

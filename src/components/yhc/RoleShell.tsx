@@ -4,6 +4,7 @@ import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { DegradedModeBanner } from "./DegradedModeBanner";
+import { LanguageToggle } from "./LanguageToggle";
 
 export type NavItem = {
   to: string;
@@ -124,7 +125,10 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
                 <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>
                 {subtitle && <p className="truncate text-[11px] text-primary-foreground/70">{subtitle}</p>}
               </div>
-              <div className="shrink-0 flex items-center gap-2">{right}</div>
+              <div className="shrink-0 flex items-center gap-2">
+                <LanguageToggle />
+                {right}
+              </div>
             </div>
           </header>
 

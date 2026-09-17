@@ -8,6 +8,7 @@ import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 
 export const Route = createFileRoute("/")({
@@ -43,6 +44,7 @@ const statusStyles: Record<string, string> = {
 
 function QueuePage() {
   const navigate = useNavigate();
+  const t = useT();
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
   // Owner sees every branch; branch-scoped staff (RECP1/RECP2) only see their own branch's queue.
@@ -133,11 +135,11 @@ function QueuePage() {
       </div>
 
       {isLoading ? (
-        <LoadingBlock label="Queue load ho rahi hai…" />
+        <LoadingBlock label={t("Queue load ho rahi hai…")} />
       ) : isError ? (
         <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : filtered.length === 0 ? (
-        <EmptyBlock label="Aaj koi patient nahi mila." />
+        <EmptyBlock label={t("Aaj koi patient nahi mila.")} />
       ) : (
         <ul className="mt-3 space-y-2">
           {filtered.map((r) => {
