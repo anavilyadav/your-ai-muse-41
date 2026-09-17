@@ -86,7 +86,6 @@ const DICTIONARY: Record<string, string> = {
   "Payment Collect Karo": "Collect Payment",
   "Amount galat hai? Change karo": "Wrong amount? Change it",
   "Split ya partial payment karna hai? Pay screen kholo": "Need a split or partial payment? Open the Pay screen",
-  "New Patient Registration": "New Patient Registration",
   "⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho.": "⚠ This number is already registered to a patient — see below.",
   "Country code chunkar number likho": "Pick a country code and enter the number",
 };

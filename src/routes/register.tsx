@@ -465,8 +465,12 @@ function RegisterPage() {
     );
   }
 
+  // FIXED (master audit, RF-26): "New Patient Registration" truncated to
+  // "New Patient Registrati…" on a real mobile viewport — shortened
+  // instead of touching MobileShell's shared truncate behavior, which
+  // other screens rely on intentionally (e.g. long patient names).
   return (
-    <MobileShell title={t("New Patient Registration")} subtitle="Reception" showBack>
+    <MobileShell title={t("New Patient")} subtitle="Reception" showBack>
       <form onSubmit={submit} className="space-y-5">
         <Section label="Full Name *">
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />

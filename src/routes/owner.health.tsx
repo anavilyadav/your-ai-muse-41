@@ -86,8 +86,13 @@ function HealthPage() {
       )}
       {alerts.data && alerts.data.length > 0 && (
         <div className="mb-4">
+          {/* FIXED (master audit, RF-24): this used to always say "RPC missing,
+              run a migration" regardless of what the alerts below actually are —
+              nightly health warnings, WhatsApp failure rates, backup failures,
+              etc. now land here too, not just RPC-fallback logging. Read the
+              actual list below to know what's really wrong; don't assume RPC. */}
           <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-2 text-[11px] text-destructive font-semibold">
-            ⚠ Kuch RPC missing hain — app purane, kam-safe fallback pe chal raha hai. Matching SQL migration run karo.
+            ⚠ {alerts.data.length} system alert{alerts.data.length > 1 ? "s" : ""} — neeche list padho, har alert alag reason ho sakta hai (RPC missing, WhatsApp fail rate, backup failure, waghera).
           </div>
           <ul className="space-y-2">
             {alerts.data.map((a) => (
