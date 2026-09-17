@@ -1,6 +1,16 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { supabase, SUPABASE_URL, type AppUser, type Role } from "./supabase";
 import { withTimeout } from "./db";
+
+// Idle auto-logout (17 Sep 2026, Dr. Yadav: "idle logout to chahiye hai,
+// vapas se login kar sakte hain") — the RLS rollout (0043) made "signed
+// in" the ONLY gate on real patient/payment data; an unattended device
+// left logged in at reception is now the single biggest remaining risk
+// surface, more than before. No mouse/touch/keyboard/scroll activity for
+// this long signs the session out automatically, same as any real login
+// still works fine afterward.
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export interface BackupDoctorConfig {
   userId: string;
@@ -372,6 +382,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Default ON (true) if never explicitly toggled off — nothing breaks for existing staff.
     return receptionPerms[k] !== false;
   };
+
+  // Only tracks activity while someone is actually signed in — nothing to
+  // time out on the login screen itself. Uses a ref, not state, for the
+  // last-activity timestamp so a mousemove doesn't trigger a re-render on
+  // every pixel; the interval is the only thing that ever reads it.
+  useEffect(() => {
+    if (!user) return;
+    const lastActivity = { current: Date.now() };
+    const markActive = () => { lastActivity.current = Date.now(); };
+    const events: (keyof WindowEventMap)[] = ["mousedown", "mousemove", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivity.current >= IDLE_TIMEOUT_MS) {
+        toast.error("15 min se koi activity nahi thi — security ke liye logout ho gaya. Dobara login karo.");
+        signOut();
+      }
+    }, 30_000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive));
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   return (
     <Ctx.Provider
