@@ -10,6 +10,25 @@ import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { enqueueAction, isNetworkError, registerSubmitter } from "@/lib/offlineQueue";
+
+// #14 offline register — registered once at module load (not inside the
+// component) so it's ready the moment the offline queue tries to replay a
+// saved registration, even on a fresh page load after a reload. Only
+// replays the parts that would otherwise lose real data: the patient +
+// visit, the inline payment (if any), and the family link (if any).
+// Lead auto-convert and the WhatsApp confirmation are best-effort even in
+// the live/online submit path (a failure there just shows a warning, not
+// a blocked registration) — same treatment here, not worth queuing.
+registerSubmitter("register", async (payload: any) => {
+  const { patient, visit } = await createPatientWithVisit(payload.registration);
+  if (payload.payment) {
+    await collectPayment({ visit_id: visit.id, patient_id: patient.id, ...payload.payment });
+  }
+  if (payload.familyLink) {
+    await linkFamilyMember(payload.familyLink.existingPatientId, patient.id, payload.familyLink.relationship);
+  }
+});
 
 export const Route = createFileRoute("/register")({
   head: () => ({ meta: [{ title: "New Patient — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
@@ -137,6 +156,11 @@ function RegisterPage() {
   const [paymentAmountTouched, setPaymentAmountTouched] = useState(false);
   const [paymentMode, setPaymentMode] = useState("CASH");
   const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => crypto.randomUUID());
+  // #14 offline register — reused across every retry of this same
+  // submission (including an offline-queue replay), so register_
+  // patient_with_visit recognises a retry and never creates a duplicate.
+  const [registrationIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [queuedOffline, setQueuedOffline] = useState(false);
 
   useEffect(() => {
     if (!paymentAmountTouched) setPaymentAmount(String(standardAmount));
@@ -218,30 +242,32 @@ function RegisterPage() {
     // real accidental-duplicate case; this submit-time check was blocking
     // the legitimate case on top of that, not just the mistake.
     setBusy(true);
+    const registrationInput = {
+      name: f.name.trim(),
+      mobile: f.mobile,
+      mobile_country_code: effectiveCountryCode,
+      whatsapp_country_code: f.waSameAsMobile ? undefined : effectiveWaCountryCode,
+      whatsapp_number: f.waSameAsMobile ? undefined : f.waNumber,
+      age: Number(f.age),
+      gender: f.gender || undefined,
+      blood_group: f.blood || undefined,
+      city: f.city || undefined,
+      pincode: f.pincode || undefined,
+      address: f.address.trim() || undefined,
+      primary_disease: f.chief.trim() || undefined,
+      wa_consent: f.consent,
+      dob: f.dob || undefined,
+      anniversary_date: f.anniversary || undefined,
+      profession: f.profession.trim() || undefined,
+      annual_income: f.annualIncome ? Number(f.annualIncome) : undefined,
+      branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
+      chief_complaint: f.chief.trim() || undefined,
+      case_channel: f.caseChannel,
+      lead_source: f.leadSource,
+      idempotency_key: registrationIdempotencyKey,
+    };
     try {
-      const { patient, visit } = await createPatientWithVisit({
-        name: f.name.trim(),
-        mobile: f.mobile,
-        mobile_country_code: effectiveCountryCode,
-        whatsapp_country_code: f.waSameAsMobile ? undefined : effectiveWaCountryCode,
-        whatsapp_number: f.waSameAsMobile ? undefined : f.waNumber,
-        age: Number(f.age),
-        gender: f.gender || undefined,
-        blood_group: f.blood || undefined,
-        city: f.city || undefined,
-        pincode: f.pincode || undefined,
-        address: f.address.trim() || undefined,
-        primary_disease: f.chief.trim() || undefined,
-        wa_consent: f.consent,
-        dob: f.dob || undefined,
-        anniversary_date: f.anniversary || undefined,
-        profession: f.profession.trim() || undefined,
-        annual_income: f.annualIncome ? Number(f.annualIncome) : undefined,
-        branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
-        chief_complaint: f.chief.trim() || undefined,
-        case_channel: f.caseChannel,
-        lead_source: f.leadSource,
-      });
+      const { patient, visit } = await createPatientWithVisit(registrationInput);
       let paymentCollected = false;
       const amountToCollect = Number(paymentAmount) || 0;
       if (amountToCollect > 0) {
@@ -305,11 +331,58 @@ function RegisterPage() {
       }
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.message || "Registration fail hui");
+      if (isNetworkError(e)) {
+        const amountToCollect = Number(paymentAmount) || 0;
+        const finalRelationship = familyRelationship === "Other" ? customFamilyRelationship.trim() || "Other" : familyRelationship;
+        enqueueAction(
+          "register",
+          {
+            registration: registrationInput,
+            payment: amountToCollect > 0
+              ? {
+                  amount_charged: amountToCollect,
+                  amount_received: amountToCollect,
+                  payment_mode: paymentMode,
+                  branch: f.branch,
+                  notes: f.caseChannel === "ONLINE" ? "Online bundle (reg + consult + courier)" : "Registration fee",
+                  idempotency_key: paymentIdempotencyKey,
+                }
+              : null,
+            familyLink: existingPatient ? { existingPatientId: existingPatient.id, relationship: finalRelationship } : null,
+          },
+          `Registration — ${f.name.trim()}`,
+        );
+        setQueuedOffline(true);
+      } else {
+        toast.error(e?.message || "Registration fail hui");
+      }
     } finally {
       setBusy(false);
     }
   };
+
+  if (queuedOffline) {
+    return (
+      <MobileShell title="Saved Offline" showBack>
+        <div className="mt-2 flex flex-col items-center text-center">
+          <div className="h-16 w-16 rounded-full bg-accent grid place-items-center shadow-lg">
+            <CheckCircle2 className="h-9 w-9 text-accent-foreground" />
+          </div>
+          <h2 className="mt-4 text-lg font-bold text-primary">{f.name.trim()} ka data save ho gaya</h2>
+          <p className="mt-2 text-sm text-muted-foreground max-w-xs">
+            Internet nahi hai abhi — registration (aur payment agar collect kiya tha) is device pe safe hai.
+            Connection wapas aate hi automatically clinic ke system mein chala jaayega. Token/Patient ID tabhi milega.
+          </p>
+          <button
+            onClick={() => navigate({ to: "/", replace: true })}
+            className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3 font-bold"
+          >
+            Home
+          </button>
+        </div>
+      </MobileShell>
+    );
+  }
 
   if (saved) {
     const first = saved.name.split(" ")[0];

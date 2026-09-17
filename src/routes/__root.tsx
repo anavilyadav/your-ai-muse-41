@@ -14,6 +14,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ViewAsBanner, BackupDoctorBanner } from "@/components/yhc/RoleSwitcher";
 import { InstallPrompt } from "@/components/yhc/InstallPrompt";
+import { PendingSyncBanner } from "@/components/yhc/PendingSyncBanner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -182,6 +183,7 @@ function RootComponent() {
           <Outlet />
         </GlobalAuthGuard>
         <InstallPrompt />
+        <PendingSyncBanner />
         <Toaster position="top-center" richColors />
       </AuthProvider>
     </QueryClientProvider>

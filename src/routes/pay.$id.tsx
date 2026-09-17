@@ -8,6 +8,13 @@ import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFee
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Plus, X } from "lucide-react";
+import { enqueueAction, isNetworkError, registerSubmitter } from "@/lib/offlineQueue";
+
+// #14 offline register — registered once at module load, same reasoning
+// as register.tsx's submitter right next to it.
+registerSubmitter("payment", async (payload: any) => {
+  await collectPayment(payload);
+});
 
 export const Route = createFileRoute("/pay/$id")({
   head: () => ({ meta: [{ title: "Collect Payment — YHC" }, { name: "robots", content: "noindex" }] }),
@@ -157,30 +164,37 @@ function PayPage() {
     }
     const activeSplits = isSplit ? splitRows.filter((r) => Number(r.amount) > 0).map((r) => ({ mode: r.mode, amount: Number(r.amount) })) : undefined;
     setBusy(true);
+    const paymentInput = {
+      visit_id: visit.id,
+      patient_id: visit.patient_id,
+      amount_charged: charged,
+      amount_received: received,
+      payment_mode: activeSplits && activeSplits.length > 1 ? "SPLIT" : activeSplits?.[0]?.mode ?? mode,
+      branch: visit.branch,
+      credit_to_apply: creditToApply,
+      idempotency_key: idempotencyKey,
+      splits: activeSplits,
+    };
     try {
       // Credit consumption + payment insert now happen inside ONE atomic
       // RPC call (migration 0012) — no more separate apply-then-revert
       // steps. If anything fails, Postgres rolls back the whole thing,
       // including any credit that was about to be spent, so credit can
       // never get stuck "applied" against a payment that never happened.
-      await collectPayment({
-        visit_id: visit.id,
-        patient_id: visit.patient_id,
-        amount_charged: charged,
-        amount_received: received,
-        payment_mode: activeSplits && activeSplits.length > 1 ? "SPLIT" : activeSplits?.[0]?.mode ?? mode,
-        branch: visit.branch,
-        credit_to_apply: creditToApply,
-        idempotency_key: idempotencyKey,
-        splits: activeSplits,
-      });
+      await collectPayment(paymentInput);
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       qc.invalidateQueries({ queryKey: ["visit", id] });
       qc.invalidateQueries({ queryKey: ["available-credit", visit.patient_id] });
       toast.success(balance === 0 ? "Payment done." : "Partial payment saved.");
       navigate({ to: "/", replace: true });
     } catch (e: any) {
-      toast.error(e?.message || "Payment fail hua");
+      if (isNetworkError(e)) {
+        enqueueAction("payment", paymentInput, `Payment — ₹${received} (${visit.patient?.name ?? visit.patient_id})`);
+        toast.success("Internet nahi hai — payment save ho gaya, connection aate hi automatic sync ho jaayega");
+        navigate({ to: "/", replace: true });
+      } else {
+        toast.error(e?.message || "Payment fail hua");
+      }
     } finally {
       setBusy(false);
     }

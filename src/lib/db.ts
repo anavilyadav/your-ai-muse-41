@@ -389,6 +389,11 @@ export async function createPatientWithVisit(input: {
   case_channel?: "WALK_IN" | "ONLINE";
   // TASK 5 — where this patient came from (Walk-in, Referral, JustDial, ...).
   lead_source?: string;
+  // #14 offline register — caller generates one key per registration
+  // attempt (see src/lib/offlineQueue.ts) and reuses it across every retry
+  // of that same submission, so a network blip that retries the request
+  // can never create a second, duplicate patient.
+  idempotency_key?: string;
 
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
@@ -409,6 +414,7 @@ export async function createPatientWithVisit(input: {
     p_branch: input.branch,
     p_chief_complaint: input.chief_complaint ?? null,
     p_visit_date: today(),
+    p_idempotency_key: input.idempotency_key ?? null,
   });
   if (!error && data) {
     let patient = data.patient as DBPatient;
