@@ -261,9 +261,18 @@ function LeadsImportTab() {
     const batchId = newImportBatchId();
     try {
       const imported = await commitLeadsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
-      await recordImportBatch({ batchId, type: "Leads", count: imported });
       toast.success(`${imported} leads imported`);
       csv.reset(); setPreview(null);
+      // Separate try/catch on purpose: the import above already succeeded
+      // by this point — a failure here means only "Recent Imports"/Undo
+      // couldn't be recorded for this batch, not that the leads weren't
+      // actually imported. Used to be lumped into the same catch, which
+      // could tell the Owner "Import fail" for an import that worked.
+      try {
+        await recordImportBatch({ batchId, type: "Leads", count: imported });
+      } catch (e: any) {
+        toast.warning("Leads import ho gaye, lekin 'Recent Imports' mein record nahi ho paaya: " + (e?.message ?? "unknown error"));
+      }
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));
     } finally { setBusy(false); setProgress(null); }
@@ -339,9 +348,13 @@ function PatientsImportTab() {
     const batchId = newImportBatchId();
     try {
       const imported = await commitPatientsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
-      await recordImportBatch({ batchId, type: "Patients", count: imported });
       toast.success(`${imported} patients imported`);
       csv.reset(); setPreview(null);
+      try {
+        await recordImportBatch({ batchId, type: "Patients", count: imported });
+      } catch (e: any) {
+        toast.warning("Patients import ho gaye, lekin 'Recent Imports' mein record nahi ho paaya: " + (e?.message ?? "unknown error"));
+      }
     } catch (e: any) {
       toast.error("Import fail: " + (e?.message ?? "unknown error"));
     } finally { setBusy(false); setProgress(null); }
@@ -427,8 +440,12 @@ function VisitHistoryImportTab() {
     const batchId = newImportBatchId();
     try {
       const res = await commitVisitHistoryImport(preview.valid, batchId, (done, total, phase) => setProgress({ done, total, phase }));
-      await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
       toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
+      try {
+        await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
+      } catch (e: any) {
+        toast.warning("Visit history import ho gayi, lekin 'Recent Imports' mein record nahi ho paaya: " + (e?.message ?? "unknown error"));
+      }
       if (res.totalsFailedFor.length > 0) {
         toast.error(`${res.totalsFailedFor.length} patients ki totals update NAHI hui (visits/payments phir bhi import ho gaye) — neeche list dekho`);
         setFailedPatients(await fetchPatientsByIds(res.totalsFailedFor));

@@ -3,6 +3,7 @@ import { ArrowLeft, BarChart3, ClipboardList, Clock, LogOut } from "lucide-react
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { writeDoctorSession } from "@/lib/yhc-doctor";
+import { useAuth } from "@/lib/auth";
 
 interface Props {
   title: string;
@@ -29,10 +30,18 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
   const router = useRouter();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { signOut } = useAuth();
 
-  const logout = () => {
+  // Was only writeDoctorSession(null) + navigate — that clears a legacy
+  // localStorage key nothing else in the app actually writes to, and
+  // never touches the real Supabase Auth session. Logout looked like it
+  // worked (bounced back to /doctor) but the session was still live, so
+  // the global auth guard immediately redirected back into the app —
+  // Case-DR staff could not actually sign out from this board.
+  const logout = async () => {
     writeDoctorSession(null);
-    navigate({ to: "/doctor" });
+    await signOut();
+    navigate({ to: "/login" });
   };
 
   const items = nav === "rx" ? rxNav : nav === "case" ? caseNav : [];

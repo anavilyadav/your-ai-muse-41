@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -23,29 +23,47 @@ const PAY_BAR_COLORS = ["bg-success", "bg-primary", "bg-accent", "bg-destructive
 function SummaryPage() {
   const [s, setS] = useState<Awaited<ReturnType<typeof fetchDaySummary>> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     (async () => {
-      const r = await fetchDaySummary();
-      if (!cancelled) {
-        setS(r);
-        setLoading(false);
+      try {
+        const r = await fetchDaySummary();
+        if (!cancelled) setS(r);
+      } catch (e) {
+        // fetchDaySummary now throws on a real DB error instead of
+        // silently returning ₹0/0-everything — this catch is what turns
+        // that into a visible retry instead of an unhandled rejection.
+        if (!cancelled) setLoadError(e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryTick]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 
-  if (loading || !s) {
+  if (loading) {
     return (
       <MobileShell title="Day Summary" subtitle={today} showBack>
         <p className="text-sm text-muted-foreground text-center py-10">Loading…</p>
+      </MobileShell>
+    );
+  }
+
+  if (loadError || !s) {
+    return (
+      <MobileShell title="Day Summary" subtitle={today} showBack>
+        <ErrorBlock error={loadError} onRetry={() => setRetryTick((t) => t + 1)} />
       </MobileShell>
     );
   }

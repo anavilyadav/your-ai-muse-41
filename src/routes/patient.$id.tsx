@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -572,6 +572,7 @@ function PatientProfilePage() {
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [viewerDoc, setViewerDoc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -581,21 +582,31 @@ function PatientProfilePage() {
 
   const reload = async () => {
     setLoading(true);
-    const [p, vs, fam, docs, ints, wa] = await Promise.all([
-      fetchPatientById(id),
-      fetchPatientHistory(id, 20),
-      fetchFamilyMembers(id),
-      fetchPatientDocuments(id),
-      fetchPatientInteractions(id),
-      fetchWhatsAppDeliveryHealth(id),
-    ]);
-    setPatient(p);
-    setVisits(vs);
-    setFamily(fam);
-    setDocuments(docs);
-    setInteractions(ints);
-    setWaHealth(wa);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const [p, vs, fam, docs, ints, wa] = await Promise.all([
+        fetchPatientById(id),
+        fetchPatientHistory(id, 20),
+        fetchFamilyMembers(id),
+        fetchPatientDocuments(id),
+        fetchPatientInteractions(id),
+        fetchWhatsAppDeliveryHealth(id),
+      ]);
+      setPatient(p);
+      setVisits(vs);
+      setFamily(fam);
+      setDocuments(docs);
+      setInteractions(ints);
+      setWaHealth(wa);
+    } catch (e) {
+      // Any one of the 6 parallel fetches failing used to leave this page
+      // stuck on "Loading patient…" forever — the whole point of this
+      // screen is being unusable for that patient until a manual browser
+      // reload. Now a failure shows a real retry instead.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -624,6 +635,14 @@ function PatientProfilePage() {
     return (
       <MobileShell title="Loading…" showBack>
         <p className="text-sm text-muted-foreground text-center py-8">Loading patient…</p>
+      </MobileShell>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <MobileShell title="Patient" showBack>
+        <ErrorBlock error={loadError} onRetry={reload} />
       </MobileShell>
     );
   }

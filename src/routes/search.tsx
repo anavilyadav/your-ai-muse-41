@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AuthGate } from "@/components/yhc/AuthGate";
+import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -18,27 +18,39 @@ function SearchPage() {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<unknown>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     const term = q.trim();
     if (!term) {
       setResults([]);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setSearchError(null);
     const t = setTimeout(async () => {
-      const rows = await searchPatients(term);
-      if (!cancelled) {
-        setResults(rows);
-        setLoading(false);
+      try {
+        const rows = await searchPatients(term);
+        if (!cancelled) {
+          setResults(rows);
+        }
+      } catch (e) {
+        // searchPatients throws on a real DB error — this used to have no
+        // catch at all, so a failure left the page stuck on "Searching…"
+        // forever with no error and no way to retry.
+        if (!cancelled) setSearchError(e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }, 250);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [q]);
+  }, [q, retryTick]);
 
   return (
     <MobileShell title="Search Patients" showBack>
@@ -53,8 +65,12 @@ function SearchPage() {
         />
       </div>
 
+      {!!searchError && (
+        <ErrorBlock error={searchError} onRetry={() => setRetryTick((t) => t + 1)} />
+      )}
+
       <ul className="mt-4 space-y-2">
-        {q && !loading && results.length === 0 && (
+        {q && !loading && !searchError && results.length === 0 && (
           <li className="text-center text-sm text-muted-foreground py-8">No matches.</li>
         )}
         {loading && (

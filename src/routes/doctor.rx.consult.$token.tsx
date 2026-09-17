@@ -308,10 +308,10 @@ function RxWrite() {
             <div className="mt-2 text-sm">{visit.chief_complaint || "—"}</div>
           </div>
 
-          {visit.doctor_notes && (
+          {visit.case_notes && (
             <div className="rounded-xl bg-surface border border-border p-3">
               <div className="text-[11px] font-bold uppercase text-muted-foreground">Case notes (Case-DR)</div>
-              <p className="mt-1 text-sm whitespace-pre-wrap">{visit.doctor_notes}</p>
+              <p className="mt-1 text-sm whitespace-pre-wrap">{visit.case_notes}</p>
             </div>
           )}
 

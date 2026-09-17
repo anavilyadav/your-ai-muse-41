@@ -93,6 +93,14 @@ export interface DBVisit {
   branch: string;
   chief_complaint: string | null;
   doctor_notes: string | null;
+  // Migration 0055 — the Case-DR's structured history (generals/mentals/
+  // modalities/etc) used to be written into `doctor_notes`, the SAME
+  // column the prescribing doctor's own free-text follow-up notes also
+  // read from, edited, and saved back into on the Rx screen. Last write
+  // won; a prescribing doctor's routine note-save could silently erase
+  // real case-taking history with no version check. Now a separate
+  // column, written only by saveCaseNotes, read-only everywhere else.
+  case_notes: string | null;
   next_visit_date: string | null;
   created_at: string;
   // Set at Case-DR time (doctor.case.form.$token.tsx) -- were already
@@ -2337,9 +2345,11 @@ export async function savePatientCardNumber(patientId: string, cardSeries: strin
   return { success: !error, error: error?.message ?? null };
 }
 
+// Writes into `case_notes`, NOT `doctor_notes` (migration 0055) — see the
+// comment on DBVisit.case_notes for why these must be separate columns.
 export async function saveCaseNotes(visitId: string, input: string | CaseNotesInput) {
   const payload: Record<string, any> =
-    typeof input === "string" ? { doctor_notes: input } : { doctor_notes: input.notes };
+    typeof input === "string" ? { case_notes: input } : { case_notes: input.notes };
   if (typeof input !== "string") {
     if (input.case_photo_url !== undefined) payload.case_photo_url = input.case_photo_url;
     if (input.tongue_photo_url !== undefined) payload.tongue_photo_url = input.tongue_photo_url;
@@ -2991,15 +3001,24 @@ export async function reportStockIssue(visitId: string, note: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
-export async function fetchOutstandingPatients() {
+// Was a flat .limit(500) with no way to tell staff "there's more" — unlike
+// fetchLeads/fetchInventory/fetchAppointments, which all use this same
+// LIMIT+1 pattern and expose `truncated` to their screens. Outstanding
+// Dues is the one screen whose entire purpose is "don't let a due slip
+// through," so silently hiding the smaller dues past #500 was the most
+// consequential instance of this gap.
+export async function fetchOutstandingPatients(): Promise<{ rows: any[]; truncated: boolean }> {
+  const LIMIT = 500;
   const { data, error } = await supabase
     .from("patients")
     .select("id, name, mobile, patient_code, current_balance, last_visit_date, branch")
     .gt("current_balance", 0)
     .order("current_balance", { ascending: false })
-    .limit(500);
+    .limit(LIMIT + 1);
   if (error) throw dataLoadError(error);
-  return data ?? [];
+  const rows = data ?? [];
+  const truncated = rows.length > LIMIT;
+  return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
 }
 
 export async function fetchStaff() {
@@ -3104,7 +3123,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0054_staff_profile_rpc_and_settings_owner_write";
+export const EXPECTED_SCHEMA_VERSION = "0055_case_notes_column";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -3571,7 +3590,14 @@ export function newImportBatchId(): string {
 
 export async function recordImportBatch(entry: { batchId: string; type: string; count: number }) {
   const { data, error } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
-  if (error) console.error("recordImportBatch: read of existing batch list failed:", error.message);
+  // Used to log-and-continue on a real read failure, defaulting `list` to
+  // [] the same as a genuinely-empty first-ever batch — the write below
+  // then overwrote the ENTIRE import_batches history with just this one
+  // new entry, silently erasing every prior batch's Undo button. A real
+  // import already succeeded by the time this runs, so this now throws
+  // instead — the caller shows a distinct warning rather than folding it
+  // into "import failed" (see owner.import.tsx).
+  if (error) throw dataLoadError(error);
   let list: any[] = [];
   try { list = data?.value ? JSON.parse(data.value) : []; } catch { list = []; }
   list.unshift({ ...entry, date: new Date().toISOString() });
@@ -3588,10 +3614,26 @@ export async function fetchImportBatches(): Promise<
 
 // Deletes every row tagged with this batch across all four tables — children
 // (payments, visits) before parents (patients) so FK constraints never block it.
+//
+// Used to never check each delete's error — a failed delete on any table
+// (RLS, network, an FK block from something outside this list) silently
+// continued to the next table, then unconditionally removed the batch
+// from import_batches anyway, reporting a plain "rollback complete"
+// success with per-table counts that could just be wrong/zero. The Owner
+// had no way to know it partially failed, and once the batch entry was
+// gone, no Undo button was left to retry. Now: the first table that
+// actually fails to delete stops the loop and throws, and the batch stays
+// in import_batches (so Undo can be tried again) unless every table's
+// delete genuinely succeeded.
 export async function rollbackImportBatch(batchId: string) {
   const results: Record<string, number> = {};
   for (const table of ["payments", "visits", "leads", "patients"] as const) {
-    const { data } = await supabase.from(table).delete().eq("imported_batch", batchId).select("id");
+    const { data, error } = await supabase.from(table).delete().eq("imported_batch", batchId).select("id");
+    if (error) {
+      throw new Error(
+        `${table} se delete karte waqt error aaya (${error.message}) — is batch ka rollback poora nahi hua, "Undo" dobara try kar sakte ho.`,
+      );
+    }
     results[table] = data?.length ?? 0;
   }
   const batches = await fetchImportBatches();
@@ -4459,16 +4501,25 @@ export async function fetchDaySummary(branch?: string) {
     payQ = payQ.eq("branch", branch);
   }
   const [visRes, payRes] = await Promise.all([visQ, payQ]);
+  // Was `visRes.data ?? []` / `payRes.data ?? []` with the error never
+  // checked — on a real DB error this silently rendered a fabricated
+  // "₹0 revenue, 0 patients" day on the one screen whose whole job is
+  // reconciling the day's actual cash. Both queries must throw now, like
+  // every other read in this file is supposed to (see the file-level
+  // policy at the top of db.ts).
+  if (visRes.error) throw dataLoadError(visRes.error);
+  if (payRes.error) throw dataLoadError(payRes.error);
   const visits = visRes.data ?? [];
   const pays = payRes.data ?? [];
   const patientIds = visits.map((v: any) => v.patient_id).filter(Boolean);
   let newCount = 0;
   let followupCount = 0;
   if (patientIds.length) {
-    const { data: pats } = await supabase
+    const { data: pats, error: patsError } = await supabase
       .from("patients")
       .select("id,created_at")
       .in("id", patientIds);
+    if (patsError) throw dataLoadError(patsError);
     (pats ?? []).forEach((p: any) => {
       if ((p.created_at ?? "").slice(0, 10) === t) newCount++;
       else followupCount++;

@@ -17,7 +17,8 @@ export const Route = createFileRoute("/outstanding")({
 
 function OutstandingPage() {
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["outstanding"], queryFn: fetchOutstandingPatients });
-  const rows = (data ?? []) as any[];
+  const rows = (data?.rows ?? []) as any[];
+  const truncated = data?.truncated ?? false;
   const total = rows.reduce((s, r) => s + Number(r.current_balance ?? 0), 0);
 
   return (
@@ -74,6 +75,11 @@ function OutstandingPage() {
             </li>
           ))}
         </ul>
+      )}
+      {!isLoading && !isError && truncated && (
+        <div className="mt-2 text-[11px] text-muted-foreground text-center">
+          Sirf top 500 outstanding balances yahan dikh rahe hain — total isse zyada bhi ho sakta hai.
+        </div>
       )}
     </MobileShell>
   );
