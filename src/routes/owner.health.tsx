@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits, fetchSystemAlerts, resolveSystemAlert } from "@/lib/db";
+import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits, fetchSystemAlerts, resolveSystemAlert, fetchSchemaVersionStatus } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
@@ -25,6 +25,7 @@ function HealthPage() {
   const issues = useQuery({ queryKey: ["stock-issues"], queryFn: () => fetchStockIssues() });
   const stale = useQuery({ queryKey: ["stale-open-visits"], queryFn: fetchStaleOpenVisits });
   const alerts = useQuery({ queryKey: ["system-alerts"], queryFn: fetchSystemAlerts });
+  const schemaVersion = useQuery({ queryKey: ["schema-version"], queryFn: fetchSchemaVersionStatus });
 
   const dismissAlert = async (id: string) => {
     await resolveSystemAlert(id);
@@ -52,7 +53,7 @@ function HealthPage() {
 
   return (
     <RoleShell wide title="System Health" subtitle="Live Supabase checks" showBack>
-      {(alerts.isLoading || issues.isLoading || stale.isLoading) && (
+      {(alerts.isLoading || issues.isLoading || stale.isLoading || schemaVersion.isLoading) && (
         <div className="mb-3"><LoadingBlock label="Health data load ho raha hai…" /></div>
       )}
       {alerts.isError && (
@@ -63,6 +64,25 @@ function HealthPage() {
       )}
       {stale.isError && (
         <div className="mb-3"><ErrorBlock error={stale.error} onRetry={() => void stale.refetch()} /></div>
+      )}
+      {schemaVersion.isError && (
+        <div className="mb-3"><ErrorBlock error={schemaVersion.error} onRetry={() => void schemaVersion.refetch()} /></div>
+      )}
+      {schemaVersion.data && !schemaVersion.data.upToDate && (
+        <div className="mb-4 rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <div className="text-[13px] font-bold text-destructive">⚠ Database update pending</div>
+          <p className="text-[11px] text-destructive/90 mt-1">
+            Ye app code database ke version <span className="font-mono">{schemaVersion.data.expected}</span> ki
+            umeed kar raha hai, lekin database mein sirf{" "}
+            <span className="font-mono">{schemaVersion.data.latestApplied ?? "koi bhi nahi"}</span> tak apply hai.
+            Kuch features kaam na kare jab tak ye migration run na ho — Claude ko batao.
+          </p>
+        </div>
+      )}
+      {schemaVersion.data && schemaVersion.data.upToDate && (
+        <div className="mb-4 rounded-xl bg-success/10 border border-success/30 p-2.5 text-[11px] text-success font-semibold flex items-center justify-between">
+          <span>✓ Database schema up to date ({schemaVersion.data.totalApplied} migrations applied)</span>
+        </div>
       )}
       {alerts.data && alerts.data.length > 0 && (
         <div className="mb-4">

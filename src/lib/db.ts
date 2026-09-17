@@ -3075,6 +3075,48 @@ export async function fetchStaleOpenVisits() {
   return data ?? [];
 }
 
+// ---------- Schema version lock (#15, 17 Sep 2026) ----------
+// The latest migration THIS deployed app code depends on. Bump this in
+// the same change that adds a new supabase/sql-manual/00XX_*.sql file
+// (and make sure that file ends with an insert into schema_migrations,
+// same convention as 0053_schema_version_lock.sql) — the Owner Health
+// page compares this against what's actually been applied live and warns
+// loudly if they don't match, instead of the gap staying invisible until
+// someone happens to check by hand (the exact way 0043 and 0045 were
+// found unapplied earlier this session).
+export const EXPECTED_SCHEMA_VERSION = "0053_schema_version_lock";
+
+export interface SchemaMigrationRow {
+  filename: string;
+  applied_at: string;
+  notes: string | null;
+}
+
+export async function fetchSchemaMigrations(): Promise<SchemaMigrationRow[]> {
+  const { data, error } = await supabase.from("schema_migrations").select("*").order("filename", { ascending: true });
+  if (error) throw dataLoadError(error);
+  return (data ?? []) as SchemaMigrationRow[];
+}
+
+export interface SchemaVersionStatus {
+  upToDate: boolean;
+  expected: string;
+  latestApplied: string | null;
+  totalApplied: number;
+}
+
+export async function fetchSchemaVersionStatus(): Promise<SchemaVersionStatus> {
+  const rows = await fetchSchemaMigrations();
+  const applied = new Set(rows.map((r) => r.filename));
+  const latestApplied = rows.length > 0 ? rows[rows.length - 1].filename : null;
+  return {
+    upToDate: applied.has(EXPECTED_SCHEMA_VERSION),
+    expected: EXPECTED_SCHEMA_VERSION,
+    latestApplied,
+    totalApplied: rows.length,
+  };
+}
+
 export async function runHealthChecks() {
   const results: { label: string; ok: boolean; detail: string }[] = [];
 
