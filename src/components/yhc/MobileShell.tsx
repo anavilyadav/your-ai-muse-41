@@ -59,7 +59,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
         {/* Desktop sidebar nav — hidden below lg, replaces the bottom tab bar */}
         <aside className="hidden lg:flex lg:w-56 lg:shrink-0 lg:flex-col lg:gap-1 lg:border-r lg:border-border lg:bg-surface/60 lg:px-3 lg:py-6">
           <div className="flex items-center gap-2 px-3 pb-6">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground">Y</div>
+            <img src="/logo.png" alt="Yadav Homeo Clinic" className="h-9 w-9 shrink-0 object-contain" />
             <span className="text-sm font-bold text-primary">YHC-OS</span>
           </div>
           {navItems.map(({ to, label, icon: Icon }) => {
@@ -102,9 +102,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
                   <ArrowLeft className="h-5 w-5" />
                 </button>
               ) : (
-                <div className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-accent text-accent-foreground font-bold text-sm lg:hidden">
-                  Y
-                </div>
+                <img src="/logo.png" alt="Yadav Homeo Clinic" className="shrink-0 h-9 w-9 object-contain lg:hidden" />
               )}
               <div className="min-w-0">
                 <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>
