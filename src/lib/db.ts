@@ -1942,6 +1942,13 @@ export interface StockEntryInput {
   branch: string;
   quantity: number;
   type?: string;
+  // RF-17 (master audit) — expiry-date-only tracking (no separate batch
+  // number, per Owner's explicit scope choice). Optional: existing/older
+  // stock-adds can keep omitting this. When two adds for the same
+  // medicine+potency+branch both carry a date, increment_stock keeps
+  // whichever is EARLIER — the column always reflects the soonest-
+  // expiring stock on hand for that item.
+  expiry_date?: string | null;
 }
 
 /** Adds stock: if a row for this medicine+potency+branch exists, increments it; else creates it. */
@@ -1958,13 +1965,14 @@ export async function addStockEntry(input: StockEntryInput) {
     p_branch: input.branch,
     p_quantity: input.quantity,
     p_type: input.type ?? null,
+    p_expiry_date: input.expiry_date ?? null,
   });
   if (!rpcError) return { success: true, error: null, id: (data as any)?.id };
   logDegradedModeAlert("increment_stock", { medicine_name: input.medicine_name, branch: input.branch });
 
   const { data: existing } = await supabase
     .from("inventory")
-    .select("id, stock_drams")
+    .select("id, stock_drams, expiry_date")
     .eq("medicine_name", input.medicine_name)
     .eq("potency", input.potency)
     .eq("branch", input.branch)
@@ -1972,7 +1980,12 @@ export async function addStockEntry(input: StockEntryInput) {
 
   if (existing?.id) {
     const newStock = Number(existing.stock_drams ?? 0) + input.quantity;
-    const { error } = await supabase.from("inventory").update({ stock_drams: newStock }).eq("id", existing.id);
+    const update: Record<string, unknown> = { stock_drams: newStock };
+    if (input.expiry_date) {
+      const currentExpiry = (existing as any).expiry_date as string | null;
+      if (!currentExpiry || input.expiry_date < currentExpiry) update.expiry_date = input.expiry_date;
+    }
+    const { error } = await supabase.from("inventory").update(update).eq("id", existing.id);
     if (error) return { success: false, error: error.message };
     return { success: true, error: null };
   }
@@ -1982,6 +1995,7 @@ export async function addStockEntry(input: StockEntryInput) {
     branch: input.branch,
     stock_drams: input.quantity,
     type: input.type ?? null,
+    expiry_date: input.expiry_date ?? null,
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
@@ -2015,9 +2029,10 @@ export async function addBulkStockEntries(
   medicine_name: string,
   branch: string,
   entries: { potency: string; quantity: number }[],
+  expiry_date?: string | null,
 ): Promise<{ succeeded: number; failed: { potency: string; error: string }[] }> {
   const results = await Promise.allSettled(
-    entries.map((e) => addStockEntry({ medicine_name, potency: e.potency, branch, quantity: e.quantity })),
+    entries.map((e) => addStockEntry({ medicine_name, potency: e.potency, branch, quantity: e.quantity, expiry_date })),
   );
   const failed: { potency: string; error: string }[] = [];
   let succeeded = 0;
@@ -2117,6 +2132,43 @@ export async function fetchVisitPrescriptions(visitId: string) {
     .eq("visit_id", visitId)
     .order("created_at", { ascending: true });
   return (data ?? []) as DBPrescription[];
+}
+
+// RF-17 (master audit) — shared expiry-status logic, used by both
+// pharmacy.inventory.tsx (per-row badge) and pharmacy.dispense.$token.tsx
+// (FEFO warning), so "what counts as expiring soon" can't drift between
+// the two screens. 30 days is a fixed window, not Owner-configurable —
+// kept simple, matching the "expiry date only" scope decision.
+export const EXPIRY_WARNING_DAYS = 30;
+export function daysUntilExpiry(expiryDate: string | null | undefined): number | null {
+  if (!expiryDate) return null;
+  const ms = new Date(expiryDate).getTime() - Date.now();
+  return Math.floor(ms / 86_400_000);
+}
+export function expiryStatus(expiryDate: string | null | undefined): "expired" | "soon" | "ok" | "unknown" {
+  const d = daysUntilExpiry(expiryDate);
+  if (d === null) return "unknown";
+  if (d < 0) return "expired";
+  if (d <= EXPIRY_WARNING_DAYS) return "soon";
+  return "ok";
+}
+
+// RF-17 (master audit) — FEFO warning support for the dispense screen.
+// Keyed by "medicine_name__potency" so the caller can do a cheap lookup
+// per prescription line without a query per line. Scoped to one branch
+// (a dispense screen only ever cares about that visit's own branch stock).
+export async function fetchInventoryExpiryForBranch(branch: string): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("medicine_name, potency, expiry_date")
+    .eq("branch", branch)
+    .not("expiry_date", "is", null);
+  if (error) throw dataLoadError(error);
+  const map: Record<string, string> = {};
+  (data ?? []).forEach((r: any) => {
+    map[`${r.medicine_name}__${r.potency ?? ""}`] = r.expiry_date;
+  });
+  return map;
 }
 
 export async function markDispensed(visitId: string) {
@@ -3123,7 +3175,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0056_revoke_stray_function_grants";
+export const EXPECTED_SCHEMA_VERSION = "0057_inventory_expiry_tracking";
 
 export interface SchemaMigrationRow {
   filename: string;

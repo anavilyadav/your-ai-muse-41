@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS } from "@/lib/db";
+import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -29,6 +29,19 @@ function isLow(row: any): boolean {
   const stock = Number(row.stock_drams ?? row.stock ?? 0);
   const low = Number(row.reorder_level ?? row.low ?? 20);
   return stock <= low;
+}
+
+// RF-17 (master audit) — thin wrappers over the shared expiryStatus() in
+// db.ts, so this screen's row-level checks share one source of truth with
+// the dispense screen's FEFO warning.
+function isExpired(row: any): boolean {
+  return expiryStatus(row.expiry_date) === "expired";
+}
+function isExpiringSoon(row: any): boolean {
+  return expiryStatus(row.expiry_date) === "soon";
+}
+function hasMissingExpiry(row: any): boolean {
+  return !row.expiry_date && Number(row.stock_drams ?? row.stock ?? 0) > 0;
 }
 
 // Catalog-sourced — picks from the Medicine Master list (typo-proof) but
@@ -90,6 +103,10 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
   const [newPotency, setNewPotency] = useState("");
   const [saving, setSaving] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
+  // RF-17 (master audit) — one expiry date per "Save & Next Medicine"
+  // submission, applied to every potency in it. Optional: leaving it
+  // blank is fine, existing/older stock never had one either.
+  const [expiryDate, setExpiryDate] = useState("");
 
   const potencyRows = [...COMMON_POTENCIES, ...extraPotencies];
 
@@ -106,6 +123,7 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
     setMedicine("");
     setQtyByPotency({});
     setExtraPotencies([]);
+    setExpiryDate("");
   };
 
   const submit = async () => {
@@ -116,7 +134,7 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
     if (entries.length === 0) { toast.error("Kam se kam ek potency mein quantity bharo"); return; }
 
     setSaving(true);
-    const result = await addBulkStockEntries(medicine.trim(), branch, entries);
+    const result = await addBulkStockEntries(medicine.trim(), branch, entries, expiryDate || null);
     setSaving(false);
 
     if (result.failed.length === 0) {
@@ -154,6 +172,16 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
             <MedicineAutocomplete value={medicine} onChange={setMedicine} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Expiry Date (optional)</label>
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="w-full mt-1 rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">Sabhi potencies is submission ki isi expiry se save hongi.</p>
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">
@@ -198,7 +226,7 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
 
 function InventoryPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>(BRANCH_KEYS[0]);
-  const [f, setF] = useState<"All" | "Low Stock">("All");
+  const [f, setF] = useState<"All" | "Low Stock" | "Expiring Soon">("All");
   const [showAdd, setShowAdd] = useState(false);
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
   const queryClient = useQueryClient();
@@ -223,7 +251,8 @@ function InventoryPage() {
           }, new Map<string, any>()).values(),
         )
       : branchRows;
-  const list = f === "Low Stock" ? rows.filter(isLow) : rows;
+  const list = f === "Low Stock" ? rows.filter(isLow) : f === "Expiring Soon" ? rows.filter((r) => isExpiringSoon(r) || isExpired(r)) : rows;
+  const missingExpiryCount = rows.filter(hasMissingExpiry).length;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inventory"] });
 
@@ -263,14 +292,20 @@ function InventoryPage() {
       <div className="flex gap-2 mt-3">
         <Stat v={rows.length} l={tab === TOTAL ? "Total Items" : `${branchLabel(tab)} Items`} />
         <Stat v={rows.filter(isLow).length} l="Low Stock" tone="destructive" />
+        <Stat v={rows.filter((r) => isExpiringSoon(r) || isExpired(r)).length} l="Expiring" tone="destructive" />
       </div>
       {inventoryTruncated && (
         <div className="mt-2 text-[11px] text-muted-foreground text-center">
           Sirf pehle 2000 items yahan dikh rahe hain — specific medicine chahiye toh search use karo.
         </div>
       )}
+      {missingExpiryCount > 0 && (
+        <div className="mt-2 rounded-lg bg-accent/15 border border-accent/40 p-2.5 text-[11px] text-primary text-center">
+          {missingExpiryCount} item{missingExpiryCount > 1 ? "s" : ""} ki expiry date set nahi hai — jab stock aata hai to "+ Stock" se bhar sakte ho.
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
-        {(["All", "Low Stock"] as const).map((x) => (
+        {(["All", "Low Stock", "Expiring Soon"] as const).map((x) => (
           <button
             key={x}
             onClick={() => setF(x)}
@@ -313,6 +348,14 @@ function InventoryPage() {
                     </div>
                   )}
                   {low && <div className="text-[12px] text-destructive font-semibold mt-0.5">⚠ Low stock — reorder soon</div>}
+                  {i.expiry_date && (
+                    <div className={cn(
+                      "text-[11px] font-semibold mt-0.5",
+                      isExpired(i) ? "text-destructive" : isExpiringSoon(i) ? "text-accent-foreground" : "text-muted-foreground",
+                    )}>
+                      {isExpired(i) ? "⚠ Expired" : isExpiringSoon(i) ? "⚠ Expiring soon" : "Expiry"}: {new Date(i.expiry_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className={cn("text-lg font-extrabold", low ? "text-destructive" : "text-primary")}>{stock}</div>

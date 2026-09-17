@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel, dispenseQuantityLabel, formatCardNumber } from "@/lib/db";
+import { fetchVisit, fetchVisitPrescriptions, markDispensed, reportStockIssue, branchLabel, dispenseQuantityLabel, formatCardNumber, fetchInventoryExpiryForBranch, expiryStatus } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pharmacy/dispense/$token")({
@@ -24,6 +24,14 @@ function DispensePage() {
   const { data: visit, isLoading: lv, isError: ev, error: errV, refetch: refetchV } = useQuery({ queryKey: ["visit", visitId], queryFn: () => fetchVisit(visitId) });
   const { data: rxData, isLoading: lr } = useQuery({ queryKey: ["rx", visitId], queryFn: () => fetchVisitPrescriptions(visitId) });
   const rx = rxData ?? [];
+  // RF-17 (master audit) — FEFO warning. Only meaningful once the visit's
+  // branch is known, so this query is gated on `visit` (fires after the
+  // first query resolves, not blocking the initial load).
+  const { data: expiryMap } = useQuery({
+    queryKey: ["inventory-expiry", visit?.branch],
+    queryFn: () => fetchInventoryExpiryForBranch(visit!.branch),
+    enabled: !!visit?.branch,
+  });
   const [checked, setChecked] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -107,6 +115,10 @@ function DispensePage() {
         <ul className="mt-2 space-y-2">
           {rx.map((r, i) => {
             const on = checked.includes(i);
+            // RF-17 (master audit) — FEFO warning: the soonest-expiring
+            // stock on file for this exact medicine+potency+branch.
+            const expiry = expiryMap?.[`${r.medicine_name}__${r.potency ?? ""}`];
+            const status = expiryStatus(expiry);
             return (
               <li key={r.id ?? i}>
                 <button
@@ -139,6 +151,11 @@ function DispensePage() {
                     <div className="text-[12px] font-semibold text-accent-foreground mt-0.5">
                       {dispenseQuantityLabel(r.is_slx)}
                     </div>
+                    {(status === "expired" || status === "soon") && expiry && (
+                      <div className={cn("text-[11px] font-bold mt-1", status === "expired" ? "text-destructive" : "text-accent-foreground")}>
+                        ⚠ {status === "expired" ? "Stock expired" : "Stock expiring soon"} ({new Date(expiry).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}) — FEFO check karo
+                      </div>
+                    )}
                   </div>
                 </button>
               </li>
