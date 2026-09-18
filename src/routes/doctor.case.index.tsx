@@ -148,8 +148,16 @@ function CaseBoardPage() {
                           {daysWaiting}d pending
                         </span>
                       )}
+                      {(c.recased_at || c.needs_recase) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-accent/25 text-accent-foreground border-accent/50">
+                          🔁 Recase
+                        </span>
+                      )}
                     </div>
                     <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
+                    {c.recase_reason && (
+                      <div className="text-[11px] text-destructive mt-0.5">Reason: {c.recase_reason}</div>
+                    )}
                   </button>
                   {!isJunior && (
                     <button

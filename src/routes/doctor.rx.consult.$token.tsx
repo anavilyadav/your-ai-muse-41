@@ -1,8 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2, Plus, RotateCcw } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
@@ -18,6 +18,8 @@ import {
   fetchSlxInstructions,
   DEFAULT_SLX_INSTRUCTIONS,
   addMedicineToCatalog,
+  recaseVisitNow,
+  flagRecaseNextTime,
   type RxRow,
   type RxDraft,
   type NextVisitOption,
@@ -74,8 +76,13 @@ function RxWrite() {
   });
 
   const { data: history, isError: historyError } = useQuery({
-    queryKey: ["patient-history", visit?.patient_id],
-    queryFn: () => fetchPatientHistory(visit!.patient_id, 3),
+    queryKey: ["patient-history-full", visit?.patient_id],
+    // Was capped at 3 — "sirf 3 dawai nahi, poori timeline dikhni chahiye"
+    // (18 Sep 2026): a doctor deciding whether a treatment is working needs
+    // the whole course, not just the last 3 visits. 200 covers even a
+    // multi-year patient; the list itself scrolls inside a fixed-height box
+    // below rather than pushing the whole page down.
+    queryFn: () => fetchPatientHistory(visit!.patient_id, 200),
     enabled: !!visit?.patient_id,
   });
 
@@ -92,6 +99,29 @@ function RxWrite() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const draftHydrated = useRef(false);
+  const [showRecaseModal, setShowRecaseModal] = useState(false);
+  const [recaseMode, setRecaseMode] = useState<"now" | "next">("now");
+  const [recaseReason, setRecaseReason] = useState("");
+  const [recaseBusy, setRecaseBusy] = useState(false);
+
+  const submitRecase = async () => {
+    if (!visit) return;
+    setRecaseBusy(true);
+    if (recaseMode === "now") {
+      const res = await recaseVisitNow(visit.id, recaseReason);
+      setRecaseBusy(false);
+      if (!res.success) { toast.error("Recase nahi hua: " + res.error); return; }
+      toast.success("Case Board pe wapas bhej diya — koi bhi Case-DR ab isko le sakta hai");
+      setShowRecaseModal(false);
+      navigate({ to: "/doctor/rx" });
+    } else {
+      const res = await flagRecaseNextTime(visit.patient_id, recaseReason);
+      setRecaseBusy(false);
+      if (!res.success) { toast.error("Flag nahi laga: " + res.error); return; }
+      toast.success("Next visit pe case-taking zaroori ho gayi hai is patient ke liye");
+      setShowRecaseModal(false);
+    }
+  };
 
   const { data: nextVisitOptions } = useQuery({
     queryKey: ["next-visit-options"],
@@ -284,10 +314,86 @@ function RxWrite() {
   if (isLoading) return <DoctorShell title="Write Rx" showBack><LoadingBlock /></DoctorShell>;
   if (!visit) return <DoctorShell title="Write Rx" showBack><div className="py-10 text-center text-sm text-muted-foreground">Visit nahi mila.</div></DoctorShell>;
 
+  // Recase Next Time guard — this patient was flagged (from a previous
+  // visit) to require fresh case-taking before any Rx this time. Blocks
+  // straight-to-Rx (normally allowed for a REGISTERED follow-up visit)
+  // until case-taking actually happens — the moment it does, saveCaseNotes
+  // moves this visit off REGISTERED and this guard clears itself.
+  if (visit.needs_recase && visit.visit_status === "REGISTERED") {
+    return (
+      <DoctorShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
+        <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-5 text-center">
+          <RotateCcw className="h-8 w-8 mx-auto text-destructive mb-2" />
+          <div className="font-bold text-destructive">Case-taking zaroori hai</div>
+          <p className="text-sm text-muted-foreground mt-1.5">
+            Pichli baar Doctor ne is patient ke liye dobara case-taking flag ki thi. Rx likhne se pehle case-taking form bharna hoga.
+          </p>
+          <Link
+            to="/doctor/case/form/$token"
+            params={{ token: visit.id }}
+            className="mt-4 inline-block rounded-xl bg-primary text-primary-foreground px-5 py-2.5 text-sm font-bold"
+          >
+            Case-Taking Form Kholo
+          </Link>
+        </div>
+      </DoctorShell>
+    );
+  }
+
   return (
     <DoctorShell title="Write Prescription" subtitle={`${visit.token_number ?? ""} • ${branchLabel(visit.branch)}`} showBack>
       {showLogModal && visit.patient_id && (
         <LogInteractionModal patientId={visit.patient_id} onClose={() => setShowLogModal(false)} onLogged={() => {}} />
+      )}
+      {showRecaseModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+          <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+            <h2 className="font-extrabold text-primary text-lg mb-1">Recase</h2>
+            <p className="text-xs text-muted-foreground mb-4">Patient treatment se sahi respond nahi kar raha — case dobara lena hai.</p>
+            <div className="flex flex-col gap-2 mb-4">
+              <button
+                onClick={() => setRecaseMode("now")}
+                className={cn(
+                  "text-left rounded-xl border p-3",
+                  recaseMode === "now" ? "border-destructive bg-destructive/10" : "border-border bg-surface",
+                )}
+              >
+                <div className="text-sm font-bold text-primary">Recase Now</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">Aaj ki Rx nahi likhi jayegi — visit abhi Case Board pe wapas chali jaayegi, koi bhi Case-DR le sakta hai.</div>
+              </button>
+              <button
+                onClick={() => setRecaseMode("next")}
+                className={cn(
+                  "text-left rounded-xl border p-3",
+                  recaseMode === "next" ? "border-destructive bg-destructive/10" : "border-border bg-surface",
+                )}
+              >
+                <div className="text-sm font-bold text-primary">Recase Next Time</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">Aaj ki Rx normal likhi jaayegi. Agli baar patient check-in hoga to case-taking zaroori ho jaayegi, skip nahi ho sakegi.</div>
+              </button>
+            </div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Reason (optional)</label>
+            <textarea
+              value={recaseReason}
+              onChange={(e) => setRecaseReason(e.target.value)}
+              placeholder="e.g. 3 hafte ho gaye, koi improvement nahi"
+              rows={3}
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm resize-none"
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setShowRecaseModal(false)} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-bold text-muted-foreground">
+                Cancel
+              </button>
+              <button
+                onClick={submitRecase}
+                disabled={recaseBusy}
+                className="flex-1 rounded-xl bg-destructive text-destructive-foreground py-2.5 text-sm font-bold disabled:opacity-50"
+              >
+                {recaseBusy ? "..." : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Single column below lg (Task 1 fix — the old `md:grid` broke here
           because DoctorShell capped content at 430px regardless of the
@@ -295,7 +401,7 @@ function RxWrite() {
           DoctorShell drops that cap at lg+, this becomes a real 2-column
           desktop layout: patient summary pinned left, Rx form on the
           right, exactly as it should have worked originally. */}
-      <div className="lg:grid lg:grid-cols-[360px_1fr] lg:items-start lg:gap-6">
+      <div className="lg:grid lg:grid-cols-[420px_1fr] lg:items-start lg:gap-6">
 
         {/* LEFT: patient summary */}
         <section className="space-y-3">
@@ -318,7 +424,9 @@ function RxWrite() {
           {visit.patient_id && <PhotoTimeline patientId={visit.patient_id} />}
 
           <div className="rounded-xl bg-surface border border-border p-3">
-            <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1">Last 3 visits</div>
+            <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1.5 flex items-center justify-between">
+              <span>Visit History{history && history.length > 0 ? ` (${history.length})` : ""}</span>
+            </div>
             {historyError ? (
               // "Koi previous visits nahi" looked identical for a real fetch
               // failure and genuinely no history — dangerous here specifically,
@@ -326,10 +434,23 @@ function RxWrite() {
               // simply failed to load rather than not existing.
               <div className="text-xs text-destructive">History load nahi hui — connection check karo, dobara try karo.</div>
             ) : history && history.length > 0 ? (
-              <ul className="space-y-2">
+              // Was capped at 3 with no way to see more — a doctor deciding
+              // if a treatment is working needs the FULL course. Scrolls
+              // inside its own box (max-h) instead of pushing the whole
+              // page down; text bumped from text-xs to text-sm since this
+              // is meant to actually be read, on any screen size.
+              <ul className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
                 {history.map((v: any) => (
-                  <li key={v.id} className="text-xs border-l-2 border-primary/40 pl-2">
-                    <div className="font-semibold">{v.visit_date}</div>
+                  <li key={v.id} className="text-sm border-l-2 border-primary/40 pl-2.5 py-0.5">
+                    <div className="font-semibold text-primary flex items-center gap-1.5 flex-wrap">
+                      {v.visit_date}
+                      {(v.visit_type ?? "").toUpperCase() === "VIDEO" && (
+                        <span className="text-[10px] font-bold bg-primary/10 text-primary rounded-full px-1.5 py-0.5">🎥 Online</span>
+                      )}
+                      {v.recased_at && (
+                        <span className="text-[10px] font-bold bg-destructive/10 text-destructive rounded-full px-1.5 py-0.5">🔁 Recase</span>
+                      )}
+                    </div>
                     <div className="text-muted-foreground">{v.chief_complaint || "—"}</div>
                     {v.prescriptions?.length > 0 && (
                       <div className="mt-0.5 text-muted-foreground">
@@ -352,6 +473,13 @@ function RxWrite() {
               + Log Interaction (verbal advice / dose change)
             </button>
           )}
+
+          <button
+            onClick={() => { setRecaseMode("now"); setRecaseReason(""); setShowRecaseModal(true); }}
+            className="w-full rounded-xl bg-surface border border-dashed border-destructive/40 p-3 text-xs font-bold text-destructive text-center flex items-center justify-center gap-1.5"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Recase (patient sahi nahi ho raha)
+          </button>
         </section>
 
         {/* RIGHT: write rx */}

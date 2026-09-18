@@ -32,17 +32,18 @@ function ComplaintsPage() {
     queryFn: fetchOpenComplaints,
   });
   const rows = data ?? [];
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, { clarified: string; answer: string }>>({});
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const resolve = async (id: string) => {
-    const note = (drafts[id] ?? "").trim();
-    if (!note) {
+    const answer = (drafts[id]?.answer ?? "").trim();
+    const clarified = (drafts[id]?.clarified ?? "").trim();
+    if (!answer) {
       toast.error("Doctor ka jawab likho pehle");
       return;
     }
     setResolvingId(id);
-    const res = await resolveComplaint(id, note, user?.name);
+    const res = await resolveComplaint(id, answer, user?.name, clarified);
     setResolvingId(null);
     if (!res.success) {
       toast.error("Save nahi hua: " + res.error);
@@ -85,29 +86,39 @@ function ComplaintsPage() {
               <p className="text-sm mt-2 whitespace-pre-wrap">{r.note}</p>
               {r.created_by && <p className="text-[11px] text-muted-foreground mt-0.5">— {r.created_by} ne register ki</p>}
 
-              <div className="mt-3 flex gap-1.5">
-                {r.patient?.mobile && (
-                  <a
-                    href={`tel:${r.patient.mobile}`}
-                    className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-primary text-primary-foreground"
-                    aria-label="Call"
+              <div className="mt-3 flex flex-col gap-1.5">
+                <div className="flex gap-1.5">
+                  {r.patient?.mobile && (
+                    <a
+                      href={`tel:${r.patient.mobile}`}
+                      className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-primary text-primary-foreground"
+                      aria-label="Call"
+                    >
+                      <PhoneCall className="h-4 w-4" />
+                    </a>
+                  )}
+                  <input
+                    value={drafts[r.id]?.clarified ?? ""}
+                    onChange={(e) => setDrafts((s) => ({ ...s, [r.id]: { clarified: e.target.value, answer: s[r.id]?.answer ?? "" } }))}
+                    placeholder="Patient ne actually kya bola (optional)..."
+                    className="flex-1 min-w-0 rounded-lg bg-background border border-input px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    value={drafts[r.id]?.answer ?? ""}
+                    onChange={(e) => setDrafts((s) => ({ ...s, [r.id]: { clarified: s[r.id]?.clarified ?? "", answer: e.target.value } }))}
+                    placeholder="Doctor ka jawab likho..."
+                    className="flex-1 min-w-0 rounded-lg bg-background border border-input px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={() => resolve(r.id)}
+                    disabled={resolvingId === r.id}
+                    className="shrink-0 rounded-lg bg-success text-success-foreground px-4 py-2 text-sm font-bold disabled:opacity-50"
                   >
-                    <PhoneCall className="h-4 w-4" />
-                  </a>
-                )}
-                <input
-                  value={drafts[r.id] ?? ""}
-                  onChange={(e) => setDrafts((s) => ({ ...s, [r.id]: e.target.value }))}
-                  placeholder="Doctor ka jawab likho..."
-                  className="flex-1 min-w-0 rounded-lg bg-background border border-input px-3 py-2 text-sm"
-                />
-                <button
-                  onClick={() => resolve(r.id)}
-                  disabled={resolvingId === r.id}
-                  className="shrink-0 rounded-lg bg-success text-success-foreground px-4 py-2 text-sm font-bold disabled:opacity-50"
-                >
-                  {resolvingId === r.id ? "..." : "Resolve"}
-                </button>
+                    {resolvingId === r.id ? "..." : "Resolve"}
+                  </button>
+                </div>
               </div>
             </li>
           ))}

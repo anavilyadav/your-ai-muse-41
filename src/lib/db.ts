@@ -82,6 +82,8 @@ export interface DBPatient {
   family_group_id: string | null;
   family_relationship: string | null;
   photo_url: string | null;
+  pending_recase?: boolean;
+  recase_note?: string | null;
 }
 
 export interface DBVisit {
@@ -118,6 +120,14 @@ export interface DBVisit {
   // Undefined-safe: on a pre-migration DB this key just won't be present
   // in the row and every read below already treats that as "no draft".
   rx_draft?: RxDraft | null;
+  // Recase (18 Sep 2026) — needs_recase is set at check-in time when the
+  // patient carried a pending_recase flag from a prior "Recase Next Time";
+  // it forces this visit through case-taking again instead of the usual
+  // follow-up shortcut straight to Rx. recased_at/recase_reason are set by
+  // "Recase Now" on a visit already at the Rx screen.
+  needs_recase?: boolean;
+  recased_at?: string | null;
+  recase_reason?: string | null;
 }
 
 export interface DBPrescription {
@@ -1118,6 +1128,7 @@ export interface PatientInteraction {
   created_at: string;
   // Only meaningful when type === "COMPLAINT" — every other type stays null.
   status: ComplaintStatus | null;
+  clarified_note: string | null;
   resolved_note: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
@@ -1173,12 +1184,20 @@ export async function fetchOpenComplaints(): Promise<OpenComplaint[]> {
 // authenticated-staff UPDATE (matching this table's existing blanket
 // policy) rather than a new RPC — nothing here is Owner-sensitive config,
 // it's the same operational log every Case-DR/Doctor already writes to.
-export async function resolveComplaint(interactionId: string, resolutionNote: string, resolvedBy?: string) {
+// 18 Sep 2026 — a resolve now carries TWO separate pieces of text, not one:
+// Reception's original note is often rough ("jiski samajh aaye uski entry
+// karde" — they only log what they understood). The Junior Doctor actually
+// calls the patient and needs their own column for what the complaint
+// really is, distinct from Dr. Yadav's answer that gets relayed back.
+// clarifiedNote is optional (a doctor who agrees with Reception's note
+// verbatim can leave it blank) but resolutionNote (the answer) stays required.
+export async function resolveComplaint(interactionId: string, resolutionNote: string, resolvedBy?: string, clarifiedNote?: string) {
   const { error } = await supabase
     .from("patient_interactions")
     .update({
       status: "RESOLVED",
       resolved_note: resolutionNote.trim(),
+      clarified_note: clarifiedNote?.trim() || null,
       resolved_by: resolvedBy || null,
       resolved_at: new Date().toISOString(),
     })
@@ -2526,6 +2545,38 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
   if (error) throw error; // caller (submit/saveDraft) shows this — was silently "succeeding" before
 }
 
+// ---------- Recase (18 Sep 2026) ----------
+// "Recase Now" — the doctor isn't happy with how this visit's case was
+// taken (or the patient isn't responding), so it goes straight back to the
+// Case Board as a fresh REGISTERED case instead of being prescribed today.
+// case_notes/photos are deliberately left untouched: whoever picks it up
+// next overwrites them the normal way (saveCaseNotes already does a plain
+// UPDATE), so nothing is lost if the recase sits unpicked for a while.
+export async function recaseVisitNow(visitId: string, reason: string) {
+  const { error } = await supabase
+    .from("visits")
+    .update({
+      visit_status: "REGISTERED",
+      recased_at: new Date().toISOString(),
+      recase_reason: reason.trim() || null,
+    })
+    .eq("id", visitId)
+    .not("visit_status", "in", "(PHARMACY,PAYMENT,DONE)");
+  return { success: !error, error: error?.message ?? null };
+}
+
+// "Recase Next Time" — today's visit carries on as normal (Rx still gets
+// written), but the PATIENT is flagged so their next check-in is born
+// needing case-taking again (check_in_existing_patient_atomic reads this
+// flag and consumes it — see migration 0060).
+export async function flagRecaseNextTime(patientId: string, note: string) {
+  const { error } = await supabase
+    .from("patients")
+    .update({ pending_recase: true, recase_note: note.trim() || null })
+    .eq("id", patientId);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Doctor dashboard ----------
 // Clinic-wide numbers (visits don't carry a doctor_id column, so per-doctor
 // scoping isn't possible here — reporting the whole clinic is accurate,
@@ -3272,7 +3323,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0059_complaint_calls_and_patient_photo";
+export const EXPECTED_SCHEMA_VERSION = "0060_recase_and_complaint_clarification";
 
 export interface SchemaMigrationRow {
   filename: string;

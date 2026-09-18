@@ -587,7 +587,7 @@ function PatientProfilePage() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [resolvingComplaintId, setResolvingComplaintId] = useState<string | null>(null);
-  const [complaintDrafts, setComplaintDrafts] = useState<Record<string, string>>({});
+  const [complaintDrafts, setComplaintDrafts] = useState<Record<string, { clarified: string; answer: string }>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -664,13 +664,13 @@ function PatientProfilePage() {
     reload();
   };
 
-  const resolveComplaintCall = async (interactionId: string, resolutionNote: string) => {
+  const resolveComplaintCall = async (interactionId: string, resolutionNote: string, clarifiedNote: string) => {
     if (!resolutionNote.trim()) {
       toast.error("Doctor ka jawab likho pehle");
       return;
     }
     setResolvingComplaintId(interactionId);
-    const res = await resolveComplaint(interactionId, resolutionNote, user?.name);
+    const res = await resolveComplaint(interactionId, resolutionNote, user?.name, clarifiedNote);
     setResolvingComplaintId(null);
     if (!res.success) {
       toast.error("Save nahi hua: " + res.error);
@@ -998,6 +998,9 @@ function PatientProfilePage() {
                           {entry.data.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
                         </p>
                       )}
+                      {entry.data.recased_at && (
+                        <p className="text-[11px] text-destructive mt-1">🔁 Recase ki gayi{entry.data.recase_reason ? `: ${entry.data.recase_reason}` : ""}</p>
+                      )}
                     </li>
                   );
                 }
@@ -1050,30 +1053,46 @@ function PatientProfilePage() {
                       <p className="text-[11px] text-muted-foreground mt-0.5">— {entry.data.created_by}</p>
                     )}
                     {isComplaint && entry.data.status === "RESOLVED" && (
-                      <div className="mt-2 rounded-lg bg-success/10 border border-success/30 p-2">
-                        <p className="text-[10px] font-bold text-success uppercase">Doctor ka jawab</p>
-                        <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.data.resolved_note}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          — {entry.data.resolved_by ?? "—"}
-                          {entry.data.resolved_at && ` • ${new Date(entry.data.resolved_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
-                        </p>
+                      <div className="mt-2 space-y-2">
+                        {entry.data.clarified_note && (
+                          <div className="rounded-lg bg-accent/15 border border-accent/40 p-2">
+                            <p className="text-[10px] font-bold text-accent-foreground uppercase">Asli complaint (Jr Doctor ne confirm ki)</p>
+                            <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.data.clarified_note}</p>
+                          </div>
+                        )}
+                        <div className="rounded-lg bg-success/10 border border-success/30 p-2">
+                          <p className="text-[10px] font-bold text-success uppercase">Doctor ka jawab</p>
+                          <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.data.resolved_note}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            — {entry.data.resolved_by ?? "—"}
+                            {entry.data.resolved_at && ` • ${new Date(entry.data.resolved_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
+                          </p>
+                        </div>
                       </div>
                     )}
                     {isOpen && (
-                      <div className="mt-2 flex gap-1.5">
+                      <div className="mt-2 flex flex-col gap-1.5">
                         <input
-                          value={complaintDrafts[entry.data.id] ?? ""}
-                          onChange={(e) => setComplaintDrafts((s) => ({ ...s, [entry.data.id]: e.target.value }))}
-                          placeholder="Doctor ka jawab likho..."
-                          className="flex-1 min-w-0 rounded-lg bg-background border border-input px-2.5 py-1.5 text-xs"
+                          value={complaintDrafts[entry.data.id]?.clarified ?? ""}
+                          onChange={(e) => setComplaintDrafts((s) => ({ ...s, [entry.data.id]: { clarified: e.target.value, answer: s[entry.data.id]?.answer ?? "" } }))}
+                          placeholder="Patient ne actually kya bola (optional)..."
+                          className="w-full rounded-lg bg-background border border-input px-2.5 py-1.5 text-xs"
                         />
-                        <button
-                          onClick={() => resolveComplaintCall(entry.data.id, complaintDrafts[entry.data.id] ?? "")}
-                          disabled={resolvingComplaintId === entry.data.id}
-                          className="shrink-0 rounded-lg bg-success text-success-foreground px-3 py-1.5 text-xs font-bold disabled:opacity-50"
-                        >
-                          {resolvingComplaintId === entry.data.id ? "..." : "Resolve"}
-                        </button>
+                        <div className="flex gap-1.5">
+                          <input
+                            value={complaintDrafts[entry.data.id]?.answer ?? ""}
+                            onChange={(e) => setComplaintDrafts((s) => ({ ...s, [entry.data.id]: { clarified: s[entry.data.id]?.clarified ?? "", answer: e.target.value } }))}
+                            placeholder="Doctor ka jawab likho..."
+                            className="flex-1 min-w-0 rounded-lg bg-background border border-input px-2.5 py-1.5 text-xs"
+                          />
+                          <button
+                            onClick={() => resolveComplaintCall(entry.data.id, complaintDrafts[entry.data.id]?.answer ?? "", complaintDrafts[entry.data.id]?.clarified ?? "")}
+                            disabled={resolvingComplaintId === entry.data.id}
+                            className="shrink-0 rounded-lg bg-success text-success-foreground px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+                          >
+                            {resolvingComplaintId === entry.data.id ? "..." : "Resolve"}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </li>
