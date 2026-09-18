@@ -1,4 +1,5 @@
 import { supabase, today, istNow } from "./supabase";
+import { sendWhatsApp } from "./whatsapp";
 
 // ---------- Read failures must be LOUD, not empty ----------
 // Every read in this file used to do `if (error) return []`, which made a
@@ -3178,6 +3179,37 @@ export async function updateDelivery(id: string, patch: { status?: string; note?
 
 export async function updateDeliveryStatus(id: string, status: string) {
   return updateDelivery(id, { status });
+}
+
+// 18 Sep 2026 — courier/delivery matters a lot more now that online
+// consultation is live: a patient who never comes to the clinic in person
+// has no way to know their medicine order is even moving unless WhatsApp
+// tells them. This used to update `deliveries.status` with zero patient
+// communication at every stage. Needs an approved AiSensy campaign named
+// exactly "DELIVERY_UPDATE" (Dr. Yadav — same one-time setup as
+// BIRTHDAY_WISH/ANNIVERSARY_WISH) with a template shaped like:
+// "Namaste {{1}} ji! Aapke order ka update: {{2}}. {{3}} — YHC Jaipur"
+// where {{2}} is the human status line below and {{3}} is the tracking
+// note (AWB/driver) if one was entered, blank otherwise. Fire-and-forget:
+// a WhatsApp hiccup must never block the status update itself.
+const DELIVERY_STATUS_MESSAGE: Record<string, string> = {
+  Packed: "Aapka order pack ho gaya hai, jaldi hi bheja jayega",
+  Dispatched: "Aapka order nikal gaya hai",
+  "Out for Delivery": "Aapka order aaj delivery ke liye nikal chuka hai",
+  Delivered: "Aapka order deliver ho gaya — dhanyavaad!",
+  Issue: "Aapke order mein thodi dikkat aa gayi hai, clinic se jald hi call aayega",
+};
+export async function notifyDeliveryUpdate(patientId: string | null | undefined, patientName: string, status: string, note?: string | null) {
+  if (!patientId) return;
+  const message = DELIVERY_STATUS_MESSAGE[status];
+  if (!message) return;
+  await sendWhatsApp({
+    campaignName: "DELIVERY_UPDATE",
+    destination: "",
+    userName: patientName,
+    patientId,
+    templateParams: [patientName, message, note?.trim() ? `Tracking: ${note.trim()}` : ""],
+  });
 }
 
 export async function fetchStockIssues(limit = 10) {

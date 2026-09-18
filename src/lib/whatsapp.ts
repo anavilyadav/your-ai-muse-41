@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 
 export interface SendWhatsAppInput {
-  campaignName: "REGISTRATION_CONFIRM" | "APPOINTMENT_REMINDER" | "FOLLOWUP_REMINDER";
+  campaignName: "REGISTRATION_CONFIRM" | "APPOINTMENT_REMINDER" | "FOLLOWUP_REMINDER" | "DELIVERY_UPDATE";
   destination: string; // 10-digit mobile — used only as a fallback if patientId isn't given
   userName: string;
   templateParams?: string[];
