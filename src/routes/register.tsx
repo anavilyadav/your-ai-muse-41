@@ -5,7 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -128,6 +128,21 @@ function RegisterPage() {
 
   const [dupWarn, setDupWarn] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Patient photo (18 Sep 2026) — optional. Kept as a plain File + preview,
+  // separate from `f`, since it isn't serializable through the offline
+  // queue the way the rest of the form is (registerSubmitter's replay path
+  // above never touches this — a photo picked while offline is silently
+  // dropped, never blocking the registration itself).
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const onPhotoChange = (file: File | null) => {
+    setPhotoFile(file);
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  };
 
   const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
@@ -281,6 +296,13 @@ function RegisterPage() {
     };
     try {
       const { patient, visit } = await createPatientWithVisit(registrationInput);
+      if (photoFile) {
+        // Best-effort, fire-and-forget — a photo upload hiccup must never
+        // undo or block a registration that already succeeded.
+        uploadPatientPhoto(patient.id, photoFile).then((res) => {
+          if (!res.success) toast.warning("Photo save nahi hui — baad mein Patient Profile se try karo: " + res.error);
+        });
+      }
       let paymentCollected = false;
       const amountToCollect = Number(paymentAmount) || 0;
       if (amountToCollect > 0) {
@@ -459,6 +481,7 @@ function RegisterPage() {
                 setPaymentAmountTouched(false);
                 setPaymentMode("CASH");
                 setPaymentIdempotencyKey(crypto.randomUUID());
+                onPhotoChange(null);
               }}
               className="rounded-lg border border-border bg-surface py-2.5 text-sm font-semibold text-primary"
             >
@@ -648,6 +671,34 @@ function RegisterPage() {
 
         <Section label="Chief Complaint">
           <Field placeholder="e.g. Joint pain, migraine" value={f.chief} onChange={(e) => set("chief", e.target.value)} />
+        </Section>
+
+        <Section label="Patient Photo" hint="Optional — baad mein Patient Profile se bhi add kar sakte ho">
+          <div className="flex items-center gap-3">
+            <label className="shrink-0 h-16 w-16 rounded-full bg-surface border border-dashed border-border overflow-hidden grid place-items-center cursor-pointer">
+              {photoPreview ? (
+                <img src={photoPreview} alt="Preview" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-[10px] text-muted-foreground text-center px-1">Add Photo</span>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => onPhotoChange(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            {photoPreview && (
+              <button
+                type="button"
+                onClick={() => onPhotoChange(null)}
+                className="text-xs font-semibold text-destructive underline"
+              >
+                Hatao
+              </button>
+            )}
+          </div>
         </Section>
 
         <Section

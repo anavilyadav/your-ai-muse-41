@@ -46,6 +46,7 @@ export const CASE_DR_SCREENS: { key: string; label: string }[] = [
   { key: "caseBoard", label: "Case Board" },
   { key: "caseForm", label: "Case Taking Form" },
   { key: "caseReference", label: "Reference Performa" },
+  { key: "complaints", label: "Complaint Calls" },
 ];
 
 export const DOCTOR_SCREENS: { key: string; label: string }[] = [

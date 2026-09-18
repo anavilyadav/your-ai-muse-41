@@ -70,13 +70,18 @@ function HistoryPage() {
       {selected && (
         <ul className="mt-4 space-y-2.5">
           {history.isLoading && <li className="text-center text-sm text-muted-foreground py-6">Loading…</li>}
-          {!history.isLoading && entries.length === 0 && (
+          {history.isError && (
+            <li className="text-center text-sm text-destructive py-10">History load nahi hui — dobara try karo.</li>
+          )}
+          {!history.isLoading && !history.isError && entries.length === 0 && (
             <li className="text-center text-sm text-muted-foreground py-10">No history recorded.</li>
           )}
           {entries.map((visit: any) => (
             <li key={visit.id} className="rounded-2xl bg-surface border border-border border-l-[4px] border-l-accent p-3.5">
               <div className="flex justify-between items-center">
-                <span className="font-bold text-primary text-[14px]">{visit.visit_type ?? "Visit"}</span>
+                <span className="font-bold text-primary text-[14px]">
+                  {visit.visit_type === "VIDEO" ? "🎥 Online Follow-up" : visit.visit_type ?? "Visit"}
+                </span>
                 <span className="text-[11px] text-muted-foreground">{visit.visit_date}</span>
               </div>
               {visit.doctor_notes && (

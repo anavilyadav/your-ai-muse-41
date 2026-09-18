@@ -81,6 +81,7 @@ export interface DBPatient {
   last_visit_date: string | null;
   family_group_id: string | null;
   family_relationship: string | null;
+  photo_url: string | null;
 }
 
 export interface DBVisit {
@@ -1061,18 +1062,26 @@ export async function fetchInventorySearch(term: string, branch?: string) {
 }
 
 export async function fetchPatientHistory(patientId: string, limit = 3) {
-  const { data: visits } = await supabase
+  // 18 Sep 2026: was `const { data: visits } = await supabase...` on both
+  // queries — a real fetch failure looked identical to "no history at
+  // all," which is dangerous specifically on the Doctor Rx Consult screen
+  // (a doctor prescribing without knowing a past-visit fetch actually
+  // failed, not that there's genuinely no history) and misleading
+  // everywhere else this feeds the merged patient timeline.
+  const { data: visits, error: visitsError } = await supabase
     .from("visits")
     .select("*")
     .eq("patient_id", patientId)
     .order("visit_date", { ascending: false })
     .limit(limit);
+  if (visitsError) throw dataLoadError(visitsError);
   if (!visits || visits.length === 0) return [];
   const ids = visits.map((v: any) => v.id);
-  const { data: rx } = await supabase
+  const { data: rx, error: rxError } = await supabase
     .from("prescriptions")
     .select("*")
     .in("visit_id", ids);
+  if (rxError) throw dataLoadError(rxError);
   return visits.map((v: any) => ({
     ...v,
     prescriptions: (rx ?? []).filter((r: any) => r.visit_id === v.id),
@@ -1087,7 +1096,7 @@ export async function fetchPatientHistory(patientId: string, limit = 3) {
 // so this isn't an extension of visits/followups. Reception logs these
 // from the patient profile; Doctor logs them from the Rx screen (verbal
 // dosing changes happen mid-consultation constantly).
-export const INTERACTION_TYPES = ["CALL", "WHATSAPP_REPLY", "IN_CLINIC_VERBAL", "DOSE_CHANGE", "QUERY"] as const;
+export const INTERACTION_TYPES = ["CALL", "WHATSAPP_REPLY", "IN_CLINIC_VERBAL", "DOSE_CHANGE", "QUERY", "COMPLAINT"] as const;
 export type InteractionType = (typeof INTERACTION_TYPES)[number];
 export const INTERACTION_TYPE_LABELS: Record<InteractionType, string> = {
   CALL: "Call",
@@ -1095,7 +1104,10 @@ export const INTERACTION_TYPE_LABELS: Record<InteractionType, string> = {
   IN_CLINIC_VERBAL: "In-Clinic Verbal",
   DOSE_CHANGE: "Dose Change",
   QUERY: "Query",
+  COMPLAINT: "Complaint / Support Call",
 };
+
+export type ComplaintStatus = "OPEN" | "RESOLVED";
 
 export interface PatientInteraction {
   id: string;
@@ -1104,6 +1116,11 @@ export interface PatientInteraction {
   note: string;
   created_by: string | null;
   created_at: string;
+  // Only meaningful when type === "COMPLAINT" — every other type stays null.
+  status: ComplaintStatus | null;
+  resolved_note: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
 }
 
 export async function logPatientInteraction(
@@ -1117,7 +1134,56 @@ export async function logPatientInteraction(
     type,
     note: note.trim(),
     created_by: createdBy || null,
+    // 18 Sep 2026 — Complaint/Support Call workflow: Reception logs an
+    // acute issue mid-treatment as OPEN; it stays visible on a Junior
+    // Doctor's worklist (fetchOpenComplaints) until someone calls back
+    // and resolves it. Every other type has no status concept at all.
+    status: type === "COMPLAINT" ? "OPEN" : null,
   });
+  return { success: !error, error: error?.message ?? null };
+}
+
+// The Junior Doctor's evening worklist — every complaint Reception has
+// logged that nobody has called back on yet, oldest first so nothing sits
+// unanswered. Patient contact details are included so the doctor doesn't
+// need to open the full profile just to place the call.
+export interface OpenComplaint {
+  id: string;
+  patient_id: string;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+  patient: { name: string; mobile: string; patient_code: string | null; branch: string } | null;
+}
+
+export async function fetchOpenComplaints(): Promise<OpenComplaint[]> {
+  const { data, error } = await supabase
+    .from("patient_interactions")
+    .select("id, patient_id, note, created_by, created_at, patient:patients(name, mobile, patient_code, branch)")
+    .eq("type", "COMPLAINT")
+    .eq("status", "OPEN")
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) throw dataLoadError(error);
+  return (data ?? []).map((r: any) => ({ ...r, patient: r.patient ?? null })) as OpenComplaint[];
+}
+
+// Closes the loop: what the doctor actually told the patient (relaying
+// Dr. Yadav's instruction), who answered it, when. Left as a plain
+// authenticated-staff UPDATE (matching this table's existing blanket
+// policy) rather than a new RPC — nothing here is Owner-sensitive config,
+// it's the same operational log every Case-DR/Doctor already writes to.
+export async function resolveComplaint(interactionId: string, resolutionNote: string, resolvedBy?: string) {
+  const { error } = await supabase
+    .from("patient_interactions")
+    .update({
+      status: "RESOLVED",
+      resolved_note: resolutionNote.trim(),
+      resolved_by: resolvedBy || null,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq("id", interactionId)
+    .eq("status", "OPEN"); // don't silently re-resolve an already-closed complaint with stale UI state
   return { success: !error, error: error?.message ?? null };
 }
 
@@ -3206,7 +3272,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0058_storage_bucket_limits";
+export const EXPECTED_SCHEMA_VERSION = "0059_complaint_calls_and_patient_photo";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -4584,6 +4650,37 @@ export async function uploadPatientDocument(
       note: note?.trim() || null,
       uploaded_by: uploadedBy || null,
     });
+    if (error) return { success: false, error: error.message };
+    return { success: true, error: null };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "Upload failed" };
+  }
+}
+
+// ---------- Patient Photo / DP (18 Sep 2026) ----------
+// A patient's own profile picture — distinct from patient_documents (scanned
+// paper) and visits.case_photo_url (case-taking photos). Reuses the same
+// patient-documents bucket (already private + image-only since RF-19) under
+// a fixed `<patientId>/profile-photo.<ext>` path with upsert:true, so
+// re-uploading always replaces the old one instead of accumulating photos.
+// Deliberately optional everywhere it's offered (registration, profile) —
+// a skipped or failed upload must never block patient creation or any
+// other flow, so callers always treat this as best-effort.
+export async function uploadPatientPhoto(patientId: string, file: File): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const compressed = await compressImageForUpload(file, { maxDim: 800, quality: 0.8 });
+    const ext = compressed.name.split(".").pop() || "jpg";
+    const path = `${patientId}/profile-photo.${ext}`;
+    const { error: upErr } = await withTimeout(
+      supabase.storage.from("patient-documents").upload(path, compressed, { upsert: true }),
+      25_000,
+      "Photo upload",
+    );
+    if (upErr) return { success: false, error: upErr.message };
+    supabase.from("storage_backup_queue").insert({ bucket: "patient-documents", path }).then(({ error: qErr }) => {
+      if (qErr) console.error("storage_backup_queue enqueue failed:", qErr.message);
+    });
+    const { error } = await supabase.from("patients").update({ photo_url: path }).eq("id", patientId);
     if (error) return { success: false, error: error.message };
     return { success: true, error: null };
   } catch (e: any) {

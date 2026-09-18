@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, BarChart3, ClipboardList, Clock, LogOut } from "lucide-react";
+import { ArrowLeft, BarChart3, ClipboardList, Clock, LogOut, PhoneCall } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { writeDoctorSession } from "@/lib/yhc-doctor";
@@ -23,6 +23,7 @@ const rxNav = [
 
 const caseNav = [
   { to: "/doctor/case", label: "Cases", icon: ClipboardList, exact: true },
+  { to: "/doctor/complaints", label: "Complaints", icon: PhoneCall, exact: false },
   { to: "/doctor/case/reference", label: "Reference", icon: BarChart3, exact: false },
 ] as const;
 

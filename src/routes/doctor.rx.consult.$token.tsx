@@ -73,7 +73,7 @@ function RxWrite() {
     queryFn: () => fetchVisit(visitId),
   });
 
-  const { data: history } = useQuery({
+  const { data: history, isError: historyError } = useQuery({
     queryKey: ["patient-history", visit?.patient_id],
     queryFn: () => fetchPatientHistory(visit!.patient_id, 3),
     enabled: !!visit?.patient_id,
@@ -319,7 +319,13 @@ function RxWrite() {
 
           <div className="rounded-xl bg-surface border border-border p-3">
             <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1">Last 3 visits</div>
-            {history && history.length > 0 ? (
+            {historyError ? (
+              // "Koi previous visits nahi" looked identical for a real fetch
+              // failure and genuinely no history — dangerous here specifically,
+              // since a doctor could prescribe without knowing past visits
+              // simply failed to load rather than not existing.
+              <div className="text-xs text-destructive">History load nahi hui — connection check karo, dobara try karo.</div>
+            ) : history && history.length > 0 ? (
               <ul className="space-y-2">
                 {history.map((v: any) => (
                   <li key={v.id} className="text-xs border-l-2 border-primary/40 pl-2">

@@ -30,9 +30,13 @@ import {
   formatCardNumber,
   mergePatients,
   fetchWhatsAppDeliveryHealth,
+  fetchInteractions,
+  uploadPatientPhoto,
+  resolveComplaint,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
+  type Interaction,
   type DBPatient,
   type WhatsAppDeliveryHealth,
   branchLabel as getBranchLabel,
@@ -575,10 +579,15 @@ function PatientProfilePage() {
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
+  const [crmInteractions, setCrmInteractions] = useState<Interaction[]>([]);
   const [family, setFamily] = useState<any[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [viewerDoc, setViewerDoc] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [resolvingComplaintId, setResolvingComplaintId] = useState<string | null>(null);
+  const [complaintDrafts, setComplaintDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -592,12 +601,13 @@ function PatientProfilePage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [p, vs, fam, docs, ints, wa] = await Promise.all([
+      const [p, vs, fam, docs, ints, crmInts, wa] = await Promise.all([
         fetchPatientById(id),
         fetchPatientHistory(id, 20),
         fetchFamilyMembers(id),
         fetchPatientDocuments(id),
         fetchPatientInteractions(id),
+        fetchInteractions({ patientId: id }),
         fetchWhatsAppDeliveryHealth(id),
       ]);
       setPatient(p);
@@ -605,7 +615,9 @@ function PatientProfilePage() {
       setFamily(fam);
       setDocuments(docs);
       setInteractions(ints);
+      setCrmInteractions(crmInts);
       setWaHealth(wa);
+      setPhotoUrl(p?.photo_url ? await resolveDocUrl("patient-documents", p.photo_url) : null);
     } catch (e) {
       // Any one of the 6 parallel fetches failing used to leave this page
       // stuck on "Loading patient…" forever — the whole point of this
@@ -638,6 +650,35 @@ function PatientProfilePage() {
       cancelled = true;
     };
   }, [documents]);
+
+  const onPhotoFileChange = async (file: File | null) => {
+    if (!file) return;
+    setPhotoUploading(true);
+    const res = await uploadPatientPhoto(id, file);
+    setPhotoUploading(false);
+    if (!res.success) {
+      toast.error("Photo save nahi hui: " + res.error);
+      return;
+    }
+    toast.success("Photo update ho gayi");
+    reload();
+  };
+
+  const resolveComplaintCall = async (interactionId: string, resolutionNote: string) => {
+    if (!resolutionNote.trim()) {
+      toast.error("Doctor ka jawab likho pehle");
+      return;
+    }
+    setResolvingComplaintId(interactionId);
+    const res = await resolveComplaint(interactionId, resolutionNote, user?.name);
+    setResolvingComplaintId(null);
+    if (!res.success) {
+      toast.error("Save nahi hua: " + res.error);
+      return;
+    }
+    toast.success("Complaint resolve ho gayi");
+    reload();
+  };
 
   if (loading) {
     return (
@@ -693,9 +734,26 @@ function PatientProfilePage() {
       )}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="h-14 w-14 rounded-full bg-accent text-accent-foreground grid place-items-center text-xl font-bold">
-            {patient.name.charAt(0)}
-          </div>
+          <label className="relative shrink-0 h-14 w-14 rounded-full bg-accent text-accent-foreground grid place-items-center text-xl font-bold overflow-hidden cursor-pointer">
+            {photoUrl ? (
+              <img src={photoUrl} alt={patient.name} className="h-full w-full object-cover" />
+            ) : (
+              patient.name.charAt(0)
+            )}
+            {photoUploading && (
+              <div className="absolute inset-0 bg-black/40 grid place-items-center text-[9px] text-white">...</div>
+            )}
+            <div className="absolute inset-0 bg-black/0 hover:bg-black/30 transition grid place-items-center">
+              <Camera className="h-4 w-4 text-white opacity-0 hover:opacity-100" />
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => onPhotoFileChange(e.target.files?.[0] ?? null)}
+            />
+          </label>
           <div className="min-w-0 flex-1">
             <div className="font-bold truncate">{patient.name}</div>
             <div className="text-[11px] opacity-80">
@@ -897,44 +955,91 @@ function PatientProfilePage() {
             interactions merged into one chronologically-sorted list
             instead of two separate sections, so "why did they call" and
             "what happened at their last visit" are answerable from one
-            scroll instead of hunting across the page. */}
-        {visits.length === 0 && interactions.length === 0 ? (
+            scroll instead of hunting across the page.
+            18 Sep 2026 — a THIRD source joins this timeline: `interactions`
+            (the CRM table Reception's Follow-up screen logs pre-visit
+            reminder calls into). Before this it only lived on the
+            Follow-up/Leads screens, invisible here — a patient's own
+            profile is the one place Dr. Yadav actually wants the full
+            "kab kab kya hua" picture, so it belongs in this same list. */}
+        {visits.length === 0 && interactions.length === 0 && crmInteractions.length === 0 ? (
           <p className="text-center text-xs text-muted-foreground py-6">Abhi tak koi visit ya interaction record nahi hai.</p>
         ) : (
           <ul className="space-y-2">
             {[
               ...visits.map((v: any) => ({ kind: "visit" as const, at: v.visit_date, data: v })),
               ...interactions.map((i) => ({ kind: "interaction" as const, at: i.created_at, data: i })),
+              ...crmInteractions.map((i) => ({ kind: "crm" as const, at: i.created_at, data: i })),
             ]
               .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-              .map((entry) =>
-                entry.kind === "visit" ? (
-                  <li
-                    key={`v-${entry.data.id}`}
-                    className="rounded-xl bg-surface border border-border border-l-4 border-l-primary p-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-primary">
-                        {new Date(entry.data.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                      </span>
-                      <span className="text-[11px] font-bold text-success">{entry.data.visit_status}</span>
-                    </div>
-                    {entry.data.chief_complaint && <p className="text-sm mt-1">{entry.data.chief_complaint}</p>}
-                    {entry.data.prescriptions && entry.data.prescriptions.length > 0 && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                        <Pill className="h-3 w-3" />{" "}
-                        {entry.data.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
-                      </p>
-                    )}
-                  </li>
-                ) : (
+              .map((entry) => {
+                if (entry.kind === "visit") {
+                  const isVideo = (entry.data.visit_type ?? "").toUpperCase() === "VIDEO";
+                  return (
+                    <li
+                      key={`v-${entry.data.id}`}
+                      className="rounded-xl bg-surface border border-border border-l-4 border-l-primary p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                          {new Date(entry.data.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                          {isVideo && (
+                            <span className="rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-bold">
+                              🎥 Online Follow-up
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] font-bold text-success">{entry.data.visit_status}</span>
+                      </div>
+                      {entry.data.chief_complaint && <p className="text-sm mt-1">{entry.data.chief_complaint}</p>}
+                      {entry.data.prescriptions && entry.data.prescriptions.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Pill className="h-3 w-3" />{" "}
+                          {entry.data.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
+                        </p>
+                      )}
+                    </li>
+                  );
+                }
+                if (entry.kind === "crm") {
+                  return (
+                    <li
+                      key={`c-${entry.data.id}`}
+                      className="rounded-xl bg-surface border border-border border-l-4 border-l-success p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-success bg-success/15 rounded-full px-2 py-0.5">
+                          {entry.data.type === "call" ? "Follow-up Call" : "WhatsApp"}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(entry.data.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                        </span>
+                      </div>
+                      <p className="text-sm mt-1 whitespace-pre-wrap">{entry.data.summary}</p>
+                      {entry.data.created_by && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">— {entry.data.created_by}</p>
+                      )}
+                    </li>
+                  );
+                }
+                const isComplaint = entry.data.type === "COMPLAINT";
+                const isOpen = isComplaint && entry.data.status === "OPEN";
+                return (
                   <li
                     key={`i-${entry.data.id}`}
-                    className="rounded-xl bg-surface border border-border border-l-4 border-l-accent p-3"
+                    className={cn(
+                      "rounded-xl bg-surface border p-3",
+                      isOpen ? "border-destructive/50 border-l-4 border-l-destructive" : "border-border border-l-4 border-l-accent",
+                    )}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-accent-foreground bg-accent/20 rounded-full px-2 py-0.5">
-                        {INTERACTION_TYPE_LABELS[entry.data.type]}
+                      <span
+                        className={cn(
+                          "text-xs font-semibold rounded-full px-2 py-0.5",
+                          isOpen ? "text-destructive bg-destructive/15" : "text-accent-foreground bg-accent/20",
+                        )}
+                      >
+                        {INTERACTION_TYPE_LABELS[entry.data.type]}{isOpen ? " — Jawab pending" : ""}
                       </span>
                       <span className="text-[10px] text-muted-foreground">
                         {new Date(entry.data.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
@@ -944,9 +1049,36 @@ function PatientProfilePage() {
                     {entry.data.created_by && (
                       <p className="text-[11px] text-muted-foreground mt-0.5">— {entry.data.created_by}</p>
                     )}
+                    {isComplaint && entry.data.status === "RESOLVED" && (
+                      <div className="mt-2 rounded-lg bg-success/10 border border-success/30 p-2">
+                        <p className="text-[10px] font-bold text-success uppercase">Doctor ka jawab</p>
+                        <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.data.resolved_note}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          — {entry.data.resolved_by ?? "—"}
+                          {entry.data.resolved_at && ` • ${new Date(entry.data.resolved_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
+                        </p>
+                      </div>
+                    )}
+                    {isOpen && (
+                      <div className="mt-2 flex gap-1.5">
+                        <input
+                          value={complaintDrafts[entry.data.id] ?? ""}
+                          onChange={(e) => setComplaintDrafts((s) => ({ ...s, [entry.data.id]: e.target.value }))}
+                          placeholder="Doctor ka jawab likho..."
+                          className="flex-1 min-w-0 rounded-lg bg-background border border-input px-2.5 py-1.5 text-xs"
+                        />
+                        <button
+                          onClick={() => resolveComplaintCall(entry.data.id, complaintDrafts[entry.data.id] ?? "")}
+                          disabled={resolvingComplaintId === entry.data.id}
+                          className="shrink-0 rounded-lg bg-success text-success-foreground px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+                        >
+                          {resolvingComplaintId === entry.data.id ? "..." : "Resolve"}
+                        </button>
+                      </div>
+                    )}
                   </li>
-                ),
-              )}
+                );
+              })}
           </ul>
         )}
       </div>
