@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2 } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash } from "@/lib/db";
 import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
@@ -63,6 +63,13 @@ function OwnerDashboard() {
     >
       {stats.isLoading ? (
         <LoadingBlock />
+      ) : stats.isError ? (
+        // RF-23: was an unconditional `?? 0` fallback on every stat below
+        // (same fabricated-zero-dashboard failure mode as RF-06's Day
+        // Summary), so a real fetch error on the Owner's own landing page
+        // rendered a confident "Today's Revenue ₹0" instead of any
+        // indication the numbers hadn't actually loaded.
+        <ErrorBlock error={stats.error} onRetry={() => void stats.refetch()} />
       ) : (
         <>
           <div className="rounded-2xl bg-primary text-primary-foreground p-5 text-center">
@@ -98,81 +105,81 @@ function OwnerDashboard() {
               ))}
             </div>
           </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Link to="/appointments" className="rounded-2xl bg-surface border border-border p-3.5">
-              <CalendarCheck className="h-5 w-5 text-primary" />
-              <div className="font-bold text-primary text-sm mt-1">Appointments</div>
-              <div className="text-[11px] text-muted-foreground">Book · slot & time settings</div>
-            </Link>
-            <Link to="/owner/incentives" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Target className="h-5 w-5 text-accent-foreground" />
-              <div className="font-bold text-primary text-sm mt-1">Incentives</div>
-              <div className="text-[11px] text-muted-foreground">Staff performance</div>
-            </Link>
-            <Link to="/owner/staff" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Users className="h-5 w-5 text-primary" />
-              <div className="font-bold text-primary text-sm mt-1">Staff ({staffCount})</div>
-              <div className="text-[11px] text-muted-foreground">{activeStaff} active</div>
-            </Link>
-            <Link to="/owner/patients" className="rounded-2xl bg-surface border border-border p-3.5">
-              <BookUser className="h-5 w-5 text-primary" />
-              <div className="font-bold text-primary text-sm mt-1">Master Patient List</div>
-              <div className="text-[11px] text-muted-foreground">Browse sabhi patients, search bhi</div>
-            </Link>
-            <Link to="/owner/followup-rules" className="rounded-2xl bg-surface border border-border p-3.5">
-              <CalendarClock className="h-5 w-5 text-accent-foreground" />
-              <div className="font-bold text-primary text-sm mt-1">Follow-up Rules</div>
-              <div className="text-[11px] text-muted-foreground">Reminder sequences</div>
-            </Link>
-            <Link to="/owner/winback-tiers" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Target className="h-5 w-5 text-destructive" />
-              <div className="font-bold text-primary text-sm mt-1">Win-back Tiers</div>
-              <div className="text-[11px] text-muted-foreground">Lapsed patients</div>
-            </Link>
-            <Link to="/owner/holidays" className="rounded-2xl bg-surface border border-border p-3.5">
-              <CalendarClock className="h-5 w-5 text-success" />
-              <div className="font-bold text-primary text-sm mt-1">Holidays</div>
-              <div className="text-[11px] text-muted-foreground">Greeting broadcasts</div>
-            </Link>
-            <Link to="/owner/payment-adjustments" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Wallet className="h-5 w-5 text-destructive" />
-              <div className="font-bold text-primary text-sm mt-1">Payment Adjustments</div>
-              <div className="text-[11px] text-muted-foreground">Overpayment refund/credit</div>
-            </Link>
-            <Link to="/purchase-orders" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Package className="h-5 w-5 text-accent-foreground" />
-              <div className="font-bold text-primary text-sm mt-1">Purchase Orders{pendingPoCount > 0 ? ` (${pendingPoCount})` : ""}</div>
-              <div className="text-[11px] text-muted-foreground">Vendor se mangwana — pending/partial</div>
-            </Link>
-            <Link to="/owner/payment-modes" className="rounded-2xl bg-surface border border-border p-3.5">
-              <CreditCard className="h-5 w-5 text-primary" />
-              <div className="font-bold text-primary text-sm mt-1">Payment Modes</div>
-              <div className="text-[11px] text-muted-foreground">Cash/UPI/Card + custom</div>
-            </Link>
-            <Link to="/owner/case-tracking" className="rounded-2xl bg-surface border border-border p-3.5">
-              <ClipboardList className="h-5 w-5 text-destructive" />
-              <div className="font-bold text-primary text-sm mt-1">Case Tracking</div>
-              <div className="text-[11px] text-muted-foreground">Online + walk-in, pending discussion</div>
-            </Link>
-            <Link to="/owner/whatsapp" className="rounded-2xl bg-surface border border-border p-3.5">
-              <MessageCircle className="h-5 w-5 text-success" />
-              <div className="font-bold text-primary text-sm mt-1">WhatsApp Delivery</div>
-              <div className="text-[11px] text-muted-foreground">Sent / failed / opt-out</div>
-            </Link>
-            <Link to="/owner/audit-log" className="rounded-2xl bg-surface border border-border p-3.5">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
-              <div className="text-[11px] text-muted-foreground">Har change ka record</div>
-            </Link>
-            <Link to="/owner/trash" className="rounded-2xl bg-surface border border-border p-3.5">
-              <Trash2 className="h-5 w-5 text-destructive" />
-              <div className="font-bold text-primary text-sm mt-1">Trash{trashCount > 0 ? ` (${trashCount})` : ""}</div>
-              <div className="text-[11px] text-muted-foreground">Aaj delete hui cheezein — restore karo</div>
-            </Link>
-          </div>
         </>
       )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Link to="/appointments" className="rounded-2xl bg-surface border border-border p-3.5">
+          <CalendarCheck className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Appointments</div>
+          <div className="text-[11px] text-muted-foreground">Book · slot & time settings</div>
+        </Link>
+        <Link to="/owner/incentives" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Target className="h-5 w-5 text-accent-foreground" />
+          <div className="font-bold text-primary text-sm mt-1">Incentives</div>
+          <div className="text-[11px] text-muted-foreground">Staff performance</div>
+        </Link>
+        <Link to="/owner/staff" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Users className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Staff ({staffCount})</div>
+          <div className="text-[11px] text-muted-foreground">{activeStaff} active</div>
+        </Link>
+        <Link to="/owner/patients" className="rounded-2xl bg-surface border border-border p-3.5">
+          <BookUser className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Master Patient List</div>
+          <div className="text-[11px] text-muted-foreground">Browse sabhi patients, search bhi</div>
+        </Link>
+        <Link to="/owner/followup-rules" className="rounded-2xl bg-surface border border-border p-3.5">
+          <CalendarClock className="h-5 w-5 text-accent-foreground" />
+          <div className="font-bold text-primary text-sm mt-1">Follow-up Rules</div>
+          <div className="text-[11px] text-muted-foreground">Reminder sequences</div>
+        </Link>
+        <Link to="/owner/winback-tiers" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Target className="h-5 w-5 text-destructive" />
+          <div className="font-bold text-primary text-sm mt-1">Win-back Tiers</div>
+          <div className="text-[11px] text-muted-foreground">Lapsed patients</div>
+        </Link>
+        <Link to="/owner/holidays" className="rounded-2xl bg-surface border border-border p-3.5">
+          <CalendarClock className="h-5 w-5 text-success" />
+          <div className="font-bold text-primary text-sm mt-1">Holidays</div>
+          <div className="text-[11px] text-muted-foreground">Greeting broadcasts</div>
+        </Link>
+        <Link to="/owner/payment-adjustments" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Wallet className="h-5 w-5 text-destructive" />
+          <div className="font-bold text-primary text-sm mt-1">Payment Adjustments</div>
+          <div className="text-[11px] text-muted-foreground">Overpayment refund/credit</div>
+        </Link>
+        <Link to="/purchase-orders" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Package className="h-5 w-5 text-accent-foreground" />
+          <div className="font-bold text-primary text-sm mt-1">Purchase Orders{pendingPoCount > 0 ? ` (${pendingPoCount})` : ""}</div>
+          <div className="text-[11px] text-muted-foreground">Vendor se mangwana — pending/partial</div>
+        </Link>
+        <Link to="/owner/payment-modes" className="rounded-2xl bg-surface border border-border p-3.5">
+          <CreditCard className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Payment Modes</div>
+          <div className="text-[11px] text-muted-foreground">Cash/UPI/Card + custom</div>
+        </Link>
+        <Link to="/owner/case-tracking" className="rounded-2xl bg-surface border border-border p-3.5">
+          <ClipboardList className="h-5 w-5 text-destructive" />
+          <div className="font-bold text-primary text-sm mt-1">Case Tracking</div>
+          <div className="text-[11px] text-muted-foreground">Online + walk-in, pending discussion</div>
+        </Link>
+        <Link to="/owner/whatsapp" className="rounded-2xl bg-surface border border-border p-3.5">
+          <MessageCircle className="h-5 w-5 text-success" />
+          <div className="font-bold text-primary text-sm mt-1">WhatsApp Delivery</div>
+          <div className="text-[11px] text-muted-foreground">Sent / failed / opt-out</div>
+        </Link>
+        <Link to="/owner/audit-log" className="rounded-2xl bg-surface border border-border p-3.5">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
+          <div className="text-[11px] text-muted-foreground">Har change ka record</div>
+        </Link>
+        <Link to="/owner/trash" className="rounded-2xl bg-surface border border-border p-3.5">
+          <Trash2 className="h-5 w-5 text-destructive" />
+          <div className="font-bold text-primary text-sm mt-1">Trash{trashCount > 0 ? ` (${trashCount})` : ""}</div>
+          <div className="text-[11px] text-muted-foreground">Aaj delete hui cheezein — restore karo</div>
+        </Link>
+      </div>
     </RoleShell>
   );
 }

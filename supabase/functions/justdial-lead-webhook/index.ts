@@ -46,6 +46,36 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// RF-16: the Owner's WhatsApp master switch / per-campaign toggle / daily
+// cap (Control Centre → WhatsApp) governed every scheduled campaign but not
+// this webhook's LEAD_WELCOME send — turning the master switch off did not
+// actually stop new JustDial leads from getting a WhatsApp welcome. Same
+// inlined pattern as whatsapp-birthday-anniversary/index.ts.
+interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
+const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
+function istTodayDate(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
+  if (data?.value) {
+    try {
+      const parsed = JSON.parse(data.value);
+      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
+    } catch { /* keep defaults */ }
+  }
+  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
+  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
+  if (!mod.enabled) return { allowed: false, reason: "module_off" };
+  if (mod.dailyCap == null) return { allowed: true, reason: null };
+  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
+  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
+  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
+  return { allowed: true, reason: null };
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
@@ -142,7 +172,8 @@ Deno.serve(async (req) => {
     }
 
     const apiKey = Deno.env.get("AISENSY_API_KEY");
-    if (apiKey) {
+    const gate = apiKey ? await checkCampaignGate(supabaseAdmin, "LEAD_WELCOME") : null;
+    if (apiKey && gate?.allowed) {
       try {
         const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
           method: "POST",
@@ -166,6 +197,12 @@ Deno.serve(async (req) => {
       } catch {
         // Lead is already saved — a WhatsApp hiccup must not fail the whole request
       }
+    } else if (apiKey && gate && !gate.allowed) {
+      await supabaseAdmin.from("interactions").insert({
+        lead_id: leadId,
+        type: "whatsapp",
+        summary: `LEAD_WELCOME skipped (${gate.reason}, JustDial auto)`,
+      });
     }
 
     return new Response(JSON.stringify({ success: true, leadId }), { headers: { "Content-Type": "application/json" } });

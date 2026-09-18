@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchPendingCases, fetchCaseFunnelStats, branchLabel, type PendingCase } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -38,11 +38,11 @@ function StatBlock({ label, total, discussed }: { label: string; total: number; 
 }
 
 function CaseTrackingPage() {
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErr, refetch: refetchStats } = useQuery({
     queryKey: ["case-funnel-stats"],
     queryFn: fetchCaseFunnelStats,
   });
-  const { data: pending, isLoading: pendingLoading } = useQuery({
+  const { data: pending, isLoading: pendingLoading, isError: pendingError, error: pendingErr, refetch: refetchPending } = useQuery({
     queryKey: ["pending-cases"],
     queryFn: fetchPendingCases,
   });
@@ -59,6 +59,8 @@ function CaseTrackingPage() {
     <RoleShell wide title="Case Tracking" subtitle="Registered vs discussed — koi bhi case gayab nahi hoga" showBack>
       {statsLoading ? (
         <LoadingBlock />
+      ) : statsError ? (
+        <ErrorBlock error={statsErr} onRetry={() => void refetchStats()} />
       ) : stats ? (
         <div className="grid grid-cols-2 gap-2">
           <StatBlock label="Today" total={stats.today.total} discussed={stats.today.discussed} />
@@ -91,6 +93,8 @@ function CaseTrackingPage() {
 
       {pendingLoading ? (
         <LoadingBlock />
+      ) : pendingError ? (
+        <ErrorBlock error={pendingErr} onRetry={() => void refetchPending()} />
       ) : list.length === 0 ? (
         <EmptyBlock label="Koi bhi case pending nahi hai — sab discuss ho chuke hain." />
       ) : (

@@ -598,7 +598,15 @@ export async function isDuplicateMobile(mobile: string, countryCode: string = "+
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode);
   if (excludePatientId) q = q.neq("id", excludePatientId);
-  const { count } = await q;
+  // RF-09: was `const { count } = await q`, ignoring `error` entirely — on a
+  // failed query `count` comes back null/undefined, so `(count ?? 0) > 0`
+  // silently resolved to "not a duplicate." There's no DB-level unique
+  // constraint on mobile (verified live), so this check is the only thing
+  // stopping a true duplicate patient from being created — failing open on
+  // a transient error meant staff got zero warning. Throw instead so both
+  // call sites can catch it and tell staff the check itself failed.
+  const { count, error } = await q;
+  if (error) throw dataLoadError(error);
   return (count ?? 0) > 0;
 }
 
@@ -693,7 +701,14 @@ export async function fetchVisit(visitId: string) {
 // ---------- Case-DR eligibility (Junior sees Simple only, Senior sees all) ----------
 export async function fetchCaseDrLevels(): Promise<Record<string, "Junior" | "Senior">> {
   const { data, error } = await supabase.from("settings").select("value").eq("key", "case_dr_levels").maybeSingle();
-  if (error) console.error("fetchCaseDrLevels failed:", error.message);
+  // RF-22: was `console.error(...)` then falling through to `return {}` —
+  // identical to the legitimate "Owner hasn't configured any levels yet"
+  // empty state, so the caller (doctor.case.index.tsx) couldn't tell a real
+  // fetch failure apart from "nothing configured" and defaulted every
+  // Case-DR to Senior (full access, including Complex cases) either way.
+  // Throwing lets the caller distinguish "error" from "genuinely empty" and
+  // fail closed to Junior only for the former.
+  if (error) throw dataLoadError(error);
   if (!data?.value) return {};
   try {
     return JSON.parse(data.value);
@@ -1309,7 +1324,14 @@ export interface CaseFunnelStats {
 
 export async function fetchCaseFunnelStats(): Promise<CaseFunnelStats | null> {
   const { data, error } = await supabase.rpc("case_funnel_stats");
-  if (error || !data) return null;
+  // RF-23: was `if (error || !data) return null` — a real RPC failure and
+  // "the RPC genuinely returned nothing" were indistinguishable, and
+  // owner.case-tracking.tsx's null-check rendered the same "Stats load
+  // nahi hue" block either way with no retry. Throw on a real error so
+  // that screen's ErrorBlock (now wired) can actually offer a retry;
+  // `null` stays reserved for the RPC legitimately returning no row.
+  if (error) throw dataLoadError(error);
+  if (!data) return null;
   return data as CaseFunnelStats;
 }
 
@@ -1873,7 +1895,11 @@ export async function fetchLeads(): Promise<{ rows: any[]; truncated: boolean }>
     .select("*")
     .order("created_at", { ascending: false })
     .limit(LIMIT + 1);
-  if (error) return { rows: [], truncated: false };
+  // RF-10: was `if (error) return { rows: [], truncated: false }` — swallowed
+  // a real fetch failure into an indistinguishable empty-success result, so
+  // the `ErrorBlock` already wired up in leads.tsx for this case was dead
+  // code. Throwing lets it actually render instead of a silent empty list.
+  if (error) throw dataLoadError(error);
   const rows = data ?? [];
   const truncated = rows.length > LIMIT;
   return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
@@ -1930,7 +1956,10 @@ export async function fetchInventory(): Promise<{ rows: any[]; truncated: boolea
     .select("*")
     .order("medicine_name", { ascending: true })
     .limit(LIMIT + 1);
-  if (error) return { rows: [], truncated: false };
+  // RF-10: was `if (error) return { rows: [], truncated: false }` — see the
+  // matching note on fetchLeads above; same silent-empty-success bug, same
+  // fix.
+  if (error) throw dataLoadError(error);
   const rows = data ?? [];
   const truncated = rows.length > LIMIT;
   return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
@@ -2811,7 +2840,9 @@ export async function fetchAppointments(date?: string): Promise<{ rows: any[]; t
   if (date) q = q.eq("appointment_date", date);
   else q = q.gte("appointment_date", today());
   const { data, error } = await q;
-  if (error) return { rows: [], truncated: false };
+  // RF-10: was `if (error) return { rows: [], truncated: false }` — same
+  // silent-empty-success bug as fetchLeads/fetchInventory above, same fix.
+  if (error) throw dataLoadError(error);
   const rows = data ?? [];
   const truncated = rows.length > LIMIT;
   return { rows: truncated ? rows.slice(0, LIMIT) : rows, truncated };
@@ -3175,7 +3206,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0057_inventory_expiry_tracking";
+export const EXPECTED_SCHEMA_VERSION = "0058_storage_bucket_limits";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -4338,45 +4369,78 @@ export async function restoreTrashedRow(trashId: string): Promise<{ success: boo
 
 // ---------- Family linking ----------
 export interface ReferralGroup {
-  family_group_id: string;
+  anchor_patient_id: string;
   referrer_name: string;
   referrer_patient_code: string | null;
   member_count: number; // total patients in the group, including the referrer
 }
 
-// Phase 1 #13 — family_group_id/family_relationship has existed since the
-// family-linking feature was built, but nothing ever reported on it. This
-// turns it into a ranked leaderboard: which family "anchor" has brought in
-// the most linked family members. Anchor = whoever is marked "Head" in
-// the group, falling back to the earliest-registered member. Groups with
-// only 1 member (family_group_id set but nobody else ever linked) aren't
-// a referral yet, so they're excluded.
+// RF-18 — this used to read `patients.family_group_id`, a column the old
+// single-group family model wrote to. That model was replaced (13 Aug
+// 2026, see fetchFamilyMembers below) by `family_links`, a pairwise edge
+// table with no group id and no "Head" flag, so this was silently reading
+// a column nothing writes to anymore and always returning an empty board
+// live (verified: 0 patients have family_group_id set, 10 real rows sit
+// in family_links). Rebuilt on family_links instead: union-find turns the
+// edge list into connected clusters, and since there's no "Head" marker
+// in the new model, the anchor is the earliest-registered member of each
+// cluster (the same fallback the old code used when no Head was set).
 export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
-  const { data, error } = await supabase
-    .from("patients")
-    .select("id, name, patient_code, family_group_id, family_relationship, created_at")
-    .not("family_group_id", "is", null)
-    .order("created_at", { ascending: true });
-  if (error) throw dataLoadError(error);
+  const { data: links, error: linksError } = await supabase
+    .from("family_links")
+    .select("patient_id, related_patient_id");
+  if (linksError) throw dataLoadError(linksError);
+  if (!links || links.length === 0) return [];
 
-  const groups = new Map<string, { name: string; patient_code: string | null; family_relationship: string | null }[]>();
-  (data ?? []).forEach((p: any) => {
-    const arr = groups.get(p.family_group_id) ?? [];
-    arr.push({ name: p.name, patient_code: p.patient_code, family_relationship: p.family_relationship });
-    groups.set(p.family_group_id, arr);
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    if (!parent.has(id)) parent.set(id, id);
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(id, root);
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  links.forEach((l) => union(l.patient_id, l.related_patient_id));
+
+  const clusters = new Map<string, Set<string>>();
+  [...parent.keys()].forEach((id) => {
+    const root = find(id);
+    if (!clusters.has(root)) clusters.set(root, new Set());
+    clusters.get(root)!.add(id);
   });
+
+  const allIds = [...parent.keys()];
+  const { data: patientRows, error: patientsError } = await supabase
+    .from("patients")
+    .select("id, name, patient_code, created_at")
+    .in("id", allIds);
+  if (patientsError) throw dataLoadError(patientsError);
+  const patientMap = new Map((patientRows ?? []).map((p) => [p.id, p]));
 
   const leaderboard: ReferralGroup[] = [];
-  groups.forEach((members, groupId) => {
-    if (members.length < 2) return;
-    const anchor = members.find((m) => m.family_relationship === "Head") ?? members[0];
+  for (const memberIds of clusters.values()) {
+    if (memberIds.size < 2) continue;
+    let anchor: { id: string; name: string; patient_code: string | null; created_at: string } | null = null;
+    for (const id of memberIds) {
+      const p = patientMap.get(id);
+      if (!p) continue;
+      if (!anchor || p.created_at < anchor.created_at) {
+        anchor = { id, name: p.name, patient_code: p.patient_code, created_at: p.created_at };
+      }
+    }
+    if (!anchor) continue;
     leaderboard.push({
-      family_group_id: groupId,
+      anchor_patient_id: anchor.id,
       referrer_name: anchor.name,
       referrer_patient_code: anchor.patient_code,
-      member_count: members.length,
+      member_count: memberIds.size,
     });
-  });
+  }
 
   leaderboard.sort((a, b) => b.member_count - a.member_count);
   return leaderboard.slice(0, 50);
@@ -4851,8 +4915,11 @@ export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChan
 // unrelated STOCK_ISSUE hand-written insert in reportStockIssue() above,
 // which still uses the original action/table_name/record_id/new_value
 // columns and is untouched). Owner-only — gated at the route level via
-// AuthGate, same pattern as every other Owner-only screen (RLS is still
-// off project-wide, a known deferred gap, not new to this feature).
+// AuthGate, same pattern as every other Owner-only screen (RF-15: this
+// used to also cite "RLS is still off project-wide" as the reason — that
+// was true when this comment was first written but RLS has since been
+// turned on with real per-table policies, see §9 of the audit report;
+// AuthGate is defense-in-depth on top of DB-level RLS, not the only gate).
 
 export const AUDIT_TABLES = [
   "patients", "visits", "prescriptions", "payments", "settings",

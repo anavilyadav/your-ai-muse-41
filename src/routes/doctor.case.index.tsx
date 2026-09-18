@@ -50,9 +50,15 @@ function CaseBoardPage() {
     queryFn: () => fetchTodayQueueCaseDR(branchScope),
     refetchInterval: 15_000,
   });
-  const { data: levels } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
+  const { data: levels, isError: levelsError } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
 
-  const myLevel = (user && levels?.[user.id]) || "Senior"; // default Senior (full access) until Owner sets otherwise
+  // RF-22: `levels?.[user.id]` is undefined both while genuinely
+  // unconfigured (intentional: defaults to Senior until the Owner sets
+  // levels) and on a real fetch failure — those used to be indistinguishable
+  // and both fell through to Senior, silently granting every Case-DR full
+  // access (including Complex cases) on a DB error. A real fetch error now
+  // fails closed to Junior instead; "never configured" still defaults Senior.
+  const myLevel = levelsError ? "Junior" : (user && levels?.[user.id]) || "Senior";
   const isJunior = myLevel === "Junior";
 
   const allRows = (data ?? []).filter((r) =>

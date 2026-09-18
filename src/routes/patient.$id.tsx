@@ -305,7 +305,15 @@ function EditContactModal({
     setMobile(digits);
     const minLen = isIndia ? 10 : 4;
     if (digits.length >= minLen && (digits !== patient.mobile || effectiveCC !== patient.mobile_country_code)) {
-      setDupWarn(await isDuplicateMobile(digits, effectiveCC, patient.id));
+      try {
+        setDupWarn(await isDuplicateMobile(digits, effectiveCC, patient.id));
+      } catch {
+        // RF-09: fail closed, not open — submit() below blocks on dupWarn,
+        // so treating a failed check as "duplicate" forces a retry instead
+        // of silently letting a possibly-duplicate mobile number save.
+        setDupWarn(true);
+        toast.error("Duplicate check fail hua — number dobara check karo ya thodi der baad try karo");
+      }
     } else {
       setDupWarn(false);
     }

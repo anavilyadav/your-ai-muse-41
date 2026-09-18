@@ -17,13 +17,16 @@
 // can't easily compute an HMAC signature. Same threat model as
 // backup-to-sheets' shared-secret pattern.
 //
-// Secret lives in Edge Function secrets (EXTERNAL_LEAD_WEBHOOK_SECRET) —
-// a ONE-TIME Dashboard step, same as AISENSY_API_KEY was. It is NOT in the
-// `settings` table on purpose: RLS is off project-wide right now (audit
-// finding C-1, already on the roadmap), so anything in `settings` is
-// readable via the public anon key today. A webhook secret sitting there
-// would defeat its own purpose until RLS lands. Once RLS is on, this can
-// move to Owner-rotatable Settings if wanted.
+// Secret lives in Edge Function secrets (EXTERNAL_LEAD_WEBHOOK_SECRET), a
+// ONE-TIME Dashboard step, same as AISENSY_API_KEY was — not in the
+// `settings` table, which stays readable to any authenticated staff
+// account by design (RF-15: this comment used to justify that by claiming
+// "RLS is off project-wide" — that was true when first written but RLS
+// has since been turned on with real per-table policies; `settings` reads
+// are just intentionally open to all staff regardless, see §9.4/9.5 of
+// the audit report). A webhook secret sitting in a staff-readable table
+// would still defeat its own purpose, so it stays in Edge Function
+// secrets either way.
 //
 // Called with: raw JSON body
 //   { source, name, mobile, secret?, note?, disease_interest?, source_ref? }
@@ -37,6 +40,39 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { constantTimeEqual } from "../_shared/cron-auth.ts";
 
 const MAX_PER_MINUTE = 30; // higher than JustDial's 20 — this serves multiple sources at once
+
+// RF-16: the Owner's WhatsApp master switch / per-campaign toggle / daily
+// cap (Control Centre → WhatsApp) governed every scheduled campaign
+// (birthday, anniversary, winback, daily reminders) but not this webhook's
+// LEAD_WELCOME send, nor justdial-lead-webhook's or meta-leadgen-webhook's
+// — turning the master switch off did not actually stop new leads from
+// getting a WhatsApp welcome. Same inlined pattern as
+// whatsapp-birthday-anniversary/index.ts (a relative ../_shared/ import
+// isn't resolvable via the MCP hotfix deploy path used for these).
+interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
+const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
+function istTodayDate(): string {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | null }> {
+  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
+  if (data?.value) {
+    try {
+      const parsed = JSON.parse(data.value);
+      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
+    } catch { /* keep defaults */ }
+  }
+  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
+  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
+  if (!mod.enabled) return { allowed: false, reason: "module_off" };
+  if (mod.dailyCap == null) return { allowed: true, reason: null };
+  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
+  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
+  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
+  return { allowed: true, reason: null };
+}
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -143,7 +179,8 @@ Deno.serve(async (req) => {
     }
 
     const apiKey = Deno.env.get("AISENSY_API_KEY");
-    if (apiKey) {
+    const gate = apiKey ? await checkCampaignGate(supabaseAdmin, "LEAD_WELCOME") : null;
+    if (apiKey && gate?.allowed) {
       try {
         const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
           method: "POST",
@@ -167,6 +204,12 @@ Deno.serve(async (req) => {
       } catch {
         // Lead is already saved — a WhatsApp hiccup must not fail the whole request
       }
+    } else if (apiKey && gate && !gate.allowed) {
+      await supabaseAdmin.from("interactions").insert({
+        lead_id: leadId,
+        type: "whatsapp",
+        summary: `LEAD_WELCOME skipped (${gate.reason}, ${source} auto)`,
+      });
     }
 
     return new Response(JSON.stringify({ success: true, leadId }), { headers: { "Content-Type": "application/json" } });

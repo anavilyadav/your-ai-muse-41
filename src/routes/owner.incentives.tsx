@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchStaff, fetchIncentiveSplits, saveIncentiveSplits, fetchIncentiveConfig, saveIncentiveConfig, type IncentiveConfig } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -218,6 +218,14 @@ function IncentivesPage() {
 
       {stats.isLoading || staffQ.isLoading ? (
         <LoadingBlock />
+      ) : stats.isError || staffQ.isError ? (
+        <ErrorBlock
+          error={stats.error ?? staffQ.error}
+          onRetry={() => {
+            void stats.refetch();
+            void staffQ.refetch();
+          }}
+        />
       ) : staff.length === 0 ? (
         <EmptyBlock label="No incentive-eligible staff found." />
       ) : (

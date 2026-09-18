@@ -214,7 +214,7 @@ function ReportsPage() {
         ) : (
           <div className="rounded-2xl bg-surface border border-border overflow-hidden divide-y divide-border">
             {referrals.map((r, i) => (
-              <div key={r.family_group_id} className="flex items-center justify-between px-3.5 py-3">
+              <div key={r.anchor_patient_id} className="flex items-center justify-between px-3.5 py-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="text-[11px] font-bold text-muted-foreground w-5 shrink-0">#{i + 1}</span>
                   <div className="min-w-0">

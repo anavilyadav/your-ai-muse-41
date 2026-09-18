@@ -174,10 +174,21 @@ function RegisterPage() {
     set("mobile", digits);
     const minLen = isIndia ? 10 : 4;
     if (digits.length >= minLen) {
-      const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
-      setDupWarn(isDup);
-      setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
-      setFamilyRelationship(RELATIONSHIPS[0]);
+      try {
+        const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
+        setDupWarn(isDup);
+        setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
+        setFamilyRelationship(RELATIONSHIPS[0]);
+      } catch {
+        // RF-09: this used to fail open silently (no error check → treated
+        // as "not a duplicate"). There's no DB-level unique constraint on
+        // mobile, so a lookup failure here used to mean zero warning and a
+        // real risk of creating a true duplicate patient. Can't block submit
+        // from here (dupWarn is only a visual hint on this screen), so at
+        // minimum tell staff the check itself failed instead of staying
+        // silent about it.
+        toast.error("Duplicate check fail hua — number dobara check karo ya thodi der baad try karo");
+      }
     } else {
       setDupWarn(false);
       setExistingPatient(null);
