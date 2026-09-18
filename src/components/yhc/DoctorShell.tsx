@@ -97,7 +97,9 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
                   <ArrowLeft className="h-5 w-5" />
                 </button>
               ) : (
-                <img src="/logo.png" alt="Yadav Homeo Clinic" className="shrink-0 h-9 w-9 object-contain lg:hidden" />
+                <span className="shrink-0 h-9 w-9 rounded-full bg-surface p-1 grid place-items-center lg:hidden">
+                  <img src="/logo.png" alt="Yadav Homeo Clinic" className="h-full w-full object-contain" />
+                </span>
               )}
               <div className="min-w-0">
                 <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>

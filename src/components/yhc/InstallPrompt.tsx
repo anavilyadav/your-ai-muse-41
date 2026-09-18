@@ -74,7 +74,9 @@ export function InstallPrompt() {
   return (
     <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-24px)] max-w-[406px]">
       <div className="rounded-2xl bg-primary text-primary-foreground shadow-lg p-3.5 flex items-center gap-3">
-        <img src="/logo.png" alt="Yadav Homeo Clinic" className="h-9 w-9 object-contain shrink-0" />
+        <span className="h-9 w-9 shrink-0 rounded-full bg-surface p-1 grid place-items-center">
+          <img src="/logo.png" alt="Yadav Homeo Clinic" className="h-full w-full object-contain" />
+        </span>
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-bold">Install YHC-OS</div>
           <div className="text-[11px] text-primary-foreground/70">Phone pe app jaisa install karo</div>

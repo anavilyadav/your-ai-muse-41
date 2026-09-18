@@ -61,7 +61,11 @@ function LoginPage() {
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div className="relative w-full max-w-[430px] min-h-screen bg-background flex flex-col shadow-[0_0_60px_-20px_rgba(26,42,65,0.35)]">
         <div className="bg-primary text-primary-foreground px-5 pt-12 pb-8 rounded-b-3xl text-center">
-          <img src="/logo.png" alt="Yadav Homeo Clinic" className="mx-auto h-16 w-16 object-contain" />
+          {/* The logo's own wordmark is navy — invisible directly on this navy
+              header without a light backing behind it. */}
+          <span className="mx-auto h-16 w-16 rounded-full bg-surface p-2 grid place-items-center">
+            <img src="/logo.png" alt="Yadav Homeo Clinic" className="h-full w-full object-contain" />
+          </span>
           <h1 className="mt-4 text-2xl font-extrabold">Yadav Homeo Clinic</h1>
           <p className="text-xs text-primary-foreground/70 mt-1">Jaipur • Staff Login</p>
         </div>
