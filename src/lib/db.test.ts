@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   normalizePaymentMode,
   normalizeMobile,
@@ -76,11 +76,18 @@ describe("thirtyDaysAgo", () => {
     expect(thirtyDaysAgo()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
   it("is actually ~30 days before today", () => {
-    const result = new Date(thirtyDaysAgo());
-    const expected = new Date();
-    expected.setDate(expected.getDate() - 30);
-    // Compare just the date portion, allowing for test-runtime clock skew.
-    expect(result.toISOString().slice(0, 10)).toBe(expected.toISOString().slice(0, 10));
+    // Freeze the clock at a fixed, boundary-safe instant (nowhere near
+    // midnight in UTC or IST) so this doesn't depend on the local
+    // timezone or wall-clock time of whoever/whatever runs the test —
+    // comparing against a real `new Date()` mixed local-day and
+    // UTC-day arithmetic and went off by a day near local midnight.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2024-06-15T12:00:00Z"));
+      expect(thirtyDaysAgo()).toBe("2024-05-16");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
