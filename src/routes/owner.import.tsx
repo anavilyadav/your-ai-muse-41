@@ -329,6 +329,8 @@ function PatientsImportTab() {
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewPatientsImport>> | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedRows, setFailedRows] = useState<{ name: string; mobile: string; reason: string }[]>([]);
+  const [showFailedRows, setShowFailedRows] = useState(false);
 
   const runPreview = async () => {
     setBusy(true);
@@ -347,8 +349,15 @@ function PatientsImportTab() {
     setProgress({ done: 0, total: preview.valid.length });
     const batchId = newImportBatchId();
     try {
-      const imported = await commitPatientsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
-      toast.success(`${imported} patients imported`);
+      const { imported, failed } = await commitPatientsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
+      if (failed.length > 0) {
+        toast.warning(`${imported} patients imported, ${failed.length} rows fail hui (neeche list dekho) — inhe manually theek karke dobara try karo`);
+        setFailedRows(failed);
+        setShowFailedRows(true);
+      } else {
+        toast.success(`${imported} patients imported`);
+        setFailedRows([]);
+      }
       csv.reset(); setPreview(null);
       try {
         await recordImportBatch({ batchId, type: "Patients", count: imported });
@@ -394,6 +403,24 @@ function PatientsImportTab() {
             </button>
           )}
         </>
+      )}
+      {failedRows.length > 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <button onClick={() => setShowFailedRows((v) => !v)} className="w-full flex items-center justify-between text-[12px] font-bold text-destructive">
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> {failedRows.length} rows import nahi hui</span>
+            <span>{showFailedRows ? "Hide" : "Show"}</span>
+          </button>
+          {showFailedRows && (
+            <ul className="mt-2 space-y-1.5">
+              {failedRows.map((r, i) => (
+                <li key={i} className="text-[12px] text-primary">
+                  <span className="font-semibold">{r.name || "(no name)"}</span> — {r.mobile || "(no mobile)"}
+                  <div className="text-[11px] text-destructive">{r.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

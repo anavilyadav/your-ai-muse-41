@@ -3355,7 +3355,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0061_data_quality_report";
+export const EXPECTED_SCHEMA_VERSION = "0062_fix_card_number_unique_constraint";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -4075,49 +4075,70 @@ export async function commitPatientsImport(
 
   const BATCH = 500; // bumped for 30k+ scale imports — fewer round trips
   let imported = 0;
-  try {
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH).map((r, j) => {
-        const card = parseCardNumber(r.card_no);
-        return {
-          patient_code: codes[i + j],
-          name: r.name.trim(),
-          mobile: r.mobile,
-          // Was `r.age ? Number(r.age) || null : null` — age "0" (a
-          // newborn) is falsy in JS, so that silently dropped every
-          // infant's age to null. parseInt + isNaN check treats "0" as a
-          // real value while still rejecting blank/non-numeric cells.
-          age: r.age?.trim() && !isNaN(parseInt(r.age, 10)) ? parseInt(r.age, 10) : null,
-          gender: normalizeGender(r.gender),
-          city: r.city?.trim() || null,
-          address: r.address?.trim() || null,
-          primary_disease: r.primary_disease?.trim() || null,
-          card_series: card?.series ?? null,
-          card_register: card?.register ?? null,
-          card_number: card?.number ?? null,
-          referred_by: r.referred_by?.trim() || null,
-          email: r.email?.trim() || null,
-          category: r.category?.trim() || null,
-          patient_type: r.patient_type?.trim() || null,
-          patient_status: normalizePatientStatus(r.patient_status),
-          foreign_patient_info: r.foreign_patient_info?.trim() || null,
-          wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
-          branch: r.branch,
-          lifetime_visits: 0,
-          lifetime_revenue: 0,
-          current_balance: 0,
-          imported_batch: batchId,
-        };
-      });
-      const { error } = await supabase.from("patients").insert(chunk);
-      if (error) throw error;
+  const failedRows: { name: string; mobile: string; reason: string }[] = [];
+
+  const buildRow = (r: (typeof rows)[number], code: string) => {
+    const card = parseCardNumber(r.card_no);
+    return {
+      patient_code: code,
+      name: r.name.trim(),
+      mobile: r.mobile,
+      // Was `r.age ? Number(r.age) || null : null` — age "0" (a
+      // newborn) is falsy in JS, so that silently dropped every
+      // infant's age to null. parseInt + isNaN check treats "0" as a
+      // real value while still rejecting blank/non-numeric cells.
+      age: r.age?.trim() && !isNaN(parseInt(r.age, 10)) ? parseInt(r.age, 10) : null,
+      gender: normalizeGender(r.gender),
+      city: r.city?.trim() || null,
+      address: r.address?.trim() || null,
+      primary_disease: r.primary_disease?.trim() || null,
+      card_series: card?.series ?? null,
+      card_register: card?.register ?? null,
+      card_number: card?.number ?? null,
+      referred_by: r.referred_by?.trim() || null,
+      email: r.email?.trim() || null,
+      category: r.category?.trim() || null,
+      patient_type: r.patient_type?.trim() || null,
+      patient_status: normalizePatientStatus(r.patient_status),
+      foreign_patient_info: r.foreign_patient_info?.trim() || null,
+      wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
+      branch: r.branch,
+      lifetime_visits: 0,
+      lifetime_revenue: 0,
+      current_balance: 0,
+      imported_batch: batchId,
+    };
+  };
+
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const slice = rows.slice(i, i + BATCH);
+    const chunk = slice.map((r, j) => buildRow(r, codes[i + j]));
+    const { error } = await supabase.from("patients").insert(chunk);
+    if (!error) {
       imported += chunk.length;
       onProgress?.(imported, rows.length);
+      continue;
     }
-  } catch (e: any) {
-    throw new Error(`${imported} of ${rows.length} patients import ho chuke the jab error aaya: ${e?.message ?? e}`);
+    // A real 5000+ row master sheet is guaranteed to have SOME genuine
+    // data-entry mistakes (duplicate card number, etc.) — one bad row used
+    // to throw and abandon this entire 500-row chunk (and the rest of the
+    // import), silently losing hundreds of otherwise-good rows behind it.
+    // Found live 21 Sep 2026 on Dr. Yadav's real import. Now: on a chunk
+    // failure, fall back to inserting that chunk one row at a time so a
+    // single bad row only costs itself, not its neighbours.
+    for (let j = 0; j < slice.length; j++) {
+      const row = buildRow(slice[j], codes[i + j]);
+      const { error: rowError } = await supabase.from("patients").insert(row);
+      if (rowError) {
+        failedRows.push({ name: slice[j].name, mobile: slice[j].mobile, reason: rowError.message });
+      } else {
+        imported++;
+      }
+      onProgress?.(imported, rows.length);
+    }
   }
-  return imported;
+
+  return { imported, failed: failedRows };
 }
 
 // ----- Visit / Revenue history (run AFTER patients exist — matches by mobile) -----
