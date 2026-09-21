@@ -3355,7 +3355,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0060_recase_and_complaint_clarification";
+export const EXPECTED_SCHEMA_VERSION = "0061_data_quality_report";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -4681,6 +4681,35 @@ export async function mergePatients(primaryId: string, duplicateId: string) {
   });
   if (error) return { success: false, error: error.message, result: null };
   return { success: true, error: null, result: data as { primary_id: string; duplicate_id: string; lifetime_visits: number; lifetime_revenue: number; current_balance: number } };
+}
+
+// ---------- Data Quality report (0061) ----------
+// One live screen for everything the Owner asked to see "ek hi jagah" before
+// the bulk historical import: incomplete names, mobile numbers shared across
+// multiple patient records, card numbers only partially filled in, the same
+// card number on 2+ patients, and malformed mobile/email. Runs server-side
+// via data_quality_report() (0061) so it scales past PostgREST's ~1000-row
+// default cap and stays a live read — no separate sheet to keep in sync.
+export interface DQPatientRef { id: string; name: string; mobile?: string | null; patient_code: string | null }
+export interface DataQualityReport {
+  generated_at: string;
+  incomplete_names: DQPatientRef[];
+  incomplete_names_total: number;
+  shared_mobiles: { mobile: string; count: number; patients: DQPatientRef[] }[];
+  shared_mobiles_total: number;
+  partial_card: (DQPatientRef & { card_series: string | null; card_register: string | null; card_number: string | null })[];
+  partial_card_total: number;
+  duplicate_cards: { card_series: string; card_register: string; card_number: string; count: number; patients: DQPatientRef[] }[];
+  invalid_mobile: DQPatientRef[];
+  invalid_mobile_total: number;
+  invalid_email: (DQPatientRef & { email: string | null })[];
+  invalid_email_total: number;
+}
+
+export async function fetchDataQualityReport(): Promise<DataQualityReport> {
+  const { data, error } = await supabase.rpc("data_quality_report");
+  if (error) throw dataLoadError(error);
+  return data as DataQualityReport;
 }
 
 // ---------- Patient Documents (general staff upload — follow-up notes, new case notes, reports) ----------

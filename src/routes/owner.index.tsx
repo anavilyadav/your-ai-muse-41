@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2 } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash } from "@/lib/db";
@@ -22,6 +22,7 @@ export const OWNER_NAV: NavItem[] = [
   { to: "/owner/reports", label: "Reports", icon: TrendingUp },
   { to: "/owner/control", label: "Control", icon: Settings },
   { to: "/owner/import", label: "Import", icon: Upload },
+  { to: "/owner/data-quality", label: "Data Quality", icon: ListChecks },
 ];
 
 function inr(n: number) {
