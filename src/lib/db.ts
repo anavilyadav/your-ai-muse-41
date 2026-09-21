@@ -4083,8 +4083,12 @@ export async function commitPatientsImport(
           patient_code: codes[i + j],
           name: r.name.trim(),
           mobile: r.mobile,
-          age: r.age ? Number(r.age) || null : null,
-          gender: r.gender?.trim() || null,
+          // Was `r.age ? Number(r.age) || null : null` — age "0" (a
+          // newborn) is falsy in JS, so that silently dropped every
+          // infant's age to null. parseInt + isNaN check treats "0" as a
+          // real value while still rejecting blank/non-numeric cells.
+          age: r.age?.trim() && !isNaN(parseInt(r.age, 10)) ? parseInt(r.age, 10) : null,
+          gender: normalizeGender(r.gender),
           city: r.city?.trim() || null,
           address: r.address?.trim() || null,
           primary_disease: r.primary_disease?.trim() || null,
@@ -4095,7 +4099,7 @@ export async function commitPatientsImport(
           email: r.email?.trim() || null,
           category: r.category?.trim() || null,
           patient_type: r.patient_type?.trim() || null,
-          patient_status: r.patient_status?.trim() || null,
+          patient_status: normalizePatientStatus(r.patient_status),
           foreign_patient_info: r.foreign_patient_info?.trim() || null,
           wa_consent: false, // legacy records — no fresh consent captured, deliberately safe default
           branch: r.branch,
@@ -4183,6 +4187,33 @@ const KNOWN_PAYMENT_MODES = ["CASH", "UPI", "CARD"];
 export function normalizePaymentMode(m?: string | null): string {
   const up = (m ?? "").trim().toUpperCase();
   return KNOWN_PAYMENT_MODES.includes(up) ? up : up ? "OTHER" : "CASH";
+}
+
+// patients.patient_status is NOT NULL with a CHECK confined to exactly
+// these 3 values (ACTIVE/INACTIVE/BLOCKED) — a real master sheet's "Active
+// Status" column is free text ("Active", "Y", blank, "Inactive", ...), and
+// an explicit null (not just an omitted key) overrides the column's own
+// 'ACTIVE' default, so an unmapped/blank cell was failing the NOT NULL
+// constraint and killing the entire 500-row insert chunk it was in — found
+// 21 Sep 2026 when Dr. Yadav's real 5998-row sheet import came back
+// "0 of 5206 imported" on this exact error.
+export function normalizePatientStatus(s?: string | null): "ACTIVE" | "INACTIVE" | "BLOCKED" {
+  const up = (s ?? "").trim().toUpperCase();
+  if (up.startsWith("IN") || up === "N" || up === "NO" || up === "0") return "INACTIVE";
+  if (up.startsWith("BLOCK")) return "BLOCKED";
+  return "ACTIVE"; // covers blank, "Active", "Y", "1", and anything unrecognized
+}
+
+// patients.gender CHECK is case-sensitive ('Male'/'Female'/'Other' only) —
+// a sheet cell of "M", "male", "FEMALE" etc. would fail it. Unlike
+// patient_status, gender is nullable, so an unrecognized value is safer
+// left null than guessed.
+export function normalizeGender(g?: string | null): "Male" | "Female" | "Other" | null {
+  const up = (g ?? "").trim().toUpperCase();
+  if (up === "M" || up === "MALE") return "Male";
+  if (up === "F" || up === "FEMALE") return "Female";
+  if (up === "O" || up === "OTHER") return "Other";
+  return null;
 }
 
 export async function commitVisitHistoryImport(
