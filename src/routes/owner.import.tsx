@@ -516,6 +516,11 @@ function VisitHistoryImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} extraLabel="Unmatched" extraCount={preview.unmatched} />
+          {preview.alreadyImported > 0 && (
+            <div className="rounded-xl bg-accent/20 border border-accent/40 p-3 text-[12px] text-primary">
+              {preview.alreadyImported} rows is patient + date ke liye pehle hi import ho chuki hain — dobara import nahi hongi (safe hai, skip ho jaayengi).
+            </div>
+          )}
           {preview.nameMatched > 0 && (
             <div className="rounded-xl bg-success/10 border border-success/30 p-3 text-[12px] text-success">
               {preview.nameMatched} rows mobile match nahi hui, lekin naam se (unique match) recover ho gayi.

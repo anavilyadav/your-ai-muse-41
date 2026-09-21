@@ -4242,7 +4242,26 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     if (data.length < PAGE) break;
   }
 
-  let unmatched = 0;
+  // Re-running the SAME sheet (e.g. after a partial import, or to pick up
+  // rows recovered by a later matching improvement) used to have no way to
+  // tell "already imported" from "new" — every row that matched a patient
+  // went straight into `valid` again, which would have re-inserted
+  // thousands of duplicate visits+payments for rows imported in an earlier
+  // run. Keyed on (patient_id, visit_date) — not perfect (a patient with
+  // two genuine visits on the same historical date would look like a
+  // dup), but that's rare, and safe-by-default matters more here than
+  // completeness: better to under-import a same-day repeat than silently
+  // double a whole prior batch.
+  const existingVisitKeys = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase.from("visits").select("patient_id,visit_date").range(from, from + PAGE - 1);
+    if (!data || data.length === 0) break;
+    for (const v of data as any[]) existingVisitKeys.add(`${v.patient_id}|${v.visit_date}`);
+    if (data.length < PAGE) break;
+  }
+
+  let unmatched = 0, alreadyImported = 0;
+  const alreadyImportedSamples: string[] = [];
   // Split by WHY a row didn't match, instead of one blended "unmatched"
   // bucket with 5 samples — a real 10k-row sheet needs this to actually be
   // fixable. "malformedMobile" (not even 10 digits after stripping
@@ -4300,6 +4319,13 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       }
       continue;
     }
+    const dedupKey = `${p.id}|${visitDate}`;
+    if (existingVisitKeys.has(dedupKey)) {
+      alreadyImported++;
+      if (alreadyImportedSamples.length < 10) alreadyImportedSamples.push(`${r.name || r.mobile} — ${visitDate}`);
+      continue;
+    }
+    existingVisitKeys.add(dedupKey); // also catches the same (patient, date) repeated within this file
     if (matchedByName) nameMatched++;
     // "CLINIC" column — per-row branch override (e.g. a patient normally at
     // one branch who was seen at the other for one visit); falls back to
@@ -4314,6 +4340,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     mobileNotFound, mobileNotFoundSamples,
     ambiguousName, ambiguousNameSamples,
     badDate, badDateSamples,
+    alreadyImported, alreadyImportedSamples,
   };
 }
 
