@@ -450,6 +450,7 @@ function VisitHistoryImportTab() {
   const [progress, setProgress] = useState<{ done: number; total: number; phase: "visits" | "totals" } | null>(null);
   const [failedRows, setFailedRows] = useState<{ mobile: string; visit_date: string; reason: string }[]>([]);
   const [showFailedRows, setShowFailedRows] = useState(false);
+  const [openBreakdown, setOpenBreakdown] = useState<"malformed" | "notfound" | "date" | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -513,7 +514,31 @@ function VisitHistoryImportTab() {
       )}
       {preview && (
         <>
-          <PreviewSummary valid={preview.valid.length} extraLabel="Unmatched" extraCount={preview.unmatched} samples={preview.unmatchedSamples} />
+          <PreviewSummary valid={preview.valid.length} extraLabel="Unmatched" extraCount={preview.unmatched} />
+          {preview.unmatched > 0 && (
+            <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Unmatched ki wajah (breakdown)</div>
+              {[
+                { key: "malformed" as const, label: "Mobile column sahi nahi map hui / khaali", count: preview.malformedMobile, samples: preview.malformedMobileSamples, hint: "Agar yeh count bada hai, toh upar 'Column mapping' mein Mobile field dobara check karo — shayad galat column map ho gaya." },
+                { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh numbers Patients import mein nahi aaye — ya toh wo patient miss ho gaya (dobara Patients import karo), ya is sheet mein number alag hai us patient ke asli number se." },
+                { key: "date" as const, label: "Patient mila, lekin date samajh nahi aayi", count: preview.badDate, samples: preview.badDateSamples, hint: "Visit date column ka format check karo (DD/MM/YYYY ya YYYY-MM-DD expected)." },
+              ].filter((b) => b.count > 0).map((b) => (
+                <div key={b.key} className="rounded-xl bg-background border border-border p-2.5">
+                  <button onClick={() => setOpenBreakdown((v) => (v === b.key ? null : b.key))} className="w-full flex items-center justify-between text-[12px] font-bold text-primary">
+                    <span>{b.label}</span>
+                    <span className="text-destructive">{b.count}</span>
+                  </button>
+                  {openBreakdown === b.key && (
+                    <div className="mt-2">
+                      <div className="text-[11px] text-muted-foreground mb-1.5">{b.hint}</div>
+                      {b.samples.map((s, i) => <div key={i} className="text-[11px] text-primary">• {s}</div>)}
+                      {b.count > b.samples.length && <div className="text-[11px] text-muted-foreground mt-1">...aur {b.count - b.samples.length} aur</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {progress ? (
             <ProgressBar
               done={progress.done}

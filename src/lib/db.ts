@@ -4216,7 +4216,18 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     (data ?? []).forEach((p: any) => byMobile.set(normalizeMobile(p.mobile), p));
   }
   let unmatched = 0;
-  const unmatchedSamples: string[] = [];
+  // Split by WHY a row didn't match, instead of one blended "unmatched"
+  // bucket with 5 samples — a real 10k-row sheet needs this to actually be
+  // fixable. "malformedMobile" (not even 10 digits after stripping
+  // non-digits) usually means a column-mapping problem, not a genuine
+  // cross-sheet number mismatch; "mobileNotFound" is a real 10-digit
+  // number just not present in the imported Patients table (missed during
+  // Patients import, or genuinely a different number on this sheet);
+  // "badDate" is a matched patient with an unparseable visit date.
+  let malformedMobile = 0, mobileNotFound = 0, badDate = 0;
+  const malformedMobileSamples: string[] = [];
+  const mobileNotFoundSamples: string[] = [];
+  const badDateSamples: string[] = [];
   const valid: (ImportVisitRow & { patient_id: string; branch: string; visit_date: string })[] = [];
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
@@ -4224,9 +4235,15 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     const visitDate = parseImportDate(r.visit_date);
     if (!p || !visitDate) {
       unmatched++;
-      if (unmatchedSamples.length < 5) {
-        const reason = !p ? "mobile not found" : `date samajh nahi aayi: "${r.visit_date}"`;
-        unmatchedSamples.push(`${r.mobile || "(no mobile)"} — ${reason}`);
+      if (mobile.length !== 10) {
+        malformedMobile++;
+        if (malformedMobileSamples.length < 10) malformedMobileSamples.push(r.mobile || "(khaali)");
+      } else if (!p) {
+        mobileNotFound++;
+        if (mobileNotFoundSamples.length < 10) mobileNotFoundSamples.push(mobile);
+      } else {
+        badDate++;
+        if (badDateSamples.length < 10) badDateSamples.push(`${r.mobile} — "${r.visit_date}"`);
       }
       continue;
     }
@@ -4237,7 +4254,12 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
     valid.push({ ...r, mobile, patient_id: p.id, branch, visit_date: visitDate });
   }
-  return { valid, unmatched, unmatchedSamples, total: rows.length };
+  return {
+    valid, unmatched, total: rows.length,
+    malformedMobile, malformedMobileSamples,
+    mobileNotFound, mobileNotFoundSamples,
+    badDate, badDateSamples,
+  };
 }
 
 // payments.payment_mode CHECK only allows CASH/UPI/CARD/ADVANCE/ADJUST —
