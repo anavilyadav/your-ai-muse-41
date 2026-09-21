@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Upload, Undo2, CheckCircle2, AlertTriangle, FileSpreadsheet } from "lucide-react";
+import { Upload, Undo2, CheckCircle2, AlertTriangle, FileSpreadsheet, Download } from "lucide-react";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
@@ -17,6 +17,7 @@ import {
   commitPatientsImport,
   previewVisitHistoryImport,
   commitVisitHistoryImport,
+  unmatchedVisitRowsToCSV,
   fetchImportBatches,
   fetchPatientsByIds,
   BRANCH_KEYS,
@@ -463,6 +464,18 @@ function VisitHistoryImportTab() {
     } finally { setBusy(false); }
   };
 
+  const downloadUnmatched = () => {
+    if (!preview || preview.unmatchedRows.length === 0) return;
+    const csvText = unmatchedVisitRowsToCSV(preview.unmatchedRows);
+    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `visit_history_unmatched_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const doImport = async () => {
     if (!preview || !preview.valid.length) return;
     if (!window.confirm(`${preview.valid.length} visit records import karein? Patient ki lifetime revenue/visits automatically update hongi.`)) return;
@@ -528,7 +541,12 @@ function VisitHistoryImportTab() {
           )}
           {preview.unmatched > 0 && (
             <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Unmatched ki wajah (breakdown)</div>
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Unmatched ki wajah (breakdown)</div>
+                <button onClick={downloadUnmatched} className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-3 py-1.5">
+                  <Download className="h-3.5 w-3.5" /> Poori list CSV mein download karo
+                </button>
+              </div>
               {[
                 { key: "malformed" as const, label: "Mobile column sahi nahi map hui / khaali", count: preview.malformedMobile, samples: preview.malformedMobileSamples, hint: "Agar yeh count bada hai, toh upar 'Column mapping' mein Mobile field dobara check karo — shayad galat column map ho gaya." },
                 { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila (naam se bhi nahi)", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh patient Patients import mein nahi aaya — ya toh wo miss ho gaya (dobara Patients import karo), ya is sheet mein naam bhi alag likha hai." },

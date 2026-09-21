@@ -4276,6 +4276,10 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   const mobileNotFoundSamples: string[] = [];
   const ambiguousNameSamples: string[] = [];
   const badDateSamples: string[] = [];
+  // Full list (not just the 10-sample previews above) so the Owner can
+  // export every unmatched row to fix in Excel and re-upload — a 3000+
+  // row unmatched count is not something anyone can review from 10 samples.
+  const unmatchedRows: { mobile: string; name: string; visit_date: string; reason: string }[] = [];
   const valid: (ImportVisitRow & { patient_id: string; branch: string; visit_date: string })[] = [];
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
@@ -4304,19 +4308,25 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       // Mutually exclusive classification, most-specific reason first —
       // each row lands in exactly one bucket so the counts add up to
       // `unmatched` and the Owner isn't shown overlapping numbers.
+      let reason: string;
       if (p && !visitDate) {
         badDate++;
+        reason = `date samajh nahi aayi: "${r.visit_date}"`;
         if (badDateSamples.length < 10) badDateSamples.push(`${r.mobile} — "${r.visit_date}"`);
       } else if (ambiguousNameCandidates > 0) {
         ambiguousName++;
+        reason = `naam se ${ambiguousNameCandidates} patients milte hain`;
         if (ambiguousNameSamples.length < 10) ambiguousNameSamples.push(`${r.name} (${ambiguousNameCandidates} patients is naam se)`);
       } else if (mobile.length !== 10) {
         malformedMobile++;
+        reason = "mobile column khaali ya 10-digit nahi hai";
         if (malformedMobileSamples.length < 10) malformedMobileSamples.push(r.mobile || "(khaali)");
       } else {
         mobileNotFound++;
+        reason = "koi patient nahi mila (mobile ya naam se)";
         if (mobileNotFoundSamples.length < 10) mobileNotFoundSamples.push(mobile);
       }
+      unmatchedRows.push({ mobile: r.mobile || "", name: r.name || "", visit_date: r.visit_date || "", reason });
       continue;
     }
     const dedupKey = `${p.id}|${visitDate}`;
@@ -4341,7 +4351,18 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     ambiguousName, ambiguousNameSamples,
     badDate, badDateSamples,
     alreadyImported, alreadyImportedSamples,
+    unmatchedRows,
   };
+}
+
+// Builds a downloadable CSV of every unmatched Visit History row (not just
+// the 10-sample previews) so the Owner can fix mobile/name mismatches in
+// Excel and re-upload, instead of reviewing a 3000+ row count blind.
+export function unmatchedVisitRowsToCSV(rows: { mobile: string; name: string; visit_date: string; reason: string }[]): string {
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const header = "Mobile,Name,Visit Date,Reason\n";
+  const body = rows.map((r) => [r.mobile, r.name, r.visit_date, r.reason].map(esc).join(",")).join("\n");
+  return header + body;
 }
 
 // payments.payment_mode CHECK only allows CASH/UPI/CARD/ADVANCE/ADJUST —
