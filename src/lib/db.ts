@@ -3186,8 +3186,8 @@ export async function updateDeliveryStatus(id: string, status: string) {
 // has no way to know their medicine order is even moving unless WhatsApp
 // tells them. This used to update `deliveries.status` with zero patient
 // communication at every stage. Needs an approved AiSensy campaign named
-// exactly "DELIVERY_UPDATE" (Dr. Yadav — same one-time setup as
-// BIRTHDAY_WISH/ANNIVERSARY_WISH) with a template shaped like:
+// exactly "delivery_update" (lowercase — AiSensy's campaign-creation form
+// only accepts lowercase names) with a template shaped like:
 // "Namaste {{1}} ji! Aapke order ka update: {{2}}. {{3}} — YHC Jaipur"
 // where {{2}} is the human status line below and {{3}} is the tracking
 // note (AWB/driver) if one was entered, blank otherwise. Fire-and-forget:
@@ -3204,7 +3204,7 @@ export async function notifyDeliveryUpdate(patientId: string | null | undefined,
   const message = DELIVERY_STATUS_MESSAGE[status];
   if (!message) return;
   await sendWhatsApp({
-    campaignName: "DELIVERY_UPDATE",
+    campaignName: "delivery_update",
     destination: "",
     userName: patientName,
     patientId,
@@ -4924,14 +4924,21 @@ export interface WhatsAppLogEntry {
 // the 4 crons) — see their "NOTE ON INLINED HELPERS" comments — this is
 // just the Owner-facing read/write side of the same `whatsapp_controls`
 // settings key those functions read.
+// 21 Sep 2026 — birthday_wish/anniversary_wish/delivery_update are lowercase
+// (WhatsApp/AiSensy template names only accept lowercase alphanumeric +
+// underscores — AiSensy's campaign-creation form enforces this directly).
+// The other campaigns here were created earlier, before this was enforced,
+// and are already live in uppercase — left as-is rather than renamed, since
+// renaming a working campaign risks breaking it for no benefit.
 export const WHATSAPP_CAMPAIGNS = [
   "REGISTRATION_CONFIRM",
   "APPOINTMENT_REMINDER",
   "FOLLOWUP_REMINDER",
-  "BIRTHDAY_WISH",
-  "ANNIVERSARY_WISH",
+  "birthday_wish",
+  "anniversary_wish",
   "HOLIDAY_GREETING",
   "WINBACK",
+  "delivery_update",
 ] as const;
 export type WhatsAppCampaign = (typeof WHATSAPP_CAMPAIGNS)[number];
 

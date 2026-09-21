@@ -3,8 +3,9 @@
 // month+day (year ignored), sends a WhatsApp wish, and logs it so the
 // same person doesn't get wished twice in the same year.
 //
-// Needs two approved AiSensy API Campaigns: "BIRTHDAY_WISH" and
-// "ANNIVERSARY_WISH".
+// Needs two approved AiSensy API Campaigns: "birthday_wish" and
+// "anniversary_wish" (lowercase — AiSensy's campaign-creation form only
+// accepts lowercase names).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -118,7 +119,7 @@ async function sendWish(
   supabaseAdmin: any,
   apiKey: string,
   patient: any,
-  campaignName: "BIRTHDAY_WISH" | "ANNIVERSARY_WISH",
+  campaignName: "birthday_wish" | "anniversary_wish",
   logTable: "birthday_greeting_log" | "anniversary_greeting_log",
   year: number,
 ): Promise<"sent" | "failed"> {
@@ -214,8 +215,8 @@ Deno.serve(async (req) => {
     // WhatsApp master/module switch (Dr. Yadav, 10 Aug 2026) — checked
     // per-campaign since Owner might turn off birthday wishes but keep
     // anniversary wishes on (or vice versa), or cap one differently.
-    const birthdayGate = await checkCampaignGate(supabaseAdmin, "BIRTHDAY_WISH");
-    const anniversaryGate = await checkCampaignGate(supabaseAdmin, "ANNIVERSARY_WISH");
+    const birthdayGate = await checkCampaignGate(supabaseAdmin, "birthday_wish");
+    const anniversaryGate = await checkCampaignGate(supabaseAdmin, "anniversary_wish");
     let birthdayBudget = birthdayGate.allowed ? birthdayGate.budget : 0;
     let anniversaryBudget = anniversaryGate.allowed ? anniversaryGate.budget : 0;
 
@@ -225,11 +226,11 @@ Deno.serve(async (req) => {
       if (!birthdayGate.allowed && birthdayGate.reason !== "cap_reached") continue;
       if (birthdayBudget <= 0) {
         cappedOut++;
-        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "BIRTHDAY_WISH", destination: null, reason: "cap_reached", dailyCap: birthdayGate.dailyCap });
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "birthday_wish", destination: null, reason: "cap_reached", dailyCap: birthdayGate.dailyCap });
         continue;
       }
       birthdayBudget--;
-      const r = await sendWish(supabaseAdmin, apiKey, patient, "BIRTHDAY_WISH", "birthday_greeting_log", year);
+      const r = await sendWish(supabaseAdmin, apiKey, patient, "birthday_wish", "birthday_greeting_log", year);
       if (r === "sent") sent++; else failed++;
     }
     for (const patient of anniversaryMatches) {
@@ -237,11 +238,11 @@ Deno.serve(async (req) => {
       if (!anniversaryGate.allowed && anniversaryGate.reason !== "cap_reached") continue;
       if (anniversaryBudget <= 0) {
         cappedOut++;
-        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "ANNIVERSARY_WISH", destination: null, reason: "cap_reached", dailyCap: anniversaryGate.dailyCap });
+        await logWhatsAppSkip(supabaseAdmin, { patient_id: patient.id, campaign_name: "anniversary_wish", destination: null, reason: "cap_reached", dailyCap: anniversaryGate.dailyCap });
         continue;
       }
       anniversaryBudget--;
-      const r = await sendWish(supabaseAdmin, apiKey, patient, "ANNIVERSARY_WISH", "anniversary_greeting_log", year);
+      const r = await sendWish(supabaseAdmin, apiKey, patient, "anniversary_wish", "anniversary_greeting_log", year);
       if (r === "sent") sent++; else failed++;
     }
 

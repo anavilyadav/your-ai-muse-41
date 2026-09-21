@@ -42,10 +42,11 @@ const CAMPAIGN_LABEL: Record<string, string> = {
   REGISTRATION_CONFIRM: "Registration Confirm",
   APPOINTMENT_REMINDER: "Appointment Reminder",
   FOLLOWUP_REMINDER: "Follow-up Reminder",
-  BIRTHDAY_WISH: "Birthday Wish",
-  ANNIVERSARY_WISH: "Anniversary Wish",
+  birthday_wish: "Birthday Wish",
+  anniversary_wish: "Anniversary Wish",
   HOLIDAY_GREETING: "Holiday Greeting",
   WINBACK: "Win-back",
+  delivery_update: "Delivery Update",
 };
 
 // Master + per-campaign on/off + daily cap (10 Aug 2026, Dr. Yadav's
