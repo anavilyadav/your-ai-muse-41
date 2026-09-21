@@ -4471,8 +4471,20 @@ export async function commitVisitHistoryImport(
     for (const v of inserted) {
       touched.add(v.patient_id);
       const src = v.src;
-      const charged = Number(src.amount_charged ?? src.amount_received ?? 0);
-      const received = Number(src.amount_received ?? 0);
+      const charged = Number(src.amount_charged ?? src.amount_received ?? 0) || 0;
+      // A real daily-entry sheet often has only ONE money column (what was
+      // actually collected that visit) with no separate "charged" figure —
+      // when there's no distinct, non-blank "Amount received" value, this
+      // used to default to 0, which marked every imported visit as 100%
+      // outstanding even when it was fully paid. Found live 22 Sep 2026 on
+      // Dr. Yadav's real sheet (a single "Amount" column mapped only to
+      // amount_charged): 5828 of 6729 imported payments showed a combined
+      // ₹1.39 crore balance due that had actually all been collected.
+      // Falling back to `charged` (assume paid in full) instead of 0 is
+      // right for this app's actual workflow — a walk-in clinic where the
+      // normal case is payment on the spot, not running credit.
+      const receivedRaw = src.amount_received?.trim();
+      const received = receivedRaw ? Number(receivedRaw) || 0 : charged;
       if (charged > 0 || received > 0) {
         paymentInserts.push({
           visit_id: v.id,
