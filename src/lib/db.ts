@@ -4240,15 +4240,24 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   return { valid, unmatched, unmatchedSamples, total: rows.length };
 }
 
-// Any payment mode outside the 3 the app itself ever writes (CASH/UPI/CARD)
-// gets bucketed as OTHER instead of being written as arbitrary free text —
-// otherwise it silently doesn't match any category in the cash/upi/card
-// breakdown on Owner Reports/Day Summary (total revenue still included it
-// either way, but the breakdown wouldn't add up to the total).
-const KNOWN_PAYMENT_MODES = ["CASH", "UPI", "CARD"];
-export function normalizePaymentMode(m?: string | null): string {
-  const up = (m ?? "").trim().toUpperCase();
-  return KNOWN_PAYMENT_MODES.includes(up) ? up : up ? "OTHER" : "CASH";
+// payments.payment_mode CHECK only allows CASH/UPI/CARD/ADVANCE/ADJUST —
+// this function used to bucket anything else as "OTHER", which was never
+// actually a valid value for that column (found live 21 Sep 2026 when
+// Dr. Yadav's real visit-history import hit "violates check constraint
+// payments_payment_mode_check" — every single non-CASH/UPI/CARD row in a
+// 300-row chunk killed the whole chunk). Common real-world aliases (GPay/
+// PhonePe/Paytm → UPI, Debit/Credit/Swipe → CARD) are recognized; anything
+// still unrecognized (NEFT, cheque, bank transfer, ...) falls back to
+// CASH — the caller is expected to keep the original text in the visit's
+// import_notes so it isn't silently lost, just not double-counted in the
+// cash/upi/card revenue breakdown under a bucket that doesn't exist.
+const UPI_ALIASES = ["UPI", "GPAY", "GOOGLEPAY", "PHONEPE", "PAYTM", "BHIM"];
+const CARD_ALIASES = ["CARD", "DEBIT", "CREDIT", "DEBITCARD", "CREDITCARD", "SWIPE"];
+export function normalizePaymentMode(m?: string | null): "CASH" | "UPI" | "CARD" {
+  const up = (m ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (UPI_ALIASES.includes(up)) return "UPI";
+  if (CARD_ALIASES.includes(up)) return "CARD";
+  return "CASH";
 }
 
 // patients.patient_status is NOT NULL with a CHECK confined to exactly
@@ -4286,28 +4295,57 @@ export async function commitVisitHistoryImport(
   const BATCH = 300; // bumped for large-scale imports — fewer round trips
   let visitsImported = 0, paymentsImported = 0;
   const touched = new Set<string>();
+  const visitsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
+  const paymentsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
+
+  const buildVisitRow = (r: (typeof rows)[number]) => ({
+    patient_id: r.patient_id,
+    visit_date: r.visit_date,
+    visit_type: "OPD",
+    visit_status: "DONE",
+    branch: r.branch,
+    chief_complaint: r.chief_complaint?.trim() || null,
+    import_notes: buildVisitImportNotes(r),
+    imported_batch: batchId,
+  });
 
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
-    const visitInserts = chunk.map((r) => ({
-      patient_id: r.patient_id,
-      visit_date: r.visit_date,
-      visit_type: "OPD",
-      visit_status: "DONE",
-      branch: r.branch,
-      chief_complaint: r.chief_complaint?.trim() || null,
-      import_notes: buildVisitImportNotes(r),
-      imported_batch: batchId,
-    }));
-    const { data: inserted, error } = await supabase.from("visits").insert(visitInserts).select("id,patient_id");
-    if (error) throw new Error(`${visitsImported} of ${rows.length} visits import ho chuke the jab error aaya: ${error.message}`);
-    visitsImported += inserted?.length ?? 0;
+    const visitInserts = chunk.map(buildVisitRow);
+    // Carries the source row alongside each inserted id — needed because
+    // the per-row fallback below can skip entries, so array position alone
+    // no longer lines up `inserted` with `chunk`.
+    let inserted: { id: string; patient_id: string; src: (typeof rows)[number] }[] = [];
+    // A single genuinely-bad row (a data quirk this real 10k+ row sheet
+    // hasn't shown us yet) used to throw and abort the ENTIRE import,
+    // discarding every chunk after it — found live 21 Sep 2026 three
+    // times in a row on this exact import (patient_status, card number,
+    // then payment_mode). Same fallback as commitPatientsImport now: try
+    // the whole chunk first, and only fall back to one-row-at-a-time
+    // (which isolates exactly which row is bad) if the chunk fails.
+    const { data: bulkInserted, error } = await supabase.from("visits").insert(visitInserts).select("id,patient_id");
+    if (!error) {
+      // A single bulk INSERT returns rows in the same order they were
+      // given, so zipping by index against `chunk` is safe here.
+      inserted = (bulkInserted ?? []).map((v: any, idx: number) => ({ id: v.id, patient_id: v.patient_id, src: chunk[idx] }));
+    } else {
+      for (let j = 0; j < chunk.length; j++) {
+        const { data: row, error: rowError } = await supabase.from("visits").insert(visitInserts[j]).select("id,patient_id").single();
+        if (rowError) {
+          visitsFailed.push({ mobile: chunk[j].mobile, visit_date: chunk[j].visit_date, reason: rowError.message });
+        } else if (row) {
+          inserted.push({ id: (row as any).id, patient_id: (row as any).patient_id, src: chunk[j] });
+        }
+      }
+    }
+    visitsImported += inserted.length;
     onProgress?.(visitsImported, rows.length, "visits");
 
     const paymentInserts: any[] = [];
-    (inserted ?? []).forEach((v: any, idx: number) => {
-      const src = chunk[idx];
+    const paymentSrc: (typeof rows)[number][] = [];
+    for (const v of inserted) {
       touched.add(v.patient_id);
+      const src = v.src;
       const charged = Number(src.amount_charged ?? src.amount_received ?? 0);
       const received = Number(src.amount_received ?? 0);
       if (charged > 0 || received > 0) {
@@ -4319,24 +4357,37 @@ export async function commitVisitHistoryImport(
           balance_due: Math.max(0, charged - received),
           payment_mode: normalizePaymentMode(src.payment_mode),
           branch: src.branch,
-          notes: "Bulk imported (visit history)",
+          notes: src.payment_mode?.trim() ? `Bulk imported (visit history) — original mode: ${src.payment_mode.trim()}` : "Bulk imported (visit history)",
           imported_batch: batchId,
         });
+        paymentSrc.push(src);
       }
-    });
+    }
     if (paymentInserts.length) {
-      const { data: insertedPays, error: pe } = await supabase.from("payments").insert(paymentInserts).select("id,payment_mode,amount_received");
-      if (pe) throw new Error(`${visitsImported} visits already imported, but a payments batch failed: ${pe.message}`);
-      paymentsImported += paymentInserts.length;
+      let insertedPays: { id: string; payment_mode: string; amount_received: number }[] = [];
+      const { data: bulkPays, error: pe } = await supabase.from("payments").insert(paymentInserts).select("id,payment_mode,amount_received");
+      if (!pe) {
+        insertedPays = (bulkPays ?? []) as typeof insertedPays;
+      } else {
+        for (let j = 0; j < paymentInserts.length; j++) {
+          const { data: pRow, error: pRowError } = await supabase.from("payments").insert(paymentInserts[j]).select("id,payment_mode,amount_received").single();
+          if (pRowError) {
+            paymentsFailed.push({ mobile: paymentSrc[j].mobile, visit_date: paymentSrc[j].visit_date, reason: pRowError.message });
+          } else if (pRow) {
+            insertedPays.push(pRow as typeof insertedPays[number]);
+          }
+        }
+      }
+      paymentsImported += insertedPays.length;
       // Every payment needs a payment_splits row (single-mode here, since
       // the daily-entry sheet only has one "mode of payment" column per
       // row) — otherwise imported history would show ₹0 in the per-mode
       // breakdown on Owner Reports/Day Summary despite counting toward the
       // total, since those now read from payment_splits, not
       // payments.payment_mode directly.
-      const splitInserts = (insertedPays ?? [])
-        .filter((p: any) => Number(p.amount_received) > 0)
-        .map((p: any) => ({ payment_id: p.id, mode: p.payment_mode, amount: p.amount_received }));
+      const splitInserts = insertedPays
+        .filter((p) => Number(p.amount_received) > 0)
+        .map((p) => ({ payment_id: p.id, mode: p.payment_mode, amount: p.amount_received }));
       if (splitInserts.length) {
         const { error: se } = await supabase.from("payment_splits").insert(splitInserts);
         if (se) console.error("payment_splits backfill for imported payments failed:", se.message);
@@ -4380,7 +4431,7 @@ export async function commitVisitHistoryImport(
     );
   }
 
-  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor };
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed };
 }
 
 

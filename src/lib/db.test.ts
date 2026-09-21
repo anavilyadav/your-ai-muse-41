@@ -7,7 +7,59 @@ import {
   thirtyDaysAgo,
   looksLikeHeic,
   generateSlots,
+  parseImportDate,
+  normalizePatientStatus,
+  normalizeGender,
 } from "./db";
+
+describe("parseImportDate", () => {
+  it("parses Indian DD/MM/YYYY format", () => {
+    expect(parseImportDate("13/05/2025")).toBe("2025-05-13");
+    expect(parseImportDate("1/5/2025")).toBe("2025-05-01");
+    expect(parseImportDate("31-12-2024")).toBe("2024-12-31");
+  });
+  it("keeps valid ISO dates as-is", () => {
+    expect(parseImportDate("2025-05-13")).toBe("2025-05-13");
+  });
+  it("parses an Excel serial date number", () => {
+    // 45790 = 13 May 2025 (days since 1899-12-30)
+    expect(parseImportDate("45790")).toBe("2025-05-13");
+  });
+  it("rejects impossible dates instead of silently rolling over", () => {
+    expect(parseImportDate("31/02/2025")).toBeNull(); // Feb has no 31st
+    expect(parseImportDate("13/13/2025")).toBeNull(); // no 13th month
+  });
+  it("returns null for blank/unparseable input", () => {
+    expect(parseImportDate("")).toBeNull();
+    expect(parseImportDate(undefined)).toBeNull();
+    expect(parseImportDate("not a date")).toBeNull();
+  });
+});
+
+describe("normalizePatientStatus", () => {
+  it("defaults blank/unrecognized to ACTIVE", () => {
+    expect(normalizePatientStatus("")).toBe("ACTIVE");
+    expect(normalizePatientStatus(undefined)).toBe("ACTIVE");
+    expect(normalizePatientStatus("Y")).toBe("ACTIVE");
+  });
+  it("recognizes inactive/blocked", () => {
+    expect(normalizePatientStatus("Inactive")).toBe("INACTIVE");
+    expect(normalizePatientStatus("N")).toBe("INACTIVE");
+    expect(normalizePatientStatus("Blocked")).toBe("BLOCKED");
+  });
+});
+
+describe("normalizeGender", () => {
+  it("normalizes common variants", () => {
+    expect(normalizeGender("m")).toBe("Male");
+    expect(normalizeGender("FEMALE")).toBe("Female");
+    expect(normalizeGender("o")).toBe("Other");
+  });
+  it("returns null for unrecognized/blank", () => {
+    expect(normalizeGender("")).toBeNull();
+    expect(normalizeGender("X")).toBeNull();
+  });
+});
 
 describe("normalizePaymentMode", () => {
   it("keeps known modes as-is", () => {
@@ -19,10 +71,16 @@ describe("normalizePaymentMode", () => {
     expect(normalizePaymentMode("cash")).toBe("CASH");
     expect(normalizePaymentMode("upi")).toBe("UPI");
   });
-  it("buckets unrecognized modes as OTHER", () => {
-    expect(normalizePaymentMode("NEFT")).toBe("OTHER");
-    expect(normalizePaymentMode("QR")).toBe("OTHER");
-    expect(normalizePaymentMode("cheque")).toBe("OTHER");
+  it("maps common aliases to UPI/CARD", () => {
+    expect(normalizePaymentMode("GPay")).toBe("UPI");
+    expect(normalizePaymentMode("PhonePe")).toBe("UPI");
+    expect(normalizePaymentMode("Debit")).toBe("CARD");
+    expect(normalizePaymentMode("swipe")).toBe("CARD");
+  });
+  it("falls back unrecognized modes to CASH (payments.payment_mode CHECK has no OTHER value)", () => {
+    expect(normalizePaymentMode("NEFT")).toBe("CASH");
+    expect(normalizePaymentMode("QR")).toBe("CASH");
+    expect(normalizePaymentMode("cheque")).toBe("CASH");
   });
   it("defaults empty/null/undefined to CASH", () => {
     expect(normalizePaymentMode("")).toBe("CASH");

@@ -448,6 +448,8 @@ function VisitHistoryImportTab() {
   const [failedPatients, setFailedPatients] = useState<{ id: string; name: string; patient_code: string | null }[]>([]);
   const [showFailed, setShowFailed] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; phase: "visits" | "totals" } | null>(null);
+  const [failedRows, setFailedRows] = useState<{ mobile: string; visit_date: string; reason: string }[]>([]);
+  const [showFailedRows, setShowFailedRows] = useState(false);
 
   const runPreview = async () => {
     setBusy(true);
@@ -467,7 +469,15 @@ function VisitHistoryImportTab() {
     const batchId = newImportBatchId();
     try {
       const res = await commitVisitHistoryImport(preview.valid, batchId, (done, total, phase) => setProgress({ done, total, phase }));
-      toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
+      const rowFailCount = res.visitsFailed.length + res.paymentsFailed.length;
+      if (rowFailCount > 0) {
+        toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${rowFailCount} rows fail hui (neeche list dekho)`);
+        setFailedRows([...res.visitsFailed, ...res.paymentsFailed]);
+        setShowFailedRows(true);
+      } else {
+        toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
+        setFailedRows([]);
+      }
       try {
         await recordImportBatch({ batchId, type: "Visit History", count: res.visitsImported });
       } catch (e: any) {
@@ -516,6 +526,24 @@ function VisitHistoryImportTab() {
             </button>
           )}
         </>
+      )}
+      {failedRows.length > 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <button onClick={() => setShowFailedRows((v) => !v)} className="w-full flex items-center justify-between text-[12px] font-bold text-destructive">
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> {failedRows.length} rows import nahi hui</span>
+            <span>{showFailedRows ? "Hide" : "Show"}</span>
+          </button>
+          {showFailedRows && (
+            <ul className="mt-2 space-y-1.5">
+              {failedRows.map((r, i) => (
+                <li key={i} className="text-[12px] text-primary">
+                  <span className="font-semibold">{r.mobile || "(no mobile)"}</span> — {r.visit_date || "(no date)"}
+                  <div className="text-[11px] text-destructive">{r.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {failedPatients.length > 0 && (
         <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
