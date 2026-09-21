@@ -4169,6 +4169,43 @@ function buildVisitImportNotes(r: ImportVisitRow): string | null {
   return parts.length ? parts.join(" | ") : null;
 }
 
+// Real sheets are Indian-format DD/MM/YYYY (e.g. "13/05/2025"), and Excel
+// exports sometimes leave a date cell as a raw serial number instead of
+// text. Postgres's `date` column was getting DD/MM/YYYY handed to it
+// as-is — that only failed loudly ("date/time field value out of range")
+// when the day exceeded 12 and couldn't possibly be a month; for day<=12
+// it would have silently swapped day/month instead (e.g. "05/06/2025"
+// read as 5 June instead of 6 May), which is worse: wrong data, no error.
+// Found live 21 Sep 2026 on Dr. Yadav's real 10274-row visit sheet.
+export function parseImportDate(raw: string | undefined): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + "T00:00:00Z");
+    return Number.isNaN(d.getTime()) ? null : s;
+  }
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]), month = Number(dmy[2]), year = Number(dmy[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = new Date(Date.UTC(year, month - 1, day));
+    // Catches e.g. day=31 in a 30-day month — Date silently rolls over to
+    // the next month instead of erroring, so round-trip the parts back out.
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+  // Excel serial date (days since 1899-12-30) — shows up when a date
+  // column got exported without its date formatting.
+  if (/^\d{4,6}$/.test(s)) {
+    const serial = Number(s);
+    if (serial < 1000 || serial > 100000) return null; // outside any plausible clinic date range
+    const epoch = Date.UTC(1899, 11, 30);
+    const d = new Date(epoch + serial * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
 export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   const candidateMobiles = Array.from(new Set(rows.map((r) => normalizeMobile(r.mobile)).filter((m) => m.length === 10)));
   const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
@@ -4180,13 +4217,17 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   }
   let unmatched = 0;
   const unmatchedSamples: string[] = [];
-  const valid: (ImportVisitRow & { patient_id: string; branch: string })[] = [];
+  const valid: (ImportVisitRow & { patient_id: string; branch: string; visit_date: string })[] = [];
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
     const p = byMobile.get(mobile);
-    if (!p || !r.visit_date?.trim()) {
+    const visitDate = parseImportDate(r.visit_date);
+    if (!p || !visitDate) {
       unmatched++;
-      if (unmatchedSamples.length < 5) unmatchedSamples.push(r.mobile || "(no mobile)");
+      if (unmatchedSamples.length < 5) {
+        const reason = !p ? "mobile not found" : `date samajh nahi aayi: "${r.visit_date}"`;
+        unmatchedSamples.push(`${r.mobile || "(no mobile)"} — ${reason}`);
+      }
       continue;
     }
     // "CLINIC" column — per-row branch override (e.g. a patient normally at
@@ -4194,7 +4235,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     // the matched patient's own branch when blank or not a real branch key.
     const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
     const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
-    valid.push({ ...r, mobile, patient_id: p.id, branch });
+    valid.push({ ...r, mobile, patient_id: p.id, branch, visit_date: visitDate });
   }
   return { valid, unmatched, unmatchedSamples, total: rows.length };
 }
