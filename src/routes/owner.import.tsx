@@ -429,6 +429,7 @@ function PatientsImportTab() {
 function VisitHistoryImportTab() {
   const fields: FieldDef[] = [
     { key: "mobile", label: "Mobile (to match patient)", required: true },
+    { key: "name", label: "Patient name (fallback match if mobile doesn't match)" },
     { key: "visit_date", label: "Visit date (YYYY-MM-DD)", required: true },
     { key: "chief_complaint", label: "Complaint / diagnosis" },
     { key: "amount_charged", label: "Amount charged" },
@@ -450,7 +451,7 @@ function VisitHistoryImportTab() {
   const [progress, setProgress] = useState<{ done: number; total: number; phase: "visits" | "totals" } | null>(null);
   const [failedRows, setFailedRows] = useState<{ mobile: string; visit_date: string; reason: string }[]>([]);
   const [showFailedRows, setShowFailedRows] = useState(false);
-  const [openBreakdown, setOpenBreakdown] = useState<"malformed" | "notfound" | "date" | null>(null);
+  const [openBreakdown, setOpenBreakdown] = useState<"malformed" | "notfound" | "ambiguous" | "date" | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -515,12 +516,18 @@ function VisitHistoryImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} extraLabel="Unmatched" extraCount={preview.unmatched} />
+          {preview.nameMatched > 0 && (
+            <div className="rounded-xl bg-success/10 border border-success/30 p-3 text-[12px] text-success">
+              {preview.nameMatched} rows mobile match nahi hui, lekin naam se (unique match) recover ho gayi.
+            </div>
+          )}
           {preview.unmatched > 0 && (
             <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2">
               <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Unmatched ki wajah (breakdown)</div>
               {[
                 { key: "malformed" as const, label: "Mobile column sahi nahi map hui / khaali", count: preview.malformedMobile, samples: preview.malformedMobileSamples, hint: "Agar yeh count bada hai, toh upar 'Column mapping' mein Mobile field dobara check karo — shayad galat column map ho gaya." },
-                { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh numbers Patients import mein nahi aaye — ya toh wo patient miss ho gaya (dobara Patients import karo), ya is sheet mein number alag hai us patient ke asli number se." },
+                { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila (naam se bhi nahi)", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh patient Patients import mein nahi aaya — ya toh wo miss ho gaya (dobara Patients import karo), ya is sheet mein naam bhi alag likha hai." },
+                { key: "ambiguous" as const, label: "Mobile match nahi hui, naam se kai patients milte hain", count: preview.ambiguousName, samples: preview.ambiguousNameSamples, hint: "Ek se zyada patient ka same naam hai — kaunsa sahi hai pata nahi chal saka, isliye safe rehne ke liye skip kiya. In rows ko manually check karke unka sahi mobile number sheet mein daalo, phir dobara import karo." },
                 { key: "date" as const, label: "Patient mila, lekin date samajh nahi aayi", count: preview.badDate, samples: preview.badDateSamples, hint: "Visit date column ka format check karo (DD/MM/YYYY ya YYYY-MM-DD expected)." },
               ].filter((b) => b.count > 0).map((b) => (
                 <div key={b.key} className="rounded-xl bg-background border border-border p-2.5">

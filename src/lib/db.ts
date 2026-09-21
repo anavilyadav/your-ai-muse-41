@@ -4149,6 +4149,12 @@ export interface ImportVisitRow {
   branch?: string; // "CLINIC" column — per-row override, falls back to the matched patient's branch
   medicine?: string; duration?: string; slip_no?: string; due_date?: string;
   details?: string; reminder_call?: string;
+  // Added 22 Sep 2026 — a real daily-entry sheet's mobile column often
+  // doesn't match the Patients master sheet's mobile for the same person
+  // (re-written by hand at each visit, sometimes a different family
+  // member's phone that day). Name is a fallback match key when mobile
+  // fails, NOT the primary one — see previewVisitHistoryImport.
+  name?: string;
 }
 
 // Folds the historical-record-only columns (medicine/duration/slip no./
@@ -4206,58 +4212,107 @@ export function parseImportDate(raw: string | undefined): string | null {
   return null;
 }
 
+function normalizeNameKey(s: string | undefined | null): string {
+  return (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
-  const candidateMobiles = Array.from(new Set(rows.map((r) => normalizeMobile(r.mobile)).filter((m) => m.length === 10)));
+  // Fetches every patient once (id/name/mobile/branch only) instead of
+  // chunked mobile-only lookups — needed now because a real daily-entry
+  // sheet's mobile per visit often doesn't match the Patients master
+  // sheet's mobile for the same person (re-written by hand at each visit,
+  // sometimes a different family member's phone that day), so matching
+  // needs a name fallback too, not just mobile. .range() pages past
+  // PostgREST's ~1000-row default cap.
   const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
-  const CHUNK = 300;
-  for (let i = 0; i < candidateMobiles.length; i += CHUNK) {
-    const chunk = candidateMobiles.slice(i, i + CHUNK);
-    const { data } = await supabase.from("patients").select("id,mobile,branch").in("mobile", chunk);
-    (data ?? []).forEach((p: any) => byMobile.set(normalizeMobile(p.mobile), p));
+  const byName = new Map<string, { id: string; mobile: string; branch: string; name: string }[]>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase.from("patients").select("id,name,mobile,branch").range(from, from + PAGE - 1);
+    if (!data || data.length === 0) break;
+    for (const p of data as any[]) {
+      byMobile.set(normalizeMobile(p.mobile), p);
+      const nameKey = normalizeNameKey(p.name);
+      if (nameKey) {
+        const list = byName.get(nameKey) ?? [];
+        list.push(p);
+        byName.set(nameKey, list);
+      }
+    }
+    if (data.length < PAGE) break;
   }
+
   let unmatched = 0;
   // Split by WHY a row didn't match, instead of one blended "unmatched"
   // bucket with 5 samples — a real 10k-row sheet needs this to actually be
   // fixable. "malformedMobile" (not even 10 digits after stripping
-  // non-digits) usually means a column-mapping problem, not a genuine
-  // cross-sheet number mismatch; "mobileNotFound" is a real 10-digit
-  // number just not present in the imported Patients table (missed during
-  // Patients import, or genuinely a different number on this sheet);
-  // "badDate" is a matched patient with an unparseable visit date.
-  let malformedMobile = 0, mobileNotFound = 0, badDate = 0;
+  // non-digits) usually means a column-mapping problem; "mobileNotFound"
+  // is a real 10-digit number with no mobile match AND no unambiguous
+  // name match either; "ambiguousName" is a mobile miss where 2+ patients
+  // share that exact name, so guessing which one would risk attaching this
+  // visit to the wrong person — left unmatched on purpose; "badDate" is a
+  // matched patient with an unparseable visit date.
+  let malformedMobile = 0, mobileNotFound = 0, ambiguousName = 0, badDate = 0, nameMatched = 0;
   const malformedMobileSamples: string[] = [];
   const mobileNotFoundSamples: string[] = [];
+  const ambiguousNameSamples: string[] = [];
   const badDateSamples: string[] = [];
   const valid: (ImportVisitRow & { patient_id: string; branch: string; visit_date: string })[] = [];
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
-    const p = byMobile.get(mobile);
+    let p = byMobile.get(mobile);
+    let matchedByName = false;
+    let ambiguousNameCandidates = 0;
+    if (!p) {
+      // Mobile miss — try the name fallback, but only when it's
+      // unambiguous (exactly one patient has this exact name). A shared
+      // family surname or common first name is common enough in real data
+      // that guessing wrong would silently attach someone else's visit
+      // history and revenue to the wrong patient — worse than leaving it
+      // unmatched for manual review.
+      const nameKey = normalizeNameKey(r.name);
+      const candidates = nameKey ? byName.get(nameKey) : undefined;
+      if (candidates?.length === 1) {
+        p = candidates[0];
+        matchedByName = true;
+      } else if (candidates && candidates.length > 1) {
+        ambiguousNameCandidates = candidates.length;
+      }
+    }
     const visitDate = parseImportDate(r.visit_date);
     if (!p || !visitDate) {
       unmatched++;
-      if (mobile.length !== 10) {
-        malformedMobile++;
-        if (malformedMobileSamples.length < 10) malformedMobileSamples.push(r.mobile || "(khaali)");
-      } else if (!p) {
-        mobileNotFound++;
-        if (mobileNotFoundSamples.length < 10) mobileNotFoundSamples.push(mobile);
-      } else {
+      // Mutually exclusive classification, most-specific reason first —
+      // each row lands in exactly one bucket so the counts add up to
+      // `unmatched` and the Owner isn't shown overlapping numbers.
+      if (p && !visitDate) {
         badDate++;
         if (badDateSamples.length < 10) badDateSamples.push(`${r.mobile} — "${r.visit_date}"`);
+      } else if (ambiguousNameCandidates > 0) {
+        ambiguousName++;
+        if (ambiguousNameSamples.length < 10) ambiguousNameSamples.push(`${r.name} (${ambiguousNameCandidates} patients is naam se)`);
+      } else if (mobile.length !== 10) {
+        malformedMobile++;
+        if (malformedMobileSamples.length < 10) malformedMobileSamples.push(r.mobile || "(khaali)");
+      } else {
+        mobileNotFound++;
+        if (mobileNotFoundSamples.length < 10) mobileNotFoundSamples.push(mobile);
       }
       continue;
     }
+    if (matchedByName) nameMatched++;
     // "CLINIC" column — per-row branch override (e.g. a patient normally at
     // one branch who was seen at the other for one visit); falls back to
     // the matched patient's own branch when blank or not a real branch key.
     const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
     const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
-    valid.push({ ...r, mobile, patient_id: p.id, branch, visit_date: visitDate });
+    valid.push({ ...r, mobile: matchedByName ? normalizeMobile(p.mobile) : mobile, patient_id: p.id, branch, visit_date: visitDate });
   }
   return {
-    valid, unmatched, total: rows.length,
+    valid, unmatched, total: rows.length, nameMatched,
     malformedMobile, malformedMobileSamples,
     mobileNotFound, mobileNotFoundSamples,
+    ambiguousName, ambiguousNameSamples,
     badDate, badDateSamples,
   };
 }
