@@ -5443,9 +5443,15 @@ export async function fetchAuditLog(opts?: {
   recordId?: string;
   limit?: number;
 }): Promise<AuditLogEntry[]> {
+  // audit_log has TWO foreign keys into users (actor_id and a legacy,
+  // unused user_id) — a plain `users(name, role)` embed is ambiguous to
+  // PostgREST (it can't guess which FK to join on) and fails every call.
+  // Naming the constraint explicitly picks actor_id, the one this app
+  // actually writes/reads. Found live 22 Sep 2026: Audit Log wasn't
+  // loading at all after the bulk import grew the table.
   let q = supabase
     .from("audit_log")
-    .select("*, users(name, role)")
+    .select("*, users!audit_log_actor_id_fkey(name, role)")
     .order("created_at", { ascending: false })
     .limit(opts?.limit ?? 150);
   if (opts?.table) q = q.eq("table_name", opts.table);
