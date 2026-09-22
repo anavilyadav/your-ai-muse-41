@@ -120,6 +120,17 @@ function QueuePage() {
         ))}
       </div>
 
+      {/* Second quick action — Reception asked for this to be visible from
+          the same hub as Register, not buried inside a specific patient's
+          profile (the only place LogInteractionModal was reachable from
+          before). Found live 22 Sep 2026. */}
+      <Link
+        to="/complaint-call"
+        className="mt-3 w-full rounded-xl bg-surface border border-border px-3 py-2.5 text-[12px] font-bold text-primary flex items-center justify-center gap-1.5"
+      >
+        📞 Complaint / Support Call
+      </Link>
+
       <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
         {filters.map((f) => {
           const active = filter === f;

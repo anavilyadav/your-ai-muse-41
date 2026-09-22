@@ -550,6 +550,38 @@ function RegisterPage() {
               number use karta hai — to bas neeche form bharte raho, naya register ho jayega aur dono ka family group
               bhi yahin ban jayega.
             </p>
+
+            {/* Same f.caseChannel the new-registration "Case Type" section
+                further down sets — check-in already passes it through
+                (checkInInstead → case_channel), but that section is buried
+                below Branch/Payment, so Reception checking someone in never
+                saw it in time to mark an online follow-up. Duplicated here
+                without the new-patient bundle pricing text, which doesn't
+                apply to a returning patient's follow-up. Found live 22 Sep
+                2026. */}
+            <div className="mt-2.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => set("caseChannel", "WALK_IN")}
+                className={cn(
+                  "flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold border",
+                  f.caseChannel === "WALK_IN" ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
+                )}
+              >
+                Walk-in
+              </button>
+              <button
+                type="button"
+                onClick={() => set("caseChannel", "ONLINE")}
+                className={cn(
+                  "flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold border",
+                  f.caseChannel === "ONLINE" ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
+                )}
+              >
+                🎥 Online Follow-up
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={checkInInstead}
@@ -772,7 +804,7 @@ function RegisterPage() {
           </div>
         </Section>
 
-        <Section label="Case Type *">
+        <Section label="Case Type * (Naya Patient)">
           <div className="flex gap-2">
             <button
               type="button"

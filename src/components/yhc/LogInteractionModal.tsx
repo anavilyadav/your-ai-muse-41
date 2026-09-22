@@ -12,13 +12,15 @@ export function LogInteractionModal({
   patientId,
   onClose,
   onLogged,
+  defaultType = "CALL",
 }: {
   patientId: string;
   onClose: () => void;
   onLogged: () => void;
+  defaultType?: InteractionType;
 }) {
   const { user } = useAuth();
-  const [type, setType] = useState<InteractionType>("CALL");
+  const [type, setType] = useState<InteractionType>(defaultType);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
