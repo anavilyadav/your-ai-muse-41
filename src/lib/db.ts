@@ -1442,6 +1442,28 @@ export async function logDegradedModeAlert(rpcName: string, context?: Record<str
   }
 }
 
+// A bulk-import row failure used to only ever show up once, in an
+// in-memory React state the Owner had to actually notice before
+// navigating away or refreshing — no durable record. Found live 22 Sep
+// 2026: 21 patients failed during the real master-sheet import and were
+// simply lost, since nothing outlived that one toast. This writes the
+// same "X rows failed" summary to system_alerts (Owner > Health, same
+// place RPC-fallback and WhatsApp-send failures already surface) so a
+// partial import failure is never silent even if nobody was watching the
+// screen at the time.
+export async function logImportFailureAlert(kind: string, failures: { reason: string; [k: string]: unknown }[]) {
+  if (failures.length === 0) return;
+  try {
+    await supabase.from("system_alerts").insert({
+      type: "IMPORT_ROW_FAILURE",
+      message: `${kind}: ${failures.length} rows import nahi hui — Owner > Import screen pe dobara try karne se pehle neeche samples dekho.`,
+      context: { kind, count: failures.length, samples: failures.slice(0, 20) },
+    });
+  } catch (e: any) {
+    console.error("logImportFailureAlert failed:", e?.message ?? e);
+  }
+}
+
 export interface SystemAlert {
   id: string;
   type: string;
@@ -4138,6 +4160,9 @@ export async function commitPatientsImport(
     }
   }
 
+  if (failedRows.length > 0) {
+    await logImportFailureAlert("Patients import", failedRows.map((r) => ({ name: r.name, mobile: r.mobile, reason: r.reason })));
+  }
   return { imported, failed: failedRows };
 }
 
@@ -4568,6 +4593,15 @@ export async function commitVisitHistoryImport(
     );
   }
 
+  if (visitsFailed.length > 0) {
+    await logImportFailureAlert("Visit History import — visits", visitsFailed.map((r) => ({ mobile: r.mobile, visit_date: r.visit_date, reason: r.reason })));
+  }
+  if (paymentsFailed.length > 0) {
+    await logImportFailureAlert("Visit History import — payments", paymentsFailed.map((r) => ({ mobile: r.mobile, visit_date: r.visit_date, reason: r.reason })));
+  }
+  if (totalsFailedFor.length > 0) {
+    await logImportFailureAlert("Visit History import — patient totals recompute", totalsFailedFor.map((id) => ({ patient_id: id, reason: "totals update failed" })));
+  }
   return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed };
 }
 
