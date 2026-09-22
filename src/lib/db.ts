@@ -2704,7 +2704,7 @@ export async function fetchDoctorDashboard() {
     supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "DONE").gte("updated_at", istDayStart(t)),
     supabase.from("visits").select("patient_id").gte("visit_date", monthStart),
-    supabase.from("payments").select("amount_received").gte("created_at", istDayStart(monthStart)),
+    supabase.from("payments").select("amount_received,visits!inner(visit_date)").gte("visits.visit_date", monthStart),
     supabase.from("visits").select("chief_complaint").gte("visit_date", monthStart).not("chief_complaint", "is", null),
     supabase.from("visits").select("id", { count: "exact", head: true })
       .in("visit_status", ["WAITING_DOCTOR", "CASE_TAKING", "REGISTERED"])
@@ -2771,8 +2771,8 @@ export async function fetchOwnerStats() {
     await Promise.all([
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
-      supabase.from("payments").select("amount_received,payment_mode,branch").gte("created_at", istDayStart(t)),
-      supabase.from("payments").select("id,amount_received,payment_mode,branch").gte("created_at", istDayStart(monthStart)),
+      supabase.from("payments").select("amount_received,payment_mode,branch,visits!inner(visit_date)").eq("visits.visit_date", t),
+      supabase.from("payments").select("id,amount_received,payment_mode,branch,visits!inner(visit_date)").gte("visits.visit_date", monthStart).lte("visits.visit_date", t),
       supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
       supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", t),
     ]);
@@ -2927,7 +2927,7 @@ export async function fetchReports(
   if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
   void logDegradedModeAlert("report_totals", { note: "Run 0045_report_aggregates.sql — report totals may be truncated" });
 
-  let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode").gte("created_at", istDayStart(start));
+  let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode,visits!inner(visit_date)").gte("visits.visit_date", start);
 
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
   let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
@@ -2938,7 +2938,7 @@ export async function fetchReports(
     patQ = patQ.eq("branch", branch);
   }
   if (end) {
-    payQ = payQ.lte("created_at", istDayEnd(end));
+    payQ = payQ.lte("visits.visit_date", end);
     visQ = visQ.lte("visit_date", end);
     patQ = patQ.lte("created_at", istDayEnd(end));
     leadQ = leadQ.lte("created_at", istDayEnd(end));
@@ -3394,7 +3394,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0066_fix_revenue_report_dates";
+export const EXPECTED_SCHEMA_VERSION = "0067_fix_doctor_totals_dates";
 
 export interface SchemaMigrationRow {
   filename: string;
