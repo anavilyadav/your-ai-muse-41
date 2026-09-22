@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks, Eye, EyeOff } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash } from "@/lib/db";
@@ -31,7 +32,35 @@ function inr(n: number) {
   return `₹${n}`;
 }
 
+// Per-device screen-privacy toggle: hides revenue figures on the Owner's
+// own device (e.g. handing the phone to someone, or someone looking over
+// the shoulder) without affecting any other login or device. Persisted in
+// localStorage since it's a personal display preference, not real data.
+function useHideRevenue() {
+  const [hidden, setHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("yhc_hide_revenue") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setHidden((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("yhc_hide_revenue", next ? "1" : "0");
+      } catch {
+        // ignore — worst case the preference doesn't persist this device
+      }
+      return next;
+    });
+  };
+  return { hidden, toggle };
+}
+
 function OwnerDashboard() {
+  const { hidden: hideRevenue, toggle: toggleHideRevenue } = useHideRevenue();
+  const mask = (v: string) => (hideRevenue ? "••••" : v);
   const stats = useQuery({ queryKey: ["owner-stats"], queryFn: fetchOwnerStats, refetchInterval: 30_000 });
   const week = useQuery({ queryKey: ["owner-week"], queryFn: fetchWeekRevenue });
   const staff = useQuery({ queryKey: ["owner-staff"], queryFn: fetchStaff });
@@ -52,6 +81,13 @@ function OwnerDashboard() {
       nav={OWNER_NAV}
       right={
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={toggleHideRevenue}
+            className="rounded-full bg-white/15 text-primary-foreground text-[11px] px-3 py-1.5 font-semibold inline-flex items-center gap-1"
+          >
+            {hideRevenue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {hideRevenue ? "Hidden" : "Hide"}
+          </button>
           <RoleSwitcher />
           <Link
             to="/owner/health"
@@ -75,10 +111,10 @@ function OwnerDashboard() {
         <>
           <div className="rounded-2xl bg-primary text-primary-foreground p-5 text-center">
             <div className="text-[13px] text-primary-foreground/70">Today's Revenue</div>
-            <div className="text-4xl font-extrabold text-accent mt-1">{inr(s?.todayRevenue ?? 0)}</div>
+            <div className="text-4xl font-extrabold text-accent mt-1">{mask(inr(s?.todayRevenue ?? 0))}</div>
             <div className="flex justify-center gap-4 mt-2 text-[12px] text-primary-foreground/70">
-              <span>Bajaj: {inr(s?.todayRevenueBajaj ?? 0)}</span>
-              <span>Jagatpura: {inr(s?.todayRevenueJagatpura ?? 0)}</span>
+              <span>Bajaj: {mask(inr(s?.todayRevenueBajaj ?? 0))}</span>
+              <span>Jagatpura: {mask(inr(s?.todayRevenueJagatpura ?? 0))}</span>
             </div>
           </div>
 
@@ -86,25 +122,31 @@ function OwnerDashboard() {
             <Stat v={s?.todayVisits ?? 0} l="Patients" />
             <Stat v={s?.newToday ?? 0} l="New" tone="success" />
             <Stat v={s?.followupsToday ?? 0} l="Follow-up" />
-            <Stat v={inr(s?.monthRevenue ?? 0)} l="This Month" tone="accent" />
+            <Stat v={mask(inr(s?.monthRevenue ?? 0))} l="This Month" tone="accent" />
           </div>
 
           <div className="mt-3 rounded-2xl bg-surface border border-border p-4">
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
               This Week — Revenue
             </div>
-            <div className="flex items-end gap-2 h-32">
-              {w.map(([d, v], i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="text-[9px] text-muted-foreground font-semibold">{(v / 1000).toFixed(1)}k</div>
-                  <div
-                    className="w-full bg-accent rounded-t-md"
-                    style={{ height: `${(v / max) * 90}px` }}
-                  />
-                  <div className="text-[11px] text-muted-foreground">{d}</div>
-                </div>
-              ))}
-            </div>
+            {hideRevenue ? (
+              <div className="h-32 flex items-center justify-center text-[13px] text-muted-foreground font-semibold">
+                •••• hidden hai — eye icon dabao dikhane ke liye
+              </div>
+            ) : (
+              <div className="flex items-end gap-2 h-32">
+                {w.map(([d, v], i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="text-[9px] text-muted-foreground font-semibold">{(v / 1000).toFixed(1)}k</div>
+                    <div
+                      className="w-full bg-accent rounded-t-md"
+                      style={{ height: `${(v / max) * 90}px` }}
+                    />
+                    <div className="text-[11px] text-muted-foreground">{d}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
