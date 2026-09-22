@@ -1721,13 +1721,15 @@ export async function fetchFollowups() {
       .eq("status", "PENDING")
       .lte("due_date", upperStr)
       .order("due_date", { ascending: true })
-      .limit(200),
-    // The 200-row cap above is just for what's actually rendered — the
-    // stat boxes used to be computed from that same capped array, so a
-    // real "8277 due" queue (after the historical follow-up backfill)
-    // silently showed "200 Due" instead, understating the real backlog
-    // by 40x with no indication anything was cut off. These two counts
-    // are exact, decoupled from the row cap.
+      // Was capped at 200, with the stat boxes computed from that same
+      // capped array — a real "8277 due" queue (a since-corrected
+      // over-generated backfill) silently showed "200 Due" instead,
+      // understating the real backlog by 40x with no indication anything
+      // was cut off. Owner explicitly asked to see everyone actually due,
+      // not a sample. 5000 is a safety valve, not an expected real count.
+      .limit(5000),
+    // Decoupled from the row cap above — exact counts regardless of how
+    // many rows the list itself renders.
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", upperStr),
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lt("due_date", todayStr),
   ]);
@@ -4192,24 +4194,31 @@ export interface ImportVisitRow {
   // Added 22 Sep 2026 — a real daily-entry sheet's mobile column often
   // doesn't match the Patients master sheet's mobile for the same person
   // (re-written by hand at each visit, sometimes a different family
-  // member's phone that day). Name is a fallback match key when mobile
-  // fails, NOT the primary one — see previewVisitHistoryImport.
+  // member's phone that day). Name and card_no are fallback match keys
+  // when mobile fails, NOT the primary one — see previewVisitHistoryImport.
   name?: string;
+  // The daily sheet's own physical card-number column (e.g. "K-04-39") —
+  // 5044 of 5185 real patients have one recorded, making it a much
+  // stronger fallback than name (a first name repeats across patients
+  // far more than a physical card number does).
+  card_no?: string;
 }
 
 // Folds the historical-record-only columns (medicine/duration/slip no./
 // due date/details/reminder call) into one readable note, instead of five
 // narrow structured columns nothing else in the app reads. due_date is
-// deliberately included here as plain text ONLY — never written to
-// visits.next_visit_date, which feeds the live WhatsApp follow-up
-// reminder engine. Writing a years-old due date there would fire a real
-// reminder to a real patient for a follow-up that's long since resolved.
+// ALSO kept here as plain text regardless of whether it's future or past
+// (for the visit's own record), but commitVisitHistoryImport separately
+// creates a real follow-up row for it when it parses to a genuine future
+// date — see the followupCandidates logic there. A past due_date is NOT
+// turned into a live reminder (long since resolved, would just be noise);
+// this text note is its only record.
 function buildVisitImportNotes(r: ImportVisitRow): string | null {
   const parts: string[] = [];
   if (r.medicine?.trim()) parts.push(`Medicine: ${r.medicine.trim()}`);
   if (r.duration?.trim()) parts.push(`Duration: ${r.duration.trim()}`);
   if (r.slip_no?.trim()) parts.push(`Slip No.: ${r.slip_no.trim()}`);
-  if (r.due_date?.trim()) parts.push(`Due Date (historical, informational only): ${r.due_date.trim()}`);
+  if (r.due_date?.trim()) parts.push(`Due Date: ${r.due_date.trim()}`);
   if (r.details?.trim()) parts.push(`Details: ${r.details.trim()}`);
   if (r.reminder_call?.trim()) parts.push(`Reminder Call: ${r.reminder_call.trim()}`);
   return parts.length ? parts.join(" | ") : null;
@@ -4256,19 +4265,27 @@ function normalizeNameKey(s: string | undefined | null): string {
   return (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// Same "SERIES-REGISTER-NUMBER" key isDuplicateCardNumber uses, just for
+// map lookups instead of a DB query.
+function cardKey(series: string | null | undefined, register: string | null | undefined, number: string | null | undefined): string | null {
+  if (!series || !register || !number) return null;
+  return `${series.trim().toUpperCase()}|${register.trim()}|${number.trim()}`;
+}
+
 export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   // Fetches every patient once (id/name/mobile/branch only) instead of
   // chunked mobile-only lookups — needed now because a real daily-entry
   // sheet's mobile per visit often doesn't match the Patients master
   // sheet's mobile for the same person (re-written by hand at each visit,
   // sometimes a different family member's phone that day), so matching
-  // needs a name fallback too, not just mobile. .range() pages past
-  // PostgREST's ~1000-row default cap.
+  // needs name/card-number fallbacks too, not just mobile. .range() pages
+  // past PostgREST's ~1000-row default cap.
   const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
   const byName = new Map<string, { id: string; mobile: string; branch: string; name: string }[]>();
+  const byCard = new Map<string, { id: string; mobile: string; branch: string; name: string }[]>();
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
-    const { data } = await supabase.from("patients").select("id,name,mobile,branch").range(from, from + PAGE - 1);
+    const { data } = await supabase.from("patients").select("id,name,mobile,branch,card_series,card_register,card_number").range(from, from + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const p of data as any[]) {
       byMobile.set(normalizeMobile(p.mobile), p);
@@ -4277,6 +4294,12 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
         const list = byName.get(nameKey) ?? [];
         list.push(p);
         byName.set(nameKey, list);
+      }
+      const ck = cardKey(p.card_series, p.card_register, p.card_number);
+      if (ck) {
+        const list = byCard.get(ck) ?? [];
+        list.push(p);
+        byCard.set(ck, list);
       }
     }
     if (data.length < PAGE) break;
@@ -4311,7 +4334,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   // share that exact name, so guessing which one would risk attaching this
   // visit to the wrong person — left unmatched on purpose; "badDate" is a
   // matched patient with an unparseable visit date.
-  let malformedMobile = 0, mobileNotFound = 0, ambiguousName = 0, badDate = 0, nameMatched = 0;
+  let malformedMobile = 0, mobileNotFound = 0, ambiguousName = 0, badDate = 0, nameMatched = 0, cardMatched = 0;
   const malformedMobileSamples: string[] = [];
   const mobileNotFoundSamples: string[] = [];
   const ambiguousNameSamples: string[] = [];
@@ -4342,6 +4365,20 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
         ambiguousNameCandidates = candidates.length;
       }
     }
+    let matchedByCard = false;
+    if (!p) {
+      // Mobile AND name both missed — try the sheet's own physical card
+      // number (5044 of 5185 real patients have one recorded, and unlike
+      // a first name it's meant to be unique per patient/family unit), same
+      // unambiguous-only rule as the name fallback.
+      const parsedCard = parseCardNumber(r.card_no);
+      const ck = parsedCard ? cardKey(parsedCard.series, parsedCard.register, parsedCard.number) : null;
+      const candidates = ck ? byCard.get(ck) : undefined;
+      if (candidates?.length === 1) {
+        p = candidates[0];
+        matchedByCard = true;
+      }
+    }
     const visitDate = parseImportDate(r.visit_date);
     if (!p || !visitDate) {
       unmatched++;
@@ -4363,7 +4400,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
         if (malformedMobileSamples.length < 10) malformedMobileSamples.push(r.mobile || "(khaali)");
       } else {
         mobileNotFound++;
-        reason = "koi patient nahi mila (mobile ya naam se)";
+        reason = "koi patient nahi mila (mobile, naam ya card number se)";
         if (mobileNotFoundSamples.length < 10) mobileNotFoundSamples.push(mobile);
       }
       unmatchedRows.push({ mobile: r.mobile || "", name: r.name || "", visit_date: r.visit_date || "", reason });
@@ -4377,15 +4414,16 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     }
     existingVisitKeys.add(dedupKey); // also catches the same (patient, date) repeated within this file
     if (matchedByName) nameMatched++;
+    if (matchedByCard) cardMatched++;
     // "CLINIC" column — per-row branch override (e.g. a patient normally at
     // one branch who was seen at the other for one visit); falls back to
     // the matched patient's own branch when blank or not a real branch key.
     const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
     const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
-    valid.push({ ...r, mobile: matchedByName ? normalizeMobile(p.mobile) : mobile, patient_id: p.id, branch, visit_date: visitDate });
+    valid.push({ ...r, mobile: matchedByName || matchedByCard ? normalizeMobile(p.mobile) : mobile, patient_id: p.id, branch, visit_date: visitDate });
   }
   return {
-    valid, unmatched, total: rows.length, nameMatched,
+    valid, unmatched, total: rows.length, nameMatched, cardMatched,
     malformedMobile, malformedMobileSamples,
     mobileNotFound, mobileNotFoundSamples,
     ambiguousName, ambiguousNameSamples,
@@ -4462,6 +4500,16 @@ export async function commitVisitHistoryImport(
   const touched = new Set<string>();
   const visitsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
   const paymentsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
+  // A row's "Due Date" column is a real, sheet-recorded next-visit date —
+  // when it's still in the future, that's a genuine follow-up the Owner
+  // wants tracked (confirmed live 22 Sep 2026: an earlier +30-day GUESS
+  // backfill created 7-9 chase-sequence entries per patient, almost all
+  // landing on "due today" — noisy and wrong; the real sheet date is a
+  // single, correct answer). A due date already in the past is NOT
+  // recreated here — it's long since resolved, and recreating it would
+  // just be old noise. One candidate per (patient, visit); reduced to the
+  // patient's single latest-visit due date after the main loop.
+  const followupCandidates: { patient_id: string; visit_id: string; branch: string; visit_date: string; due_date: string }[] = [];
 
   const buildVisitRow = (r: (typeof rows)[number]) => ({
     patient_id: r.patient_id,
@@ -4511,6 +4559,10 @@ export async function commitVisitHistoryImport(
     for (const v of inserted) {
       touched.add(v.patient_id);
       const src = v.src;
+      const dueDateParsed = parseImportDate(src.due_date);
+      if (dueDateParsed && dueDateParsed > today()) {
+        followupCandidates.push({ patient_id: v.patient_id, visit_id: v.id, branch: src.branch, visit_date: src.visit_date, due_date: dueDateParsed });
+      }
       const charged = Number(src.amount_charged ?? src.amount_received ?? 0) || 0;
       // A real daily-entry sheet often has only ONE money column (what was
       // actually collected that visit) with no separate "charged" figure —
@@ -4572,6 +4624,44 @@ export async function commitVisitHistoryImport(
     }
   }
 
+  // One follow-up per patient, using their LATEST visit's due date (not
+  // every visit's — a patient with several imported visits would
+  // otherwise get several, mostly-superseded follow-up rows). Skips
+  // patients who already have a pending follow-up (e.g. from an earlier
+  // import run) rather than creating a duplicate.
+  let followupsCreated = 0;
+  if (followupCandidates.length > 0) {
+    const latestByPatient = new Map<string, (typeof followupCandidates)[number]>();
+    for (const c of followupCandidates) {
+      const existing = latestByPatient.get(c.patient_id);
+      if (!existing || c.visit_date > existing.visit_date) latestByPatient.set(c.patient_id, c);
+    }
+    const candidatePatientIds = Array.from(latestByPatient.keys());
+    const alreadyPending = new Set<string>();
+    const CHUNK = 300;
+    for (let i = 0; i < candidatePatientIds.length; i += CHUNK) {
+      const chunk = candidatePatientIds.slice(i, i + CHUNK);
+      const { data } = await supabase.from("followups").select("patient_id").eq("status", "PENDING").in("patient_id", chunk);
+      (data ?? []).forEach((r: any) => alreadyPending.add(r.patient_id));
+    }
+    const followupInserts = Array.from(latestByPatient.values())
+      .filter((c) => !alreadyPending.has(c.patient_id))
+      .map((c) => ({
+        patient_id: c.patient_id,
+        visit_id: c.visit_id,
+        due_date: c.due_date,
+        followup_type: "Sheet Due Date",
+        channel: "CALL" as const,
+        status: "PENDING" as const,
+        branch: c.branch,
+      }));
+    if (followupInserts.length) {
+      const { error: fErr } = await supabase.from("followups").insert(followupInserts);
+      if (fErr) console.error("Visit-history due-date follow-up creation failed:", fErr.message);
+      else followupsCreated = followupInserts.length;
+    }
+  }
+
   // Recompute lifetime totals for every patient touched by this import,
   // a few at a time so we don't hammer the DB with hundreds of parallel calls.
   const ids = Array.from(touched);
@@ -4617,7 +4707,7 @@ export async function commitVisitHistoryImport(
   if (totalsFailedFor.length > 0) {
     await logImportFailureAlert("Visit History import — patient totals recompute", totalsFailedFor.map((id) => ({ patient_id: id, reason: "totals update failed" })));
   }
-  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed };
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed, followupsCreated };
 }
 
 

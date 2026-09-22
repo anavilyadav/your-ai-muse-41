@@ -431,6 +431,7 @@ function VisitHistoryImportTab() {
   const fields: FieldDef[] = [
     { key: "mobile", label: "Mobile (to match patient)", required: true },
     { key: "name", label: "Patient name (fallback match if mobile doesn't match)" },
+    { key: "card_no", label: "Card No. (2nd fallback match, e.g. K-04-39)" },
     { key: "visit_date", label: "Visit date (YYYY-MM-DD)", required: true },
     { key: "chief_complaint", label: "Complaint / diagnosis" },
     { key: "amount_charged", label: "Amount charged" },
@@ -440,7 +441,7 @@ function VisitHistoryImportTab() {
     { key: "medicine", label: "Medicine" },
     { key: "duration", label: "Duration" },
     { key: "slip_no", label: "Slip No." },
-    { key: "due_date", label: "Due date (historical — informational only, doesn't trigger reminders)" },
+    { key: "due_date", label: "Due date (agar future date hai to ek follow-up call bhi ban jayegi)" },
     { key: "details", label: "Details (advance/due)" },
     { key: "reminder_call", label: "Reminder call" },
   ];
@@ -484,13 +485,14 @@ function VisitHistoryImportTab() {
     const batchId = newImportBatchId();
     try {
       const res = await commitVisitHistoryImport(preview.valid, batchId, (done, total, phase) => setProgress({ done, total, phase }));
+      const followupNote = res.followupsCreated > 0 ? ` — ${res.followupsCreated} follow-up calls bhi bani (future due dates se)` : "";
       const rowFailCount = res.visitsFailed.length + res.paymentsFailed.length;
       if (rowFailCount > 0) {
-        toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${rowFailCount} rows fail hui (neeche list dekho)`);
+        toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported${followupNote} — ${rowFailCount} rows fail hui (neeche list dekho)`);
         setFailedRows([...res.visitsFailed, ...res.paymentsFailed]);
         setShowFailedRows(true);
       } else {
-        toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui`);
+        toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui${followupNote}`);
         setFailedRows([]);
       }
       try {
@@ -537,6 +539,11 @@ function VisitHistoryImportTab() {
           {preview.nameMatched > 0 && (
             <div className="rounded-xl bg-success/10 border border-success/30 p-3 text-[12px] text-success">
               {preview.nameMatched} rows mobile match nahi hui, lekin naam se (unique match) recover ho gayi.
+            </div>
+          )}
+          {preview.cardMatched > 0 && (
+            <div className="rounded-xl bg-success/10 border border-success/30 p-3 text-[12px] text-success">
+              {preview.cardMatched} rows mobile/naam se match nahi hui, lekin card number se (unique match) recover ho gayi.
             </div>
           )}
           {preview.unmatched > 0 && (
