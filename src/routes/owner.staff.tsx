@@ -263,6 +263,56 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
   );
 }
 
+// Owner asked directly (22 Sep 2026): staff forget their PIN often, and
+// there was no way to help someone back in short of deleting and
+// recreating their whole login. This does NOT show the existing PIN —
+// that's a real password, correctly hashed by Supabase Auth, and not
+// retrievable by design (same as any password anywhere). It only lets the
+// Owner set a brand new one, which the reset-pin action on
+// create-staff-login handles via the admin API (no old PIN needed).
+function ResetPinModal({ s, onClose }: { s: any; onClose: () => void }) {
+  const [pin, setPin] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (pin.trim().length < 6) { toast.error("Naya PIN kam se kam 6 digit ka hona chahiye"); return; }
+    setSaving(true);
+    try {
+      const res = await callCreateStaffLogin({ action: "reset-pin", mobile: s.mobile, pin: pin.trim() });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        toast.error("PIN reset nahi hua: " + (data.error ?? "unknown error"));
+      } else {
+        toast.success(`${s.name} ka naya PIN set ho gaya — unhe batana mat bhoolna`);
+        onClose();
+      }
+    } catch {
+      toast.error("Network error — dobara try karo");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">{s.name} — PIN Reset</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          Purana PIN yahan dikh nahi sakta (security ke liye) — bas naya set karo aur staff ko khud bata do.
+        </p>
+        <div className="flex flex-col gap-3">
+          <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} placeholder="Naya 6-digit PIN" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "PIN Reset Karo"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ROLE_COLOR: Record<string, string> = {
   RECP1: "bg-accent text-accent-foreground",
   RECP2: "bg-accent text-accent-foreground",
@@ -286,6 +336,7 @@ function StaffPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingEmail, setEditingEmail] = useState<any | null>(null);
   const [editingStaff, setEditingStaff] = useState<any | null>(null);
+  const [resettingPin, setResettingPin] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const staff = (data ?? []) as any[];
 
@@ -353,6 +404,12 @@ function StaffPage() {
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["owner-staff"] })}
         />
       )}
+      {resettingPin && (
+        <ResetPinModal
+          s={resettingPin}
+          onClose={() => setResettingPin(null)}
+        />
+      )}
       <div className="flex gap-2">
         <Stat v={staff.length} l="Total" />
         <Stat v={active} l="Active" tone="success" />
@@ -399,6 +456,14 @@ function StaffPage() {
                       className="text-[10px] text-muted-foreground underline mt-0.5 block"
                     >
                       🔓 Unlock Login (5 galat attempt lock hata do)
+                    </button>
+                  )}
+                  {s.has_login && (
+                    <button
+                      onClick={() => setResettingPin(s)}
+                      className="text-[10px] text-muted-foreground underline mt-0.5 block"
+                    >
+                      🔑 PIN Reset Karo (bhool gaye)
                     </button>
                   )}
                   {role === "CASE_DR" && (

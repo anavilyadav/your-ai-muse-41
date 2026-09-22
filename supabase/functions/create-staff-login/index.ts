@@ -175,6 +175,27 @@ Deno.serve(async (req) => {
       return json({ success: true });
     }
 
+    // Staff forgets their PIN often enough that the Owner asked for this
+    // directly (22 Sep 2026) — there was no way to help someone back in
+    // short of deleting and recreating their whole login. The Owner can
+    // never SEE a staff member's existing PIN (it's the real Supabase Auth
+    // password, correctly hashed — not retrievable by design, same as any
+    // password), only set them a brand new one, same as first-time
+    // "create" already does. Requires an existing login (action "create"
+    // is the right call for someone who's never had one). Checked before
+    // the email-required guard below — a PIN reset needs no email at all.
+    if (action === "reset-pin") {
+      if (!profile.has_login) {
+        return json({ error: "Is staff ka abhi tak login banaya nahi hai — pehle 'Set login email' se banao" }, 400);
+      }
+      if (!pin || String(pin).length < 6) {
+        return json({ error: "6+ digit PIN required" }, 400);
+      }
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { password: String(pin) });
+      if (error) return json({ error: error.message }, 400);
+      return json({ success: true });
+    }
+
     if (!email || !String(email).includes("@")) {
       return json({ error: "Valid email required" }, 400);
     }
