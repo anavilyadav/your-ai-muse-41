@@ -5,7 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto } from "@/lib/db";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -82,14 +82,6 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-// "Bajaj Nagar" / "Jagatpura" (users.branch, a human-readable label set on
-// the Staff screen) → "BAJAJ_NAGAR" / "JAGATPURA" (the key visits.branch
-// and this form actually use) — same normalization the Visit History
-// import already applies to its own per-row branch column.
-function normalizeBranchKey(raw: string | null | undefined): "" | "BAJAJ_NAGAR" | "JAGATPURA" {
-  const key = (raw ?? "").trim().toUpperCase().replace(/\s+/g, "_");
-  return key === "BAJAJ_NAGAR" || key === "JAGATPURA" ? key : "";
-}
 
 function RegisterPage() {
   const navigate = useNavigate();

@@ -5315,6 +5315,23 @@ export function branchLabel(b: string | null | undefined): string {
 // the enum keys themselves.
 export const BRANCH_LABELS = BRANCH_KEYS.map(branchLabel);
 
+// Defensive normalizer for wherever a branch value might have drifted
+// into the human-readable LABEL format ("Bajaj Nagar") instead of the KEY
+// format ("BAJAJ_NAGAR") every branch-scoped filter (.eq("branch", ...))
+// actually needs. Found live 22 Sep 2026: the Add/Edit Staff form saved
+// users.branch as the label — every non-Owner staff login's own branch
+// mismatched every visit/patient's branch key, so Reception/Pharmacy/
+// Case-Taking/Prescribing queues were silently empty for real logins (an
+// Owner testing via "View As" never caught it, since the Owner's own
+// account happened to already be in the correct key format). The staff
+// form and existing live data are both fixed at the source now — this is
+// belt-and-suspenders so the same silent-empty-queue failure mode can't
+// come back from some other write path.
+export function normalizeBranchKey(raw: string | null | undefined): "" | "BAJAJ_NAGAR" | "JAGATPURA" {
+  const key = (raw ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+  return key === "BAJAJ_NAGAR" || key === "JAGATPURA" ? key : "";
+}
+
 export function statusLabel(s: string): string {
   const map: Record<string, string> = {
     REGISTERED: "Waiting",

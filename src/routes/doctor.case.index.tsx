@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity } from "@/lib/db";
+import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { today } from "@/lib/supabase";
 import { Lock, Sparkles } from "lucide-react";
@@ -34,7 +34,10 @@ function CaseBoardPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
-  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
+  // normalizeBranchKey guards against users.branch drifting into the
+  // label format ("Bajaj Nagar") instead of the key ("BAJAJ_NAGAR")
+  // visits.branch uses — see the comment on index.tsx's identical line.
+  const branchScope = effectiveRole === "OWNER" ? undefined : normalizeBranchKey(user?.branch) || undefined;
   const { data, isLoading, isError, error, refetch } = useQuery({
     // A dedicated "casedr" segment, not just branchScope, is deliberate:
     // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,

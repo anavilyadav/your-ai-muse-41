@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, branchLabel, statusLabel } from "@/lib/db";
+import { fetchTodayQueue, branchLabel, statusLabel, normalizeBranchKey } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -47,8 +47,13 @@ function QueuePage() {
   const t = useT();
   const { user } = useAuth();
   const effectiveRole = useEffectiveRole();
-  // Owner sees every branch; branch-scoped staff (RECP1/RECP2) only see their own branch's queue.
-  const branchScope = effectiveRole === "OWNER" ? undefined : user?.branch ?? undefined;
+  // Owner sees every branch; branch-scoped staff (RECP1/RECP2) only see
+  // their own branch's queue. normalizeBranchKey guards against
+  // users.branch ever drifting back into the label format ("Bajaj Nagar")
+  // instead of the key ("BAJAJ_NAGAR") visits.branch actually uses — that
+  // exact mismatch silently emptied every non-Owner login's queue until
+  // fixed at the source (22 Sep 2026); this is the belt-and-suspenders.
+  const branchScope = effectiveRole === "OWNER" ? undefined : normalizeBranchKey(user?.branch) || undefined;
   const [filter, setFilter] = useState<Filter>("All");
   const [today, setToday] = useState("");
   useEffect(() => {

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchStaff, branchLabel, addStaffProfile, updateStaffProfile, fetchCaseDrLevels, saveCaseDrLevels, unlockStaffLogin } from "@/lib/db";
+import { fetchStaff, branchLabel, BRANCH_KEYS, addStaffProfile, updateStaffProfile, fetchCaseDrLevels, saveCaseDrLevels, unlockStaffLogin } from "@/lib/db";
 import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,17 @@ async function callCreateStaffLogin(body: Record<string, unknown>) {
 }
 
 const ROLE_OPTIONS = ["RECP1", "RECP2", "DOCTOR", "CASE_DR", "PHARMA", "CALLING", "BACKEND"];
-const BRANCH_OPTIONS = ["Bajaj Nagar", "Jagatpura", "Both"];
+// Was ["Bajaj Nagar", "Jagatpura", "Both"] — saved that human-readable
+// label straight into users.branch, while visits/patients.branch (and
+// every branch-scoped queue filter: Reception, Pharmacy, Case-Taking
+// Doctor, Prescribing Doctor) use the "BAJAJ_NAGAR"/"JAGATPURA" KEY. The
+// mismatch meant a real staff login's own branch never matched a visit's
+// branch, so their queue looked empty — Owner's own account happened to
+// already have the correct key (set outside this form), which is why
+// testing via "View As" never caught it. Now stores the same key every
+// other branch picker in the app uses; live data for the 6 already-
+// affected staff rows was corrected directly (22 Sep 2026).
+const BRANCH_OPTIONS = [...BRANCH_KEYS, "BOTH"] as const;
 
 function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
@@ -35,7 +45,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
   const [role, setRole] = useState(ROLE_OPTIONS[0]);
-  const [branch, setBranch] = useState(BRANCH_OPTIONS[0]);
+  const [branch, setBranch] = useState<(typeof BRANCH_OPTIONS)[number]>(BRANCH_OPTIONS[0]);
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -53,7 +63,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       return;
     }
     setSaving(true);
-    const res = await addStaffProfile({ name: name.trim(), mobile: cleanMobile, role, branch: branch === "Both" ? null : branch });
+    const res = await addStaffProfile({ name: name.trim(), mobile: cleanMobile, role, branch: branch === "BOTH" ? null : branch });
     if (!res.success) {
       setSaving(false);
       toast.error("Save nahi hua: " + res.error);
@@ -108,7 +118,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {BRANCH_OPTIONS.map((b) => (
-                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b === "BOTH" ? "Both" : branchLabel(b)}</button>
               ))}
             </div>
           </div>
@@ -132,7 +142,14 @@ function EditStaffModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
   const [name, setName] = useState(s.name ?? "");
   const [mobile, setMobile] = useState(s.mobile ?? "");
   const [role, setRole] = useState(s.role ?? ROLE_OPTIONS[0]);
-  const [branch, setBranch] = useState(branchLabel(s.branch) || "Both");
+  // Was `branchLabel(s.branch) || "Both"` — converted the already-correct
+  // KEY ("BAJAJ_NAGAR") into its LABEL ("Bajaj Nagar") for editing, then
+  // submit() saved that label straight back, undoing the key format on
+  // every single edit. This is how the mismatch this whole bug is about
+  // kept recurring even after a one-time data fix.
+  const [branch, setBranch] = useState<(typeof BRANCH_OPTIONS)[number]>(
+    s.branch === "BAJAJ_NAGAR" || s.branch === "JAGATPURA" ? s.branch : "BOTH",
+  );
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -147,7 +164,7 @@ function EditStaffModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
       name: name.trim(),
       mobile: cleanMobile,
       role,
-      branch: branch === "Both" ? null : branch,
+      branch: branch === "BOTH" ? null : branch,
     });
     setSaving(false);
     if (!res.success) {
@@ -187,7 +204,7 @@ function EditStaffModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Branch</label>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {BRANCH_OPTIONS.map((b) => (
-                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b}</button>
+                <button key={b} onClick={() => setBranch(b)} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{b === "BOTH" ? "Both" : branchLabel(b)}</button>
               ))}
             </div>
           </div>
