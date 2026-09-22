@@ -3355,7 +3355,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0063_drop_card_number_hard_uniqueness";
+export const EXPECTED_SCHEMA_VERSION = "0065_data_quality_report_higher_limits";
 
 export interface SchemaMigrationRow {
   filename: string;
