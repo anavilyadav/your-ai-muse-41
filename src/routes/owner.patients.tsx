@@ -73,8 +73,20 @@ function PatientsPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-sm text-primary">{p.name}</p>
+                  {/* Was falling back to patient_code (e.g. "YHC-22035")
+                      whenever a real card number was missing — that's an
+                      internal system ID, not a card, and looked like one
+                      in this exact spot. 141 of 5185 real patients have no
+                      card recorded at all (never issued one, or import
+                      gap). Found live 22 Sep 2026: Owner reported "card
+                      number" showing something that wasn't a card and
+                      wasn't useful. Now says so plainly instead of
+                      silently substituting a different kind of ID. */}
                   <p className="truncate text-xs text-muted-foreground">
-                    {formatCardNumber(p.card_series, p.card_register, p.card_number) ?? p.patient_code ?? "—"} • {p.mobile}
+                    {(() => {
+                      const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
+                      return card ? `Card: ${card}` : "Card nahi hai";
+                    })()} • {p.mobile}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {p.lifetime_visits} visit{p.lifetime_visits === 1 ? "" : "s"}

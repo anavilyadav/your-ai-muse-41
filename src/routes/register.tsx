@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { enqueueAction, isNetworkError, registerSubmitter } from "@/lib/offlineQueue";
 import { useT } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
 
 // #14 offline register — registered once at module load (not inside the
 // component) so it's ready the moment the offline queue tries to replay a
@@ -81,10 +82,20 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+// "Bajaj Nagar" / "Jagatpura" (users.branch, a human-readable label set on
+// the Staff screen) → "BAJAJ_NAGAR" / "JAGATPURA" (the key visits.branch
+// and this form actually use) — same normalization the Visit History
+// import already applies to its own per-row branch column.
+function normalizeBranchKey(raw: string | null | undefined): "" | "BAJAJ_NAGAR" | "JAGATPURA" {
+  const key = (raw ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+  return key === "BAJAJ_NAGAR" || key === "JAGATPURA" ? key : "";
+}
+
 function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const t = useT();
+  const { user } = useAuth();
   const [saved, setSaved] = useState<{
     token: string; code: string; branch: string; name: string; visitId: string; caseChannel: "WALK_IN" | "ONLINE";
     paymentCollected: boolean; paymentAmount: number;
@@ -182,6 +193,24 @@ function RegisterPage() {
   useEffect(() => {
     if (!paymentAmountTouched) setPaymentAmount(String(standardAmount));
   }, [standardAmount, paymentAmountTouched]);
+
+  // Default Branch to the logged-in Reception's own branch (RECP1/RECP2
+  // are always scoped to one) instead of leaving it blank until manually
+  // picked far down the form — found live 22 Sep 2026: the Branch field
+  // was buried below Payment/DOB/Profession, so a follow-up check-in could
+  // land on the wrong branch and then not show up on that Reception's own
+  // queue (branch-scoped) even though Doctor/Owner, who see every branch,
+  // saw it fine. `user` loads asynchronously, so this runs as an effect,
+  // not a useState initializer — and only fires while branch is still
+  // unset, so it never overwrites a branch the staff already chose (e.g.
+  // Owner covering the other branch for the day).
+  useEffect(() => {
+    if (!f.branch && user?.branch) {
+      const normalized = normalizeBranchKey(user.branch);
+      if (normalized) set("branch", normalized);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.branch]);
 
   const onMobileChange = async (v: string) => {
     const maxLen = isIndia ? 10 : 15;
@@ -509,6 +538,33 @@ function RegisterPage() {
         <div className="rounded-xl bg-primary/10 text-primary text-[12px] px-3 py-2.5">
           {t("Follow-up / purana patient aaya hai? Niche mobile number daalo — agar pehle se registered hai to Check-In ka button apne aap aa jaayega, naya form bharne ki zaroorat nahi.")}
         </div>
+
+        {/* Moved up from the bottom of the form (was after Payment/DOB/
+            Profession) — a check-in could go through on the wrong branch
+            before Reception ever reached the branch picker, and then not
+            show up on their own branch-scoped queue. Auto-defaults to the
+            logged-in Reception's own branch (see the useEffect above), so
+            this is usually already correct and just needs confirming. */}
+        <Section label="Branch *">
+          <div className="flex flex-wrap gap-2">
+            {branchOpts.map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                onClick={() => set("branch", b.key)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition",
+                  f.branch === b.key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-surface text-foreground border-border",
+                )}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
         <Section label="Full Name *">
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
@@ -783,26 +839,6 @@ function RegisterPage() {
             <Field inputMode="numeric" placeholder="e.g. 600000" value={f.annualIncome} onChange={(e) => set("annualIncome", e.target.value.replace(/\D/g, ""))} />
           </Section>
         </div>
-
-        <Section label="Branch *">
-          <div className="flex flex-wrap gap-2">
-            {branchOpts.map((b) => (
-              <button
-                key={b.key}
-                type="button"
-                onClick={() => set("branch", b.key)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition",
-                  f.branch === b.key
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-surface text-foreground border-border",
-                )}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
-        </Section>
 
         <Section label="Case Type * (Naya Patient)">
           <div className="flex gap-2">
