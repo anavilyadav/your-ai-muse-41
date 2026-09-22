@@ -603,7 +603,12 @@ function PatientProfilePage() {
     try {
       const [p, vs, fam, docs, ints, crmInts, wa] = await Promise.all([
         fetchPatientById(id),
-        fetchPatientHistory(id, 20),
+        // Was 20 — after the bulk historical import, patients with 2-3
+        // years of visits genuinely have more than 20; the Doctor Rx
+        // Consult screen already uses 200 for the same "poori timeline"
+        // reason (see its own fetchPatientHistory call), this page should
+        // match so the profile shows the same full history.
+        fetchPatientHistory(id, 200),
         fetchFamilyMembers(id),
         fetchPatientDocuments(id),
         fetchPatientInteractions(id),
@@ -996,6 +1001,20 @@ function PatientProfilePage() {
                         <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
                           <Pill className="h-3 w-3" />{" "}
                           {entry.data.prescriptions.map((r: any) => `${r.medicine_name} ${r.potency ?? ""}`.trim()).join(", ")}
+                        </p>
+                      )}
+                      {/* Bulk-imported visit history (medicine/duration/charges/slip no./
+                          due date/details) — folded into one text field at import time
+                          (buildVisitImportNotes in db.ts) since these rows never go
+                          through the structured prescriptions table. Was saved in the DB
+                          from day one but never actually rendered here, so every
+                          bulk-imported visit looked like a bare date with nothing else —
+                          found live 22 Sep 2026 when the Owner asked why the timeline
+                          wasn't showing what medicine a patient was given historically. */}
+                      {entry.data.import_notes && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 flex items-start gap-1">
+                          <Pill className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>{entry.data.import_notes}</span>
                         </p>
                       )}
                       {entry.data.recased_at && (
