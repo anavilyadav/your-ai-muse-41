@@ -1713,15 +1713,30 @@ export async function fetchFollowups() {
   const upper = istNow();
   upper.setDate(upper.getDate() + 7);
   const upperStr = upper.toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from("followups")
-    .select("*, patient:patients(*)")
-    .eq("status", "PENDING")
-    .lte("due_date", upperStr)
-    .order("due_date", { ascending: true })
-    .limit(200);
+  const todayStr = today();
+  const [{ data, error }, totalRes, overdueRes] = await Promise.all([
+    supabase
+      .from("followups")
+      .select("*, patient:patients(*)")
+      .eq("status", "PENDING")
+      .lte("due_date", upperStr)
+      .order("due_date", { ascending: true })
+      .limit(200),
+    // The 200-row cap above is just for what's actually rendered — the
+    // stat boxes used to be computed from that same capped array, so a
+    // real "8277 due" queue (after the historical follow-up backfill)
+    // silently showed "200 Due" instead, understating the real backlog
+    // by 40x with no indication anything was cut off. These two counts
+    // are exact, decoupled from the row cap.
+    supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", upperStr),
+    supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lt("due_date", todayStr),
+  ]);
   if (error) throw dataLoadError(error);
-  return data ?? [];
+  return {
+    rows: data ?? [],
+    total: totalRes.count ?? (data ?? []).length,
+    overdueTotal: overdueRes.count ?? 0,
+  };
 }
 
 export async function markFollowupDone(id: string) {

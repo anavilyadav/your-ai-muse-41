@@ -21,7 +21,9 @@ export const Route = createFileRoute("/follow-up")({
 function FollowUpPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["followups"], queryFn: fetchFollowups });
-  const rows = (data ?? []) as any[];
+  const rows = (data?.rows ?? []) as any[];
+  const total = data?.total ?? rows.length;
+  const overdueTotal = data?.overdueTotal ?? 0;
   const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -50,16 +52,26 @@ function FollowUpPage() {
     }
   };
 
-  const overdue = rows.filter((r) => daysDiff(r.due_date) > 7).length;
-  const dueSoon = rows.filter((r) => daysDiff(r.due_date) <= 7).length;
+  // These two are TRUE counts from the DB (see fetchFollowups), not
+  // derived from the capped `rows` array below — with a real backlog in
+  // the thousands (e.g. after a historical follow-up backfill), computing
+  // "Due"/"Overdue" from only the first 200 fetched rows silently showed
+  // a number 40x smaller than reality, with nothing indicating it was
+  // capped. Found live 22 Sep 2026.
+  const dueSoonTotal = total - overdueTotal;
 
   return (
     <MobileShell title="Follow-up Calls" subtitle="Today" showBack>
       <div className="grid grid-cols-3 gap-2">
-        <Stat label="Due" value={rows.length} tone="primary" />
-        <Stat label="Overdue" value={overdue} tone="destructive" />
-        <Stat label="Due Soon" value={dueSoon} tone="accent" />
+        <Stat label="Due" value={total} tone="primary" />
+        <Stat label="Overdue" value={overdueTotal} tone="destructive" />
+        <Stat label="Due Soon" value={dueSoonTotal} tone="accent" />
       </div>
+      {total > rows.length && (
+        <div className="mt-2 rounded-lg bg-accent/15 text-accent-foreground text-[11px] px-3 py-2">
+          {rows.length} sabse purani/jaldi wali dikh rahi hain (list mein) — baaki {total - rows.length} bhi pending hain, list neeche karte jao ya ek-ek "Done" karte jaao taaki agli batch dikhe.
+        </div>
+      )}
 
       {isLoading ? (
         <LoadingBlock />
