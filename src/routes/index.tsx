@@ -88,7 +88,11 @@ function QueuePage() {
           to="/register"
           className="h-9 px-3 rounded-full bg-accent text-accent-foreground text-xs font-bold inline-flex items-center gap-1 shadow-sm"
         >
-          <Plus className="h-4 w-4" /> New
+          {/* Was "+ New" — read as "new patients only", so Reception
+              couldn't tell this same button/screen also checks in a
+              returning/follow-up patient (mobile number auto-detects
+              them). Found live 22 Sep 2026. */}
+          <Plus className="h-4 w-4" /> Register
         </Link>
       }
     >

@@ -78,7 +78,14 @@ const DICTIONARY: Record<string, string> = {
   "Payment Collected": "Payment Collected",
   "Home": "Home",
   "Collect Payment": "Collect Payment",
-  "New Patient": "New Patient",
+  // Was "New Patient" — Reception reported this screen looking like it's
+  // ONLY for brand-new patients, when it's actually the one screen for
+  // BOTH: typing an already-registered mobile number here auto-detects it
+  // and offers a Check-In button (see `existingPatient` below) instead of
+  // creating a duplicate. Renamed so the title itself says so, found live
+  // 22 Sep 2026 when Reception couldn't find where to check in a
+  // follow-up/returning patient.
+  "Register / Check-in": "Register / Check-in",
   "Saved Offline": "Saved Offline",
   "ka data save ho gaya": "'s data has been saved",
   "Internet nahi hai abhi — registration (aur payment agar collect kiya tha) is device pe safe hai. Connection wapas aate hi automatically clinic ke system mein chala jaayega. Token/Patient ID tabhi milega.":
@@ -88,6 +95,8 @@ const DICTIONARY: Record<string, string> = {
   "Split ya partial payment karna hai? Pay screen kholo": "Need a split or partial payment? Open the Pay screen",
   "⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho.": "⚠ This number is already registered to a patient — see below.",
   "Country code chunkar number likho": "Pick a country code and enter the number",
+  "Follow-up / purana patient aaya hai? Niche mobile number daalo — agar pehle se registered hai to Check-In ka button apne aap aa jaayega, naya form bharne ki zaroorat nahi.":
+    "Follow-up / returning patient? Just enter their mobile number below — if they're already registered, a Check-In button appears automatically, no need to fill a fresh form.",
 };
 
 export function useT() {

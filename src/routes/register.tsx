@@ -32,7 +32,7 @@ registerSubmitter("register", async (payload: any) => {
 });
 
 export const Route = createFileRoute("/register")({
-  head: () => ({ meta: [{ title: "New Patient — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Register / Check-in — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="register">
       <RegisterPage />
@@ -504,8 +504,11 @@ function RegisterPage() {
   // instead of touching MobileShell's shared truncate behavior, which
   // other screens rely on intentionally (e.g. long patient names).
   return (
-    <MobileShell title={t("New Patient")} subtitle="Reception" showBack>
+    <MobileShell title={t("Register / Check-in")} subtitle="Reception" showBack>
       <form onSubmit={submit} className="space-y-5">
+        <div className="rounded-xl bg-primary/10 text-primary text-[12px] px-3 py-2.5">
+          {t("Follow-up / purana patient aaya hai? Niche mobile number daalo — agar pehle se registered hai to Check-In ka button apne aap aa jaayega, naya form bharne ki zaroorat nahi.")}
+        </div>
         <Section label="Full Name *">
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
