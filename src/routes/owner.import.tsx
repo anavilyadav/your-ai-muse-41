@@ -450,10 +450,10 @@ function VisitHistoryImportTab() {
   const [busy, setBusy] = useState(false);
   const [failedPatients, setFailedPatients] = useState<{ id: string; name: string; patient_code: string | null }[]>([]);
   const [showFailed, setShowFailed] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number; phase: "visits" | "totals" } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; phase: "new_patients" | "visits" | "totals" } | null>(null);
   const [failedRows, setFailedRows] = useState<{ mobile: string; visit_date: string; reason: string }[]>([]);
   const [showFailedRows, setShowFailedRows] = useState(false);
-  const [openBreakdown, setOpenBreakdown] = useState<"malformed" | "notfound" | "ambiguous" | "date" | null>(null);
+  const [openBreakdown, setOpenBreakdown] = useState<"malformed" | "notfound" | "ambiguous" | "date" | "cardconflict" | null>(null);
 
   const runPreview = async () => {
     setBusy(true);
@@ -486,13 +486,14 @@ function VisitHistoryImportTab() {
     try {
       const res = await commitVisitHistoryImport(preview.valid, batchId, (done, total, phase) => setProgress({ done, total, phase }));
       const followupNote = res.followupsCreated > 0 ? ` — ${res.followupsCreated} follow-up calls bhi bani (future due dates se)` : "";
+      const newPatientNote = res.newPatientsCreated > 0 ? ` — ${res.newPatientsCreated} naye patients bhi bane (card number se, master mein nahi the)` : "";
       const rowFailCount = res.visitsFailed.length + res.paymentsFailed.length;
       if (rowFailCount > 0) {
-        toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported${followupNote} — ${rowFailCount} rows fail hui (neeche list dekho)`);
+        toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported${newPatientNote}${followupNote} — ${rowFailCount} rows fail hui (neeche list dekho)`);
         setFailedRows([...res.visitsFailed, ...res.paymentsFailed]);
         setShowFailedRows(true);
       } else {
-        toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui${followupNote}`);
+        toast.success(`${res.visitsImported} visits, ${res.paymentsImported} payments imported — ${res.patientsUpdated} patients ki totals update hui${newPatientNote}${followupNote}`);
         setFailedRows([]);
       }
       try {
@@ -546,6 +547,11 @@ function VisitHistoryImportTab() {
               {preview.cardMatched} rows mobile/naam se match nahi hui, lekin card number se (unique match) recover ho gayi.
             </div>
           )}
+          {preview.newPatientsToCreate > 0 && (
+            <div className="rounded-xl bg-success/10 border border-success/30 p-3 text-[12px] text-success">
+              {preview.newPatientViaCard} rows ke liye patient master mein nahi mila, lekin unka card number naya/unique hai — import karne par {preview.newPatientsToCreate} naye patient master mein bhi ban jayenge (name+mobile+card se).
+            </div>
+          )}
           {preview.unmatched > 0 && (
             <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2">
               <div className="flex items-center justify-between">
@@ -556,8 +562,9 @@ function VisitHistoryImportTab() {
               </div>
               {[
                 { key: "malformed" as const, label: "Mobile column sahi nahi map hui / khaali", count: preview.malformedMobile, samples: preview.malformedMobileSamples, hint: "Agar yeh count bada hai, toh upar 'Column mapping' mein Mobile field dobara check karo — shayad galat column map ho gaya." },
-                { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila (naam se bhi nahi)", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh patient Patients import mein nahi aaya — ya toh wo miss ho gaya (dobara Patients import karo), ya is sheet mein naam bhi alag likha hai." },
+                { key: "notfound" as const, label: "10-digit mobile hai, lekin koi patient nahi mila (naam se bhi nahi)", count: preview.mobileNotFound, samples: preview.mobileNotFoundSamples, hint: "Yeh patient Patients import mein nahi aaya — ya toh wo miss ho gaya (dobara Patients import karo), ya is sheet mein naam bhi alag likha hai. Agar card number column mapped hai to naya patient auto-create bhi ho sakta hai (upar dekho) — agar phir bhi yahan hai, matlab card number bhi khaali/malformed hai." },
                 { key: "ambiguous" as const, label: "Mobile match nahi hui, naam se kai patients milte hain", count: preview.ambiguousName, samples: preview.ambiguousNameSamples, hint: "Ek se zyada patient ka same naam hai — kaunsa sahi hai pata nahi chal saka, isliye safe rehne ke liye skip kiya. In rows ko manually check karke unka sahi mobile number sheet mein daalo, phir dobara import karo." },
+                { key: "cardconflict" as const, label: "Naya card number mila, lekin usi card pe alag-alag naam bhi hai", count: preview.cardNameConflict, samples: preview.cardNameConflictSamples, hint: "Is card number ki rows mein naam match nahi kar rahe (ho sakta hai 2 log same card share kar rahe hain, ya naam kahin galat likha gaya) — safe rehne ke liye naya patient auto-create nahi kiya. Sheet mein check karke naam consistent karo, phir dobara upload karo." },
                 { key: "date" as const, label: "Patient mila, lekin date samajh nahi aayi", count: preview.badDate, samples: preview.badDateSamples, hint: "Visit date column ka format check karo (DD/MM/YYYY ya YYYY-MM-DD expected)." },
               ].filter((b) => b.count > 0).map((b) => (
                 <div key={b.key} className="rounded-xl bg-background border border-border p-2.5">
@@ -580,7 +587,13 @@ function VisitHistoryImportTab() {
             <ProgressBar
               done={progress.done}
               total={progress.total}
-              label={progress.phase === "visits" ? "Importing visits/payments…" : "Updating patient totals…"}
+              label={
+                progress.phase === "new_patients"
+                  ? "Naye patients ban rahe hain…"
+                  : progress.phase === "visits"
+                  ? "Importing visits/payments…"
+                  : "Updating patient totals…"
+              }
             />
           ) : (
             <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">

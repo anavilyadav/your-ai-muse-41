@@ -4323,6 +4323,44 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     if (data.length < PAGE) break;
   }
 
+  // New-patient-via-card tier: a real physical card (e.g. B-81-02) issued
+  // to a genuinely new patient who was never added to the Patients master
+  // sheet — mobile/name/card all miss against existing patients because
+  // the patient doesn't exist yet, not because of a data-entry mismatch.
+  // Pre-grouped by card key (not decided per-row) so 5 visit rows for the
+  // same new person create exactly ONE patient, not five. Deliberately
+  // conservative: only auto-created when every row sharing that card
+  // agrees on the name (a genuine name mismatch on the same "new" card
+  // means two different people may share a card, or one is a data-entry
+  // slip — either way, guessing would risk creating one wrong merged
+  // patient, so it's left unmatched for manual review instead), AND the
+  // row has a real 10-digit mobile (patients.mobile is NOT NULL — no
+  // placeholder/fake number is ever invented), AND the row's own branch
+  // column is an explicit, valid branch (no existing patient to inherit
+  // a branch from, and guessing one risks the exact branch-key mismatch
+  // bug found live 22 Sep 2026).
+  const newPatientGroups = new Map<
+    string,
+    { series: string; register: string; number: string; name: string; mobile: string; branch: string; conflict: boolean }
+  >();
+  for (const r of rows) {
+    const parsedCard = parseCardNumber(r.card_no);
+    if (!parsedCard) continue;
+    const ck = cardKey(parsedCard.series, parsedCard.register, parsedCard.number);
+    if (!ck || byCard.has(ck)) continue; // only genuinely new cards, not existing ones
+    const nameKey = normalizeNameKey(r.name);
+    const mobile = normalizeMobile(r.mobile);
+    const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
+    const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : null;
+    if (!nameKey || mobile.length !== 10 || !branch) continue;
+    const existing = newPatientGroups.get(ck);
+    if (!existing) {
+      newPatientGroups.set(ck, { series: parsedCard.series, register: parsedCard.register, number: parsedCard.number, name: r.name!.trim(), mobile, branch, conflict: false });
+    } else if (normalizeNameKey(existing.name) !== nameKey) {
+      existing.conflict = true;
+    }
+  }
+
   let unmatched = 0, alreadyImported = 0;
   const alreadyImportedSamples: string[] = [];
   // Split by WHY a row didn't match, instead of one blended "unmatched"
@@ -4335,15 +4373,18 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   // visit to the wrong person — left unmatched on purpose; "badDate" is a
   // matched patient with an unparseable visit date.
   let malformedMobile = 0, mobileNotFound = 0, ambiguousName = 0, badDate = 0, nameMatched = 0, cardMatched = 0;
+  let newPatientViaCard = 0, cardNameConflict = 0;
   const malformedMobileSamples: string[] = [];
   const mobileNotFoundSamples: string[] = [];
   const ambiguousNameSamples: string[] = [];
   const badDateSamples: string[] = [];
+  const cardNameConflictSamples: string[] = [];
+  const newPatientCardsUsed = new Set<string>();
   // Full list (not just the 10-sample previews above) so the Owner can
   // export every unmatched row to fix in Excel and re-upload — a 3000+
   // row unmatched count is not something anyone can review from 10 samples.
   const unmatchedRows: { mobile: string; name: string; visit_date: string; reason: string }[] = [];
-  const valid: (ImportVisitRow & { patient_id: string; branch: string; visit_date: string })[] = [];
+  const valid: (ImportVisitRow & { patient_id?: string; newPatientCardKey?: string; branch: string; visit_date: string })[] = [];
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
     let p = byMobile.get(mobile);
@@ -4366,30 +4407,48 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       }
     }
     let matchedByCard = false;
+    let parsedCard = parseCardNumber(r.card_no);
+    let ck = parsedCard ? cardKey(parsedCard.series, parsedCard.register, parsedCard.number) : null;
     if (!p) {
       // Mobile AND name both missed — try the sheet's own physical card
       // number (5044 of 5185 real patients have one recorded, and unlike
       // a first name it's meant to be unique per patient/family unit), same
       // unambiguous-only rule as the name fallback.
-      const parsedCard = parseCardNumber(r.card_no);
-      const ck = parsedCard ? cardKey(parsedCard.series, parsedCard.register, parsedCard.number) : null;
       const candidates = ck ? byCard.get(ck) : undefined;
       if (candidates?.length === 1) {
         p = candidates[0];
         matchedByCard = true;
       }
     }
+    let matchedByNewPatient = false;
+    let newPatientConflict = false;
+    if (!p) {
+      // Mobile, name AND card-against-existing-patients all missed — this
+      // may be a genuinely new patient (a physical card issued after the
+      // master sheet was last updated). See newPatientGroups above for
+      // the safety conditions.
+      const group = ck ? newPatientGroups.get(ck) : undefined;
+      if (group?.conflict) {
+        newPatientConflict = true;
+      } else if (group) {
+        matchedByNewPatient = true;
+      }
+    }
     const visitDate = parseImportDate(r.visit_date);
-    if (!p || !visitDate) {
+    if ((!p && !matchedByNewPatient) || !visitDate) {
       unmatched++;
       // Mutually exclusive classification, most-specific reason first —
       // each row lands in exactly one bucket so the counts add up to
       // `unmatched` and the Owner isn't shown overlapping numbers.
       let reason: string;
-      if (p && !visitDate) {
+      if ((p || matchedByNewPatient) && !visitDate) {
         badDate++;
         reason = `date samajh nahi aayi: "${r.visit_date}"`;
         if (badDateSamples.length < 10) badDateSamples.push(`${r.mobile} — "${r.visit_date}"`);
+      } else if (newPatientConflict) {
+        cardNameConflict++;
+        reason = `card ${r.card_no} pe alag-alag naam mile — check karo`;
+        if (cardNameConflictSamples.length < 10) cardNameConflictSamples.push(`${r.card_no}: "${r.name}"`);
       } else if (ambiguousNameCandidates > 0) {
         ambiguousName++;
         reason = `naam se ${ambiguousNameCandidates} patients milte hain`;
@@ -4406,7 +4465,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       unmatchedRows.push({ mobile: r.mobile || "", name: r.name || "", visit_date: r.visit_date || "", reason });
       continue;
     }
-    const dedupKey = `${p.id}|${visitDate}`;
+    const dedupKey = matchedByNewPatient ? `NEW:${ck}|${visitDate}` : `${p!.id}|${visitDate}`;
     if (existingVisitKeys.has(dedupKey)) {
       alreadyImported++;
       if (alreadyImportedSamples.length < 10) alreadyImportedSamples.push(`${r.name || r.mobile} — ${visitDate}`);
@@ -4415,15 +4474,22 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     existingVisitKeys.add(dedupKey); // also catches the same (patient, date) repeated within this file
     if (matchedByName) nameMatched++;
     if (matchedByCard) cardMatched++;
+    if (matchedByNewPatient) {
+      newPatientViaCard++;
+      newPatientCardsUsed.add(ck!);
+    }
     // "CLINIC" column — per-row branch override (e.g. a patient normally at
     // one branch who was seen at the other for one visit); falls back to
     // the matched patient's own branch when blank or not a real branch key.
     const rowBranch = r.branch?.trim().toUpperCase().replace(/\s+/g, "_");
-    const branch = rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p.branch;
-    valid.push({ ...r, mobile: matchedByName || matchedByCard ? normalizeMobile(p.mobile) : mobile, patient_id: p.id, branch, visit_date: visitDate });
+    const group = matchedByNewPatient ? newPatientGroups.get(ck!)! : null;
+    const branch = group ? group.branch : rowBranch === "BAJAJ_NAGAR" || rowBranch === "JAGATPURA" ? rowBranch : p!.branch;
+    const resolvedMobile = group ? group.mobile : matchedByName || matchedByCard ? normalizeMobile(p!.mobile) : mobile;
+    valid.push({ ...r, mobile: resolvedMobile, patient_id: p?.id, newPatientCardKey: matchedByNewPatient ? ck! : undefined, branch, visit_date: visitDate });
   }
   return {
     valid, unmatched, total: rows.length, nameMatched, cardMatched,
+    newPatientViaCard, newPatientsToCreate: newPatientCardsUsed.size, cardNameConflict, cardNameConflictSamples,
     malformedMobile, malformedMobileSamples,
     mobileNotFound, mobileNotFoundSamples,
     ambiguousName, ambiguousNameSamples,
@@ -4491,14 +4557,84 @@ export function normalizeGender(g?: string | null): "Male" | "Female" | "Other" 
 }
 
 export async function commitVisitHistoryImport(
-  rows: (ImportVisitRow & { patient_id: string; branch: string })[],
+  rows: (ImportVisitRow & { patient_id?: string; newPatientCardKey?: string; branch: string })[],
   batchId: string,
-  onProgress?: (done: number, total: number, phase: "visits" | "totals") => void,
+  onProgress?: (done: number, total: number, phase: "new_patients" | "visits" | "totals") => void,
 ) {
+  // ---- Create brand-new patients first (previewVisitHistoryImport's
+  // "new-patient-via-card" tier) — one patient per distinct card key, using
+  // whichever row of that group appears first, since every row in the group
+  // was already confirmed to agree on name/mobile/branch there. ----
+  const newPatientRowByKey = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    if (r.newPatientCardKey && !newPatientRowByKey.has(r.newPatientCardKey)) {
+      newPatientRowByKey.set(r.newPatientCardKey, r);
+    }
+  }
+  const ckToPatientId = new Map<string, string>();
+  const newPatientsFailed: { name: string; card: string; reason: string }[] = [];
+  if (newPatientRowByKey.size > 0) {
+    const entries = Array.from(newPatientRowByKey.entries());
+    let codes: string[];
+    const { data: reserved, error: seqErr } = await supabase.rpc("next_patient_codes", { p_count: entries.length });
+    if (!seqErr && Array.isArray(reserved) && reserved.length === entries.length) {
+      codes = reserved as string[];
+    } else {
+      const { count } = await supabase.from("patients").select("id", { count: "exact", head: true });
+      let seq = 1000 + (count ?? 0) + 1;
+      codes = entries.map(() => `YHC-${seq++}`);
+    }
+    for (let i = 0; i < entries.length; i++) {
+      const [ck, r] = entries[i];
+      const card = parseCardNumber(r.card_no);
+      const newRow = {
+        patient_code: codes[i],
+        name: r.name!.trim(),
+        mobile: normalizeMobile(r.mobile),
+        card_series: card?.series ?? null,
+        card_register: card?.register ?? null,
+        card_number: card?.number ?? null,
+        branch: r.branch,
+        patient_status: "ACTIVE" as const,
+        wa_consent: false,
+        lifetime_visits: 0,
+        lifetime_revenue: 0,
+        current_balance: 0,
+        imported_batch: batchId,
+      };
+      const { data: created, error } = await supabase.from("patients").insert(newRow).select("id").single();
+      if (error || !created) {
+        newPatientsFailed.push({ name: newRow.name, card: `${newRow.card_series}-${newRow.card_register}-${newRow.card_number}`, reason: error?.message ?? "unknown" });
+      } else {
+        ckToPatientId.set(ck, (created as any).id);
+      }
+      onProgress?.(i + 1, entries.length, "new_patients");
+    }
+  }
+  const newPatientsCreated = ckToPatientId.size;
+  if (newPatientsFailed.length > 0) {
+    await logImportFailureAlert("Visit History import — new patients", newPatientsFailed.map((r) => ({ name: r.name, reason: `card ${r.card}: ${r.reason}` })));
+  }
+
+  // Resolve every row to a real patient_id (either matched earlier, or the
+  // patient just created above) — rows whose new-patient creation failed
+  // are dropped here and counted as visit failures, not silently skipped.
+  const resolvedRows: (ImportVisitRow & { patient_id: string; branch: string })[] = [];
+  const skippedForFailedPatient: { mobile: string; visit_date: string; reason: string }[] = [];
+  for (const r of rows) {
+    const patientId = r.patient_id ?? (r.newPatientCardKey ? ckToPatientId.get(r.newPatientCardKey) : undefined);
+    if (!patientId) {
+      skippedForFailedPatient.push({ mobile: r.mobile, visit_date: r.visit_date, reason: "new patient creation failed for this card — see above" });
+      continue;
+    }
+    resolvedRows.push({ ...r, patient_id: patientId });
+  }
+  rows = resolvedRows;
+
   const BATCH = 300; // bumped for large-scale imports — fewer round trips
   let visitsImported = 0, paymentsImported = 0;
   const touched = new Set<string>();
-  const visitsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
+  const visitsFailed: { mobile: string; visit_date: string; reason: string }[] = [...skippedForFailedPatient];
   const paymentsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
   // A row's "Due Date" column is a real, sheet-recorded next-visit date —
   // when it's still in the future, that's a genuine follow-up the Owner
@@ -4707,7 +4843,7 @@ export async function commitVisitHistoryImport(
   if (totalsFailedFor.length > 0) {
     await logImportFailureAlert("Visit History import — patient totals recompute", totalsFailedFor.map((id) => ({ patient_id: id, reason: "totals update failed" })));
   }
-  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed, followupsCreated };
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed, followupsCreated, newPatientsCreated };
 }
 
 
