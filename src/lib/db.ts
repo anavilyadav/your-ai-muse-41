@@ -3397,7 +3397,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0068_data_quality_report_card_numbers";
+export const EXPECTED_SCHEMA_VERSION = "0069_drop_exposed_users_pin_column";
 
 export interface SchemaMigrationRow {
   filename: string;
