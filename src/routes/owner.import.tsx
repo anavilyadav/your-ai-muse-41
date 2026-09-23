@@ -555,6 +555,11 @@ function VisitHistoryImportTab() {
               {preview.newPatientViaCard} rows ke liye patient master mein nahi mila, lekin unka card number naya/unique hai — import karne par {preview.newPatientsToCreate} naye patient master mein bhi ban jayenge (name+mobile+card se).
             </div>
           )}
+          {preview.sharedPlaceholderMobiles > 0 && (
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[12px] text-amber-700">
+              {preview.sharedPlaceholderMobiles} mobile numbers Patients master mein 2+ patients ke naam pe hain (jaise "number nahi mila" placeholder). In numbers se mobile-match jaan-bujhkar skip kiya gaya hai — galat patient se jud jaane se bachne ke liye — is sheet ki in rows ke liye naam ya card number se match try hoga.
+            </div>
+          )}
           {preview.unmatched > 0 && (
             <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2">
               <div className="flex items-center justify-between">

@@ -4454,7 +4454,16 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
   // sometimes a different family member's phone that day), so matching
   // needs name/card-number fallbacks too, not just mobile. .range() pages
   // past PostgREST's ~1000-row default cap.
-  const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
+  // Built as candidate LISTS first, not a single last-wins Map — a real
+  // messy sheet sometimes has 2+ patients sharing an obviously-fake
+  // placeholder mobile (e.g. "0000000000", "9999999999", "1234567890" for
+  // "number not recorded"). A last-wins Map would silently attach a later
+  // visit row with that placeholder to whichever patient happened to load
+  // last, misattaching real visit history to the wrong person with no
+  // conflict ever flagged. Found live 23 Sep 2026 (audit round 2, §2.2) —
+  // same "ambiguous → leave unmatched for manual review" rule the name and
+  // card fallbacks already use below.
+  const byMobileCandidates = new Map<string, { id: string; mobile: string; branch: string }[]>();
   const byName = new Map<string, { id: string; mobile: string; branch: string; name: string }[]>();
   const byCard = new Map<string, { id: string; mobile: string; branch: string; name: string }[]>();
   const PAGE = 1000;
@@ -4462,7 +4471,10 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     const { data } = await supabase.from("patients").select("id,name,mobile,branch,card_series,card_register,card_number").range(from, from + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const p of data as any[]) {
-      byMobile.set(normalizeMobile(p.mobile), p);
+      const mk = normalizeMobile(p.mobile);
+      const mList = byMobileCandidates.get(mk) ?? [];
+      mList.push(p);
+      byMobileCandidates.set(mk, mList);
       const nameKey = normalizeNameKey(p.name);
       if (nameKey) {
         const list = byName.get(nameKey) ?? [];
@@ -4477,6 +4489,12 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       }
     }
     if (data.length < PAGE) break;
+  }
+  const byMobile = new Map<string, { id: string; mobile: string; branch: string }>();
+  let sharedPlaceholderMobiles = 0;
+  for (const [mk, list] of byMobileCandidates) {
+    if (list.length === 1) byMobile.set(mk, list[0]);
+    else sharedPlaceholderMobiles++;
   }
 
   // Re-running the SAME sheet (e.g. after a partial import, or to pick up
@@ -4700,6 +4718,7 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
     ambiguousName, ambiguousNameSamples,
     badDate, badDateSamples,
     alreadyImported, alreadyImportedSamples,
+    sharedPlaceholderMobiles,
     unmatchedRows,
   };
 }

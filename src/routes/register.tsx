@@ -676,10 +676,12 @@ function RegisterPage() {
               <span className="text-[10px] font-normal text-muted-foreground">({existingPatient.patient_code ?? "—"})</span>
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Agar {existingPatient.name} khud aaye hain to inko check-in karo. Agar family member hai jo isi number
-              use karta hai, to neeche relation batao. <b>Agar bilkul alag/anjaan patient hai — sirf number match hua
-              hai (jaise camp ke patients ek hi number share karte hain) — to koi relation select mat karo, bas form
-              bharte raho, alag patient hi banega, family link nahi.</b>
+              <b>Follow-up hai (yeh {existingPatient.name} ki hi purani visit hai)?</b> Neeche "Check-In karo" dabao —
+              koi naya number NAHI banega, seedha inki purani file mein naya visit jud jayega. Agar family member hai
+              jo isi number use karta hai, to neeche relation batao — tabhi naya patient/number banega. <b>Agar
+              bilkul alag/anjaan patient hai — sirf number match hua hai (jaise camp ke patients ek hi number share
+              karte hain) — to koi relation select mat karo, bas form bharte raho, alag patient hi banega, family
+              link nahi.</b>
             </p>
 
             {/* Same f.caseChannel the new-registration "Case Type" section
@@ -719,7 +721,7 @@ function RegisterPage() {
               disabled={checkInBusy}
               className="mt-2 w-full rounded-lg bg-primary text-primary-foreground py-2.5 text-xs font-bold disabled:opacity-60"
             >
-              {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Check-In karo`}
+              {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Check-In karo (follow-up, naya number nahi)`}
             </button>
 
             <div className="mt-3 pt-3 border-t border-accent/40">
