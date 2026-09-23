@@ -1100,36 +1100,6 @@ export async function fetchAvailableCredit(patientId: string): Promise<number> {
   return (data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
 }
 
-// DEPRECATED (Phase 1 #1, 29 Jul 2026 follow-up) — credit is now applied
-// INSIDE collect_payment_atomic via the credit_to_apply param on
-// collectPayment(), in the same transaction as the payment insert. That
-// removed the two-step "apply, then hope collectPayment succeeds, else
-// remember to revert" pattern these two functions implemented. Kept here
-// (unused, no callers left in the app) only in case the old 2-RPC flow is
-// ever needed again — safe to delete along with apply_available_credit /
-// revert_credit_application in the DB once confirmed unneeded.
-export async function applyAvailableCredit(patientId: string, visitId: string, requestedAmount: number): Promise<number> {
-  if (requestedAmount <= 0) return 0;
-  const { data, error } = await supabase.rpc("apply_available_credit", {
-    p_patient_id: patientId,
-    p_visit_id: visitId,
-    p_requested_amount: requestedAmount,
-  });
-  if (error) throw error;
-  return Number((data as any)?.applied ?? 0);
-}
-
-// DEPRECATED — see applyAvailableCredit note above. No longer called by
-// the payment flow; the RPC transaction rollback now does this job.
-export async function revertCreditApplication(visitId: string): Promise<void> {
-  try {
-    const { error } = await supabase.rpc("revert_credit_application", { p_visit_id: visitId });
-    if (error) console.error("revertCreditApplication failed:", error.message);
-  } catch (e: any) {
-    console.error("revertCreditApplication threw:", e?.message ?? e);
-  }
-}
-
 // ---------- Prescriptions ----------
 export async function fetchInventorySearch(term: string, branch?: string) {
 
@@ -3351,10 +3321,6 @@ export async function createDelivery(input: NewDeliveryInput) {
 export async function updateDelivery(id: string, patch: { status?: string; note?: string }) {
   const { error } = await supabase.from("deliveries").update(patch).eq("id", id);
   return { success: !error, error: error?.message ?? null };
-}
-
-export async function updateDeliveryStatus(id: string, status: string) {
-  return updateDelivery(id, { status });
 }
 
 // 18 Sep 2026 — courier/delivery matters a lot more now that online
