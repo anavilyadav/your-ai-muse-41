@@ -2603,6 +2603,34 @@ export function formatCardNumber(series: string | null | undefined, register: st
   return [series, register, number].filter(Boolean).join("-");
 }
 
+// Sorts patients the way the PHYSICAL card register books are organized
+// (series letter, then register number, then card number, each numeric
+// where it should be, not string-lexicographic — "9" must sort before
+// "10") — so a bulk data-quality review can go book-by-book the same way
+// the real books are worked through, instead of whatever order rows
+// happened to come back in. Blank/no-card patients always sort last —
+// there's no physical register to match them against, so mixing them in
+// only interrupts the book-by-book pass. Dr. Yadav, 23 Sep 2026.
+export function compareByCardNumber(
+  a: { card_series?: string | null; card_register?: string | null; card_number?: string | null },
+  b: { card_series?: string | null; card_register?: string | null; card_number?: string | null },
+): number {
+  const aCard = formatCardNumber(a.card_series, a.card_register, a.card_number);
+  const bCard = formatCardNumber(b.card_series, b.card_register, b.card_number);
+  if (!aCard && !bCard) return 0;
+  if (!aCard) return 1;
+  if (!bCard) return -1;
+  const seriesCmp = (a.card_series ?? "").localeCompare(b.card_series ?? "");
+  if (seriesCmp !== 0) return seriesCmp;
+  const registerCmp = Number(a.card_register) - Number(b.card_register);
+  if (registerCmp !== 0 && !Number.isNaN(registerCmp)) return registerCmp;
+  return Number(a.card_number) - Number(b.card_number);
+}
+
+export function compareByName(a: { name?: string | null }, b: { name?: string | null }): number {
+  return (a.name ?? "").localeCompare(b.name ?? "");
+}
+
 export async function isDuplicateCardNumber(
   cardSeries: string,
   cardRegister: string,

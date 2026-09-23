@@ -6,7 +6,7 @@ import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, Cred
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { fetchDataQualityReport, fetchDismissedSharedMobiles, setSharedMobileDismissed, formatCardNumber, type DQPatientRef } from "@/lib/db";
+import { fetchDataQualityReport, fetchDismissedSharedMobiles, setSharedMobileDismissed, formatCardNumber, compareByName, compareByCardNumber, type DQPatientRef } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/data-quality")({
@@ -32,7 +32,7 @@ function downloadCSV(rows: Record<string, string | number>[], filename: string) 
   URL.revokeObjectURL(url);
 }
 
-function PatientChip({ p }: { p: DQPatientRef }) {
+export function PatientChip({ p }: { p: DQPatientRef }) {
   // Owner reported the YHC-XXXX code shown here is useless for
   // cross-checking against the physical card register — they need the
   // real card (series-register-number) to go open the actual paper book.
@@ -46,6 +46,32 @@ function PatientChip({ p }: { p: DQPatientRef }) {
       {p.name || "(no name)"}
       <span className="text-muted-foreground">· {card ? `Card: ${card}` : "Card nahi hai"}</span>
     </Link>
+  );
+}
+
+// Shared across this page and the bulk review tools (fix-names,
+// fix-shared-mobiles) — Dr. Yadav works through his physical card
+// register books one at a time, so every bulk list needs to be sortable
+// to match ("har jagah" — 23 Sep 2026), not just the default
+// most-recent-first order these all started with.
+export type SortMode = "default" | "name" | "card";
+export function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode) => void }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-3">
+      <span className="text-[11px] font-bold text-muted-foreground mr-0.5">Sort:</span>
+      {(["default", "name", "card"] as const).map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          className={cn(
+            "rounded-full px-3 py-1.5 text-[11px] font-bold border",
+            mode === m ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+          )}
+        >
+          {m === "default" ? "Recent" : m === "name" ? "Naam" : "Card Number"}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -98,6 +124,17 @@ function DataQualityPage() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
   const [dismissing, setDismissing] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("default");
+  // Every list on this page is a different shape (plain patients, or
+  // groups with their own card fields, or groups keyed by name) — keyFn
+  // picks out the {name, card_series, card_register, card_number} to sort
+  // each item BY, so one sort control (and one pair of comparators) covers
+  // every section instead of each needing its own.
+  const applySort = <T,>(list: T[], keyFn: (item: T) => { name?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null }): T[] => {
+    if (sortMode === "default") return list;
+    const cmp = sortMode === "name" ? compareByName : compareByCardNumber;
+    return [...list].sort((a, b) => cmp(keyFn(a), keyFn(b)));
+  };
 
   const setDismissed = async (mobile: string, dismissed: boolean) => {
     setDismissing(mobile);
@@ -163,6 +200,8 @@ function DataQualityPage() {
         </button>
       </div>
 
+      <SortToggle mode={sortMode} onChange={setSortMode} />
+
       <div className="space-y-2.5">
         <Section
           icon={UserX} title="Adhoora naam" hint="Poora naam nahi hai (ek hi word)"
@@ -178,7 +217,7 @@ function DataQualityPage() {
               Bulk mein theek karo ({r.incomplete_names_total}) →
             </Link>
           )}
-          {r.incomplete_names.map((p) => (
+          {applySort(r.incomplete_names, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />
               {p.mobile && <span className="text-[11px] text-muted-foreground shrink-0">{p.mobile}</span>}
@@ -192,7 +231,15 @@ function DataQualityPage() {
           open={!!open.mobiles} onToggle={() => toggle("mobiles")}
           onExport={() => downloadCSV(activeMobileGroups.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "shared_mobile_numbers.csv")}
         >
-          {activeMobileGroups.map((g) => (
+          {activeMobileGroups.length > 3 && (
+            <Link
+              to="/owner/fix-shared-mobiles"
+              className="block w-full text-center rounded-lg bg-primary text-primary-foreground py-2 text-[12px] font-bold"
+            >
+              Bulk mein review karo ({activeMobileGroups.length}) →
+            </Link>
+          )}
+          {applySort(activeMobileGroups, (g) => g.patients[0] ?? {}).map((g) => (
             <div key={g.mobile} className="rounded-xl bg-background border border-border p-2.5">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <div className="text-[12px] font-bold text-primary inline-flex items-center gap-1.5">
@@ -227,7 +274,7 @@ function DataQualityPage() {
             </button>
             {open.dismissedMobiles && (
               <div className="border-t border-border p-3 space-y-2">
-                {dismissedMobileGroups.map((g) => (
+                {applySort(dismissedMobileGroups, (g) => g.patients[0] ?? {}).map((g) => (
                   <div key={g.mobile} className="rounded-xl bg-background border border-border p-2.5 opacity-75">
                     <div className="flex items-center justify-between gap-2 mb-1.5">
                       <div className="text-[12px] font-bold text-primary inline-flex items-center gap-1.5">
@@ -257,7 +304,7 @@ function DataQualityPage() {
           open={!!open.partialCard} onToggle={() => toggle("partialCard")}
           onExport={() => downloadCSV(r.partial_card.map((p) => ({ Name: p.name, "Patient Code": p.patient_code ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "" })), "adhoora_card_number.csv")}
         >
-          {r.partial_card.map((p) => (
+          {applySort(r.partial_card, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />
               <span className="text-[11px] text-muted-foreground shrink-0">
@@ -273,7 +320,7 @@ function DataQualityPage() {
           open={!!open.dupCard} onToggle={() => toggle("dupCard")}
           onExport={() => downloadCSV(r.duplicate_cards.flatMap((g) => g.patients.map((p) => ({ Card: formatCardNumber(g.card_series, g.card_register, g.card_number) ?? "", Name: p.name, "Patient Code": p.patient_code ?? "" }))), "duplicate_card_numbers.csv")}
         >
-          {r.duplicate_cards.map((g) => (
+          {applySort(r.duplicate_cards, (g) => ({ name: g.patients[0]?.name, card_series: g.card_series, card_register: g.card_register, card_number: g.card_number })).map((g) => (
             <div key={`${g.card_series}-${g.card_register}-${g.card_number}`} className="rounded-xl bg-background border border-border p-2.5">
               <div className="text-[12px] font-bold text-primary mb-1.5">
                 Card {formatCardNumber(g.card_series, g.card_register, g.card_number)} <span className="text-muted-foreground font-normal">({g.count} patients)</span>
@@ -291,7 +338,7 @@ function DataQualityPage() {
           open={!!open.dupPatients} onToggle={() => toggle("dupPatients")}
           onExport={() => downloadCSV(r.possible_duplicate_patients.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "possible_duplicate_patients.csv")}
         >
-          {r.possible_duplicate_patients.map((g) => (
+          {applySort(r.possible_duplicate_patients, (g) => ({ name: g.name, card_series: g.patients[0]?.card_series, card_register: g.patients[0]?.card_register, card_number: g.patients[0]?.card_number })).map((g) => (
             <div key={`${g.name}-${g.mobile}`} className="rounded-xl bg-background border border-border p-2.5">
               <div className="text-[12px] font-bold text-primary mb-1.5">
                 {g.name} · {g.mobile} <span className="text-muted-foreground font-normal">({g.count} records)</span>
@@ -309,7 +356,7 @@ function DataQualityPage() {
           open={!!open.badMobile} onToggle={() => toggle("badMobile")}
           onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "galat_mobile_number.csv")}
         >
-          {r.invalid_mobile.map((p) => (
+          {applySort(r.invalid_mobile, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />
               <span className="text-[11px] text-destructive shrink-0">{p.mobile || "(khaali)"}</span>
@@ -323,7 +370,7 @@ function DataQualityPage() {
           open={!!open.badEmail} onToggle={() => toggle("badEmail")}
           onExport={() => downloadCSV(r.invalid_email.map((p) => ({ Name: p.name, Email: p.email ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "galat_email.csv")}
         >
-          {r.invalid_email.map((p) => (
+          {applySort(r.invalid_email, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />
               <span className="text-[11px] text-destructive shrink-0">{p.email}</span>
@@ -353,7 +400,7 @@ function DataQualityPage() {
               "WhatsApp Confirmed": p.has_distinct_whatsapp ? (p.whatsapp_confirmed ? "Yes" : "No") : "N/A (same as mobile)",
             })), "unconfirmed_numbers.csv")}
           >
-            {r.unconfirmed_numbers.map((p) => (
+            {applySort(r.unconfirmed_numbers, (p) => p).map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2">
                 <PatientChip p={p} />
                 <span className="text-[10px] text-muted-foreground shrink-0 text-right">

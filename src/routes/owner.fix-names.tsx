@@ -6,8 +6,9 @@ import { Check, Search, UserX } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { fetchDataQualityReport, updatePatientContactInfo, formatCardNumber, type DQPatientRef } from "@/lib/db";
+import { fetchDataQualityReport, updatePatientContactInfo, formatCardNumber, compareByName, compareByCardNumber, type DQPatientRef } from "@/lib/db";
 import { cn } from "@/lib/utils";
+import { SortToggle, type SortMode } from "./owner.data-quality";
 
 export const Route = createFileRoute("/owner/fix-names")({
   head: () => ({ meta: [{ title: "Adhoore Naam Theek Karo — Owner" }, { name: "robots", content: "noindex" }] }),
@@ -83,6 +84,7 @@ function FixNamesPage() {
   const [fixedIds, setFixedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [sortMode, setSortMode] = useState<SortMode>("default");
 
   const handleSaved = (id: string) => {
     setFixedIds((s) => new Set(s).add(id));
@@ -102,7 +104,8 @@ function FixNamesPage() {
   const filtered = searchLower
     ? all.filter((p) => (p.name ?? "").toLowerCase().includes(searchLower) || (p.mobile ?? "").includes(searchLower) || (p.patient_code ?? "").toLowerCase().includes(searchLower))
     : all;
-  const visible = filtered.slice(0, visibleCount);
+  const sorted = sortMode === "default" ? filtered : [...filtered].sort(sortMode === "name" ? compareByName : compareByCardNumber);
+  const visible = sorted.slice(0, visibleCount);
 
   return (
     <RoleShell wide title="Adhoore Naam Theek Karo" subtitle={`${all.length} baaki hain`} nav={OWNER_NAV}>
@@ -123,6 +126,8 @@ function FixNamesPage() {
           className="w-full rounded-full bg-surface border border-input pl-10 pr-4 py-2.5 text-sm"
         />
       </div>
+
+      <SortToggle mode={sortMode} onChange={setSortMode} />
 
       {all.length === 0 ? (
         <div className="rounded-2xl bg-success/10 text-success p-5 text-center text-sm font-semibold">

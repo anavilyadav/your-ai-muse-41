@@ -31,6 +31,7 @@ import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-track
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerDataQualityRouteImport } from './routes/owner.data-quality'
 import { Route as OwnerFixNamesRouteImport } from './routes/owner.fix-names'
+import { Route as OwnerFixSharedMobilesRouteImport } from './routes/owner.fix-shared-mobiles'
 import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
 import { Route as OwnerHealthRouteImport } from './routes/owner.health'
 import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
@@ -166,6 +167,11 @@ const OwnerDataQualityRoute = OwnerDataQualityRouteImport.update({
 const OwnerFixNamesRoute = OwnerFixNamesRouteImport.update({
   id: '/owner/fix-names',
   path: '/owner/fix-names',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerFixSharedMobilesRoute = OwnerFixSharedMobilesRouteImport.update({
+  id: '/owner/fix-shared-mobiles',
+  path: '/owner/fix-shared-mobiles',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerFollowupRulesRoute = OwnerFollowupRulesRouteImport.update({
@@ -320,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
+  '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -370,6 +377,7 @@ export interface FileRoutesByTo {
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
+  '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -421,6 +429,7 @@ export interface FileRoutesById {
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
+  '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -473,6 +482,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/data-quality'
     | '/owner/fix-names'
+    | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -523,6 +533,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/data-quality'
     | '/owner/fix-names'
+    | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -573,6 +584,7 @@ export interface FileRouteTypes {
     | '/owner/control'
     | '/owner/data-quality'
     | '/owner/fix-names'
+    | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -624,6 +636,7 @@ export interface RootRouteChildren {
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerDataQualityRoute: typeof OwnerDataQualityRoute
   OwnerFixNamesRoute: typeof OwnerFixNamesRoute
+  OwnerFixSharedMobilesRoute: typeof OwnerFixSharedMobilesRoute
   OwnerFollowupRulesRoute: typeof OwnerFollowupRulesRoute
   OwnerHealthRoute: typeof OwnerHealthRoute
   OwnerHolidaysRoute: typeof OwnerHolidaysRoute
@@ -808,6 +821,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/fix-names'
       fullPath: '/owner/fix-names'
       preLoaderRoute: typeof OwnerFixNamesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/fix-shared-mobiles': {
+      id: '/owner/fix-shared-mobiles'
+      path: '/owner/fix-shared-mobiles'
+      fullPath: '/owner/fix-shared-mobiles'
+      preLoaderRoute: typeof OwnerFixSharedMobilesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/followup-rules': {
@@ -1016,6 +1036,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerControlRoute: OwnerControlRoute,
   OwnerDataQualityRoute: OwnerDataQualityRoute,
   OwnerFixNamesRoute: OwnerFixNamesRoute,
+  OwnerFixSharedMobilesRoute: OwnerFixSharedMobilesRoute,
   OwnerFollowupRulesRoute: OwnerFollowupRulesRoute,
   OwnerHealthRoute: OwnerHealthRoute,
   OwnerHolidaysRoute: OwnerHolidaysRoute,
