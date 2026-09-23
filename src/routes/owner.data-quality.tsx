@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, CreditCard, Copy, Phone, Mail, Download } from "lucide-react";
+import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, CreditCard, Copy, Phone, Mail, Download, PhoneCall } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
@@ -231,6 +231,40 @@ function DataQualityPage() {
           ))}
         </Section>
       </div>
+
+      {/* Separate from the "mistakes" list above on purpose — an unconfirmed
+          number isn't a data-entry error, it's a verification backlog that
+          starts at ~every bulk-imported patient (mobile_confirmed/
+          whatsapp_confirmed both default false). Folding its count into
+          `anyIssues` above would make this page permanently read "issues
+          found" even once every real mistake is fixed. */}
+      {r.unconfirmed_numbers_total > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-1 mb-1.5">
+            Ongoing — patient se baat hote hi confirm karte jao
+          </div>
+          <Section
+            icon={PhoneCall} title="Number confirm nahi hai" hint="Calling ya WhatsApp number kabhi patient se verify nahi hua"
+            count={r.unconfirmed_numbers.length} total={r.unconfirmed_numbers_total}
+            open={!!open.unconfirmed} onToggle={() => toggle("unconfirmed")}
+            onExport={() => downloadCSV(r.unconfirmed_numbers.map((p) => ({
+              Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "",
+              "Mobile Confirmed": p.mobile_confirmed ? "Yes" : "No",
+              "WhatsApp Confirmed": p.has_distinct_whatsapp ? (p.whatsapp_confirmed ? "Yes" : "No") : "N/A (same as mobile)",
+            })), "unconfirmed_numbers.csv")}
+          >
+            {r.unconfirmed_numbers.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2">
+                <PatientChip p={p} />
+                <span className="text-[10px] text-muted-foreground shrink-0 text-right">
+                  {!p.mobile_confirmed && <div>Mobile ⚠</div>}
+                  {p.has_distinct_whatsapp && !p.whatsapp_confirmed && <div>WhatsApp ⚠</div>}
+                </span>
+              </div>
+            ))}
+          </Section>
+        </div>
+      )}
     </RoleShell>
   );
 }

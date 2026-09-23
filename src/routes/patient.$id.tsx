@@ -285,10 +285,12 @@ function EditContactModal({
 }) {
   const [name, setName] = useState(patient.name);
   const [mobile, setMobile] = useState(patient.mobile);
+  const [mobileConfirmed, setMobileConfirmed] = useState(patient.mobile_confirmed);
   const [countryCode, setCountryCode] = useState<string>(patient.mobile_country_code || "+91");
   const [countryCodeCustom, setCountryCodeCustom] = useState("");
   const [waSameAsMobile, setWaSameAsMobile] = useState(!patient.whatsapp_number);
   const [waNumber, setWaNumber] = useState(patient.whatsapp_number || "");
+  const [waConfirmed, setWaConfirmed] = useState(patient.whatsapp_confirmed);
   const [waCountryCode, setWaCountryCode] = useState<string>(patient.whatsapp_country_code || patient.mobile_country_code || "+91");
   const [waCountryCodeCustom, setWaCountryCodeCustom] = useState("");
   const [address, setAddress] = useState(patient.address || "");
@@ -309,6 +311,9 @@ function EditContactModal({
     const maxLen = isIndia ? 10 : 15;
     const digits = v.replace(/\D/g, "").slice(0, maxLen);
     setMobile(digits);
+    // A confirmation only means something for the number it was given
+    // for — editing the digits invalidates it until re-confirmed.
+    if (digits !== patient.mobile) setMobileConfirmed(false);
     const minLen = isIndia ? 10 : 4;
     if (digits.length >= minLen && (digits !== patient.mobile || effectiveCC !== patient.mobile_country_code)) {
       try {
@@ -335,8 +340,12 @@ function EditContactModal({
       name: name.trim(),
       mobile,
       mobile_country_code: effectiveCC,
+      mobile_confirmed: mobileConfirmed,
       whatsapp_country_code: waSameAsMobile ? null : effectiveWaCC,
       whatsapp_number: waSameAsMobile ? null : waNumber || null,
+      // "Same as mobile" isn't a separate number to confirm — confirming
+      // the mobile above already covers it.
+      whatsapp_confirmed: waSameAsMobile ? mobileConfirmed : waConfirmed,
       address: address.trim() || undefined,
       city: city.trim() || undefined,
       pincode: pincode.trim() || undefined,
@@ -399,6 +408,10 @@ function EditContactModal({
               />
             )}
             {dupWarn && <p className="text-[11px] text-destructive mt-1">⚠ Ye number kisi aur patient ke paas hai</p>}
+            <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+              <input type="checkbox" checked={mobileConfirmed} onChange={(e) => setMobileConfirmed(e.target.checked)} className="h-4 w-4 rounded border-input" />
+              Patient se number confirm kar liya hai
+            </label>
           </div>
 
           <div>
@@ -407,25 +420,32 @@ function EditContactModal({
               WhatsApp mobile jaisa hi hai
             </label>
             {!waSameAsMobile && (
-              <div className="flex gap-2 mt-2">
-                <select
-                  value={waCountryCode}
-                  onChange={(e) => setWaCountryCode(e.target.value)}
-                  className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
-                >
-                  {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
-                </select>
-                <input
-                  inputMode="numeric"
-                  placeholder="WhatsApp number"
-                  value={waNumber}
-                  onChange={(e) => {
-                    const maxLen = effectiveWaCC === "+91" ? 10 : 15;
-                    setWaNumber(e.target.value.replace(/\D/g, "").slice(0, maxLen));
-                  }}
-                  className="flex-1 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
-                />
-              </div>
+              <>
+                <div className="flex gap-2 mt-2">
+                  <select
+                    value={waCountryCode}
+                    onChange={(e) => setWaCountryCode(e.target.value)}
+                    className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+                  >
+                    {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+                  </select>
+                  <input
+                    inputMode="numeric"
+                    placeholder="WhatsApp number"
+                    value={waNumber}
+                    onChange={(e) => {
+                      const maxLen = effectiveWaCC === "+91" ? 10 : 15;
+                      setWaNumber(e.target.value.replace(/\D/g, "").slice(0, maxLen));
+                      setWaConfirmed(false);
+                    }}
+                    className="flex-1 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                  <input type="checkbox" checked={waConfirmed} onChange={(e) => setWaConfirmed(e.target.checked)} className="h-4 w-4 rounded border-input" />
+                  Patient se WhatsApp number confirm kar liya hai
+                </label>
+              </>
             )}
           </div>
 
@@ -824,9 +844,9 @@ function PatientProfilePage() {
       </div>
 
       <div className="mt-4 rounded-xl bg-surface border border-border p-3 text-xs space-y-1.5">
-        <Row icon={PhoneCall} label="Mobile" value={`${patient.mobile_country_code || "+91"} ${patient.mobile}`} />
+        <Row icon={PhoneCall} label="Mobile" value={`${patient.mobile_country_code || "+91"} ${patient.mobile}`} badge={<ConfirmBadge confirmed={patient.mobile_confirmed} />} />
         {patient.whatsapp_number && (
-          <Row icon={MessageCircle} label="WhatsApp" value={`${patient.whatsapp_country_code || patient.mobile_country_code || "+91"} ${patient.whatsapp_number}`} />
+          <Row icon={MessageCircle} label="WhatsApp" value={`${patient.whatsapp_country_code || patient.mobile_country_code || "+91"} ${patient.whatsapp_number}`} badge={<ConfirmBadge confirmed={patient.whatsapp_confirmed} />} />
         )}
         <Row icon={MapPin} label="Branch" value={branchLabel} />
         <Row icon={Cake} label="City" value={patient.city ?? "—"} />
@@ -1167,12 +1187,21 @@ function Stat({ icon: Icon, label, value }: { icon: React.ComponentType<{ classN
   );
 }
 
-function Row({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
+function Row({ icon: Icon, label, value, badge }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; badge?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2">
       <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       <span className="text-muted-foreground w-16">{label}</span>
       <span className="font-medium truncate">{value}</span>
+      {badge}
     </div>
+  );
+}
+
+function ConfirmBadge({ confirmed }: { confirmed: boolean }) {
+  return confirmed ? (
+    <span className="shrink-0 text-[10px] font-bold text-success">✓ Confirmed</span>
+  ) : (
+    <span className="shrink-0 text-[10px] font-bold text-destructive">⚠ Confirm nahi hai</span>
   );
 }

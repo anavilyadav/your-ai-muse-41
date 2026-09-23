@@ -98,8 +98,10 @@ function RegisterPage() {
     mobile: "",
     countryCode: "+91" as (typeof countryCodes)[number]["code"],
     countryCodeCustom: "",
+    mobileConfirmed: false,
     waSameAsMobile: true,
     waNumber: "",
+    waConfirmed: false,
     waCountryCode: "+91" as (typeof countryCodes)[number]["code"],
     waCountryCodeCustom: "",
     age: "",
@@ -295,8 +297,10 @@ function RegisterPage() {
       name: f.name.trim(),
       mobile: f.mobile,
       mobile_country_code: effectiveCountryCode,
+      mobile_confirmed: f.mobileConfirmed,
       whatsapp_country_code: f.waSameAsMobile ? undefined : effectiveWaCountryCode,
       whatsapp_number: f.waSameAsMobile ? undefined : f.waNumber,
+      whatsapp_confirmed: f.waSameAsMobile ? f.mobileConfirmed : f.waConfirmed,
       age: Number(f.age),
       gender: f.gender || undefined,
       blood_group: f.blood || undefined,
@@ -489,8 +493,8 @@ function RegisterPage() {
               onClick={() => {
                 setSaved(null);
                 setF({
-                  name: "", mobile: "", countryCode: "+91", countryCodeCustom: "",
-                  waSameAsMobile: true, waNumber: "", waCountryCode: "+91", waCountryCodeCustom: "",
+                  name: "", mobile: "", countryCode: "+91", countryCodeCustom: "", mobileConfirmed: false,
+                  waSameAsMobile: true, waNumber: "", waConfirmed: false, waCountryCode: "+91", waCountryCodeCustom: "",
                   age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "",
                   dob: "", anniversary: "", profession: "", annualIncome: "",
@@ -586,6 +590,15 @@ function RegisterPage() {
               className="mt-2"
             />
           )}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+            <input
+              type="checkbox"
+              checked={f.mobileConfirmed}
+              onChange={(e) => set("mobileConfirmed", e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            Patient se number confirm kar liya hai
+          </label>
         </Section>
 
         {existingPatient && (
@@ -710,6 +723,17 @@ function RegisterPage() {
               onChange={(e) => set("waCountryCodeCustom", e.target.value.replace(/[^\d+]/g, ""))}
               className="mt-2"
             />
+          )}
+          {!f.waSameAsMobile && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+              <input
+                type="checkbox"
+                checked={f.waConfirmed}
+                onChange={(e) => set("waConfirmed", e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              Patient se WhatsApp number confirm kar liya hai
+            </label>
           )}
         </Section>
 

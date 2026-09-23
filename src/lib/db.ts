@@ -58,8 +58,10 @@ export interface DBPatient {
   name: string;
   mobile: string;
   mobile_country_code: string;
+  mobile_confirmed: boolean;
   whatsapp_country_code: string | null;
   whatsapp_number: string | null;
+  whatsapp_confirmed: boolean;
   age: number | null;
   gender: string | null;
   blood_group: string | null;
@@ -386,8 +388,10 @@ export async function createPatientWithVisit(input: {
   name: string;
   mobile: string;
   mobile_country_code?: string;
+  mobile_confirmed?: boolean;
   whatsapp_country_code?: string;
   whatsapp_number?: string;
+  whatsapp_confirmed?: boolean;
   age?: number;
   gender?: string;
   blood_group?: string;
@@ -446,14 +450,17 @@ export async function createPatientWithVisit(input: {
     const hasExtra =
       (input.mobile_country_code && input.mobile_country_code !== "+91") ||
       input.whatsapp_number || input.dob || input.anniversary_date ||
-      input.profession || input.annual_income != null || input.address;
+      input.profession || input.annual_income != null || input.address ||
+      input.mobile_confirmed || input.whatsapp_confirmed;
     if (hasExtra) {
       const { data: updated } = await supabase
         .from("patients")
         .update({
           mobile_country_code: input.mobile_country_code || "+91",
+          mobile_confirmed: input.mobile_confirmed ?? false,
           whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
           whatsapp_number: input.whatsapp_number || null,
+          whatsapp_confirmed: input.whatsapp_number ? (input.whatsapp_confirmed ?? false) : (input.mobile_confirmed ?? false),
           address: input.address || null,
           dob: input.dob || null,
           anniversary_date: input.anniversary_date || null,
@@ -524,8 +531,10 @@ async function createPatientWithVisitLegacy(input: {
   name: string;
   mobile: string;
   mobile_country_code?: string;
+  mobile_confirmed?: boolean;
   whatsapp_country_code?: string;
   whatsapp_number?: string;
+  whatsapp_confirmed?: boolean;
   age?: number;
   gender?: string;
   blood_group?: string;
@@ -551,8 +560,10 @@ async function createPatientWithVisitLegacy(input: {
       name: input.name,
       mobile: input.mobile,
       mobile_country_code: input.mobile_country_code || "+91",
+      mobile_confirmed: input.mobile_confirmed ?? false,
       whatsapp_country_code: input.whatsapp_number ? input.whatsapp_country_code || null : null,
       whatsapp_number: input.whatsapp_number || null,
+      whatsapp_confirmed: input.whatsapp_number ? (input.whatsapp_confirmed ?? false) : (input.mobile_confirmed ?? false),
       dob: input.dob || null,
       anniversary_date: input.anniversary_date || null,
       profession: input.profession || null,
@@ -633,8 +644,10 @@ export async function updatePatientContactInfo(
     name: string;
     mobile: string;
     mobile_country_code: string;
+    mobile_confirmed: boolean;
     whatsapp_country_code: string | null;
     whatsapp_number: string | null;
+    whatsapp_confirmed: boolean;
     address: string;
     city: string;
     pincode: string;
@@ -3397,7 +3410,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0069_drop_exposed_users_pin_column";
+export const EXPECTED_SCHEMA_VERSION = "0071_data_quality_unconfirmed_numbers";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5375,6 +5388,8 @@ export interface DataQualityReport {
   invalid_mobile_total: number;
   invalid_email: (DQPatientRef & { email: string | null })[];
   invalid_email_total: number;
+  unconfirmed_numbers: (DQPatientRef & { mobile_confirmed: boolean; whatsapp_confirmed: boolean; has_distinct_whatsapp: boolean })[];
+  unconfirmed_numbers_total: number;
 }
 
 export async function fetchDataQualityReport(): Promise<DataQualityReport> {
