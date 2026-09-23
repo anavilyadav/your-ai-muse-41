@@ -622,12 +622,15 @@ export async function isDuplicateMobile(mobile: string, countryCode: string = "+
   return (count ?? 0) > 0;
 }
 
-// Everything a patient might need corrected after registration — mobile,
-// WhatsApp number, address, and the "collect once" fields in case they
-// were skipped at intake. Only the fields actually passed get touched.
+// Everything a patient might need corrected after registration — name
+// (spelling mistakes are common on a real bulk-imported sheet, and staff
+// who spot one shouldn't need Owner access to fix it), mobile, WhatsApp
+// number, address, and the "collect once" fields in case they were
+// skipped at intake. Only the fields actually passed get touched.
 export async function updatePatientContactInfo(
   patientId: string,
   fields: Partial<{
+    name: string;
     mobile: string;
     mobile_country_code: string;
     whatsapp_country_code: string | null;

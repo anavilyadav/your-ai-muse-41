@@ -282,6 +282,7 @@ function EditContactModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [name, setName] = useState(patient.name);
   const [mobile, setMobile] = useState(patient.mobile);
   const [countryCode, setCountryCode] = useState<string>(patient.mobile_country_code || "+91");
   const [countryCodeCustom, setCountryCodeCustom] = useState("");
@@ -325,10 +326,12 @@ function EditContactModal({
 
   const submit = async () => {
     const minLen = isIndia ? 10 : 4;
+    if (!name.trim()) { toast.error("Naam khaali nahi ho sakta"); return; }
     if (mobile.length < minLen) { toast.error("Mobile number check karo"); return; }
     if (dupWarn) { toast.error("Ye number kisi aur patient ke paas already hai"); return; }
     setSaving(true);
     const res = await updatePatientContactInfo(patient.id, {
+      name: name.trim(),
       mobile,
       mobile_country_code: effectiveCC,
       whatsapp_country_code: waSameAsMobile ? null : effectiveWaCC,
@@ -352,10 +355,20 @@ function EditContactModal({
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-extrabold text-primary text-lg">Edit Contact Details</h2>
+          <h2 className="font-extrabold text-primary text-lg">Edit Naam / Contact Details</h2>
           <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Naam</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Poora naam"
+              className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+            />
+          </div>
+
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Mobile</label>
             <div className="flex gap-2 mt-1">
@@ -769,7 +782,7 @@ function PatientProfilePage() {
           <button
             onClick={() => setShowEditModal(true)}
             className="h-8 w-8 shrink-0 grid place-items-center rounded-full bg-primary-foreground/15"
-            aria-label="Edit contact details"
+            aria-label="Edit naam ya contact details"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>

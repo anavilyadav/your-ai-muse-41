@@ -2,10 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, Plus, RotateCcw } from "lucide-react";
+import { Trash2, Plus, RotateCcw, Pencil } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
+import { EditPatientNameModal } from "@/components/yhc/EditPatientNameModal";
 import {
   fetchVisit,
   fetchPatientHistory,
@@ -97,6 +98,7 @@ function RxWrite() {
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
+  const [showEditName, setShowEditName] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const draftHydrated = useRef(false);
   const [showRecaseModal, setShowRecaseModal] = useState(false);
@@ -345,6 +347,14 @@ function RxWrite() {
       {showLogModal && visit.patient_id && (
         <LogInteractionModal patientId={visit.patient_id} onClose={() => setShowLogModal(false)} onLogged={() => {}} />
       )}
+      {showEditName && visit.patient_id && (
+        <EditPatientNameModal
+          patientId={visit.patient_id}
+          currentName={visit.patient?.name ?? ""}
+          onClose={() => setShowEditName(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["visit", visitId] })}
+        />
+      )}
       {showRecaseModal && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
           <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
@@ -407,7 +417,18 @@ function RxWrite() {
         <section className="space-y-3">
           <div className="rounded-2xl bg-primary text-primary-foreground p-4">
             <div className="text-xs opacity-70">Token {visit.token_number}</div>
-            <div className="text-xl font-black">{visit.patient?.name}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-xl font-black">{visit.patient?.name}</div>
+              {visit.patient_id && (
+                <button
+                  onClick={() => setShowEditName(true)}
+                  aria-label="Naam sahi karo (spelling mistake)"
+                  className="h-6 w-6 shrink-0 grid place-items-center rounded-full bg-primary-foreground/15"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
             <div className="text-xs opacity-80 mt-0.5">
               {visit.patient?.age ? `${visit.patient.age}y` : ""} • {visit.patient?.gender ?? ""} • {visit.patient?.patient_code}
             </div>
