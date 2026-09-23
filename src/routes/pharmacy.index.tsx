@@ -1,9 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { List, Package, BookOpen, Truck } from "lucide-react";
-import { MobileShell } from "@/components/yhc/MobileShell";
+import { RoleShell, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import type { NavItem } from "@/components/yhc/RoleShell";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -42,7 +41,7 @@ function PharmacyQueue() {
 
 
   return (
-    <MobileShell title="Pharmacy Queue" subtitle="Today">
+    <RoleShell wide title="Pharmacy Queue" subtitle="Today" nav={PHARMACY_NAV}>
       {isLoading ? (
         <LoadingBlock />
       ) : isError ? (
@@ -81,6 +80,6 @@ function PharmacyQueue() {
           );})}
         </ul>
       )}
-    </MobileShell>
+    </RoleShell>
   );
 }

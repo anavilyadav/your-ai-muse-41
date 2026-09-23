@@ -64,9 +64,25 @@ function CaseBoardPage() {
   const myLevel = levelsError ? "Junior" : (user && levels?.[user.id]) || "Senior";
   const isJunior = myLevel === "Junior";
 
-  const allRows = (data ?? []).filter((r) =>
-    ["REGISTERED", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status),
-  );
+  // A REGISTERED visit means "hasn't had case-taking yet" — true for a
+  // genuinely new patient's first-ever visit, but check_in_existing_
+  // patient_atomic ALSO inserts every returning patient's follow-up visit
+  // at REGISTERED (see its definition), with no separate status for
+  // "already has case history, doesn't need this board." Without this
+  // filter, every follow-up check-in cluttered the Case-DR's board with
+  // patients who don't actually need case-taking — doctor.rx.consult
+  // already lets the doctor open a REGISTERED follow-up (lifetime_visits
+  // > 1) directly and write Rx, skipping this board entirely, UNLESS
+  // needs_recase is set (patient was explicitly flagged for fresh
+  // case-taking). Found live 23 Sep 2026 (Dr. Yadav: "case taking wale ko
+  // bhi follow up wale patients dikh rahe hai").
+  const allRows = (data ?? []).filter((r) => {
+    if (r.visit_status === "REGISTERED") {
+      const isFirstVisit = (r.patient?.lifetime_visits ?? 1) <= 1;
+      return isFirstVisit || r.needs_recase;
+    }
+    return ["CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status);
+  });
   const rows = isJunior ? allRows.filter((r: any) => (r.case_complexity ?? "Simple") === "Simple") : allRows;
   const hiddenForJunior = allRows.length - rows.length;
   const assigned = rows.length;

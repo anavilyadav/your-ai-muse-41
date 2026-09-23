@@ -804,7 +804,7 @@ export async function saveCaseDrLevels(levels: Record<string, "Junior" | "Senior
   await upsertSetting("case_dr_levels", JSON.stringify(levels));
 }
 
-const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease, card_series, card_number, card_register";
+const CASE_DR_SAFE_PATIENT_FIELDS = "id, name, age, gender, primary_disease, card_series, card_number, card_register, lifetime_visits";
 
 // Same fix as fetchTodayQueue (including the 30-day floor) — an unfinished
 // case-taking (e.g. a Junior Case-DR's draft) must not vanish from the

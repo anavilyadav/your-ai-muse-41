@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { MobileShell } from "@/components/yhc/MobileShell";
+import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -39,7 +39,7 @@ function RxQueue() {
   );
 
   return (
-    <MobileShell title="Doctor — Rx Queue" subtitle="Today + any pending">
+    <DoctorShell title="Rx Queue" subtitle="Today + any pending" showLogout nav="rx">
       {isLoading ? (
         <LoadingBlock />
       ) : isError ? (
@@ -81,6 +81,6 @@ function RxQueue() {
           );})}
         </ul>
       )}
-    </MobileShell>
+    </DoctorShell>
   );
 }
