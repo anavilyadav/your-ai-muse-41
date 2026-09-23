@@ -3394,7 +3394,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0067_fix_doctor_totals_dates";
+export const EXPECTED_SCHEMA_VERSION = "0068_data_quality_report_card_numbers";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5355,7 +5355,10 @@ export async function mergePatients(primaryId: string, duplicateId: string) {
 // card number on 2+ patients, and malformed mobile/email. Runs server-side
 // via data_quality_report() (0061) so it scales past PostgREST's ~1000-row
 // default cap and stays a live read — no separate sheet to keep in sync.
-export interface DQPatientRef { id: string; name: string; mobile?: string | null; patient_code: string | null }
+export interface DQPatientRef {
+  id: string; name: string; mobile?: string | null; patient_code: string | null;
+  card_series?: string | null; card_register?: string | null; card_number?: string | null;
+}
 export interface DataQualityReport {
   generated_at: string;
   incomplete_names: DQPatientRef[];

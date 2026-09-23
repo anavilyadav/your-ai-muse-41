@@ -32,6 +32,10 @@ function downloadCSV(rows: Record<string, string | number>[], filename: string) 
 }
 
 function PatientChip({ p }: { p: DQPatientRef }) {
+  // Owner reported the YHC-XXXX code shown here is useless for
+  // cross-checking against the physical card register — they need the
+  // real card (series-register-number) to go open the actual paper book.
+  const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
   return (
     <Link
       to="/patient/$id"
@@ -39,7 +43,7 @@ function PatientChip({ p }: { p: DQPatientRef }) {
       className="inline-flex items-center gap-1.5 rounded-full bg-background border border-border px-2.5 py-1 text-[12px] font-medium text-primary hover:border-accent"
     >
       {p.name || "(no name)"}
-      {p.patient_code && <span className="text-muted-foreground">· {p.patient_code}</span>}
+      <span className="text-muted-foreground">· {card ? `Card: ${card}` : "Card nahi hai"}</span>
     </Link>
   );
 }
@@ -137,7 +141,7 @@ function DataQualityPage() {
           icon={UserX} title="Adhoora naam" hint="Poora naam nahi hai (ek hi word)"
           count={r.incomplete_names.length} total={r.incomplete_names_total}
           open={!!open.names} onToggle={() => toggle("names")}
-          onExport={() => downloadCSV(r.incomplete_names.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", "Patient Code": p.patient_code ?? "" })), "adhoore_naam.csv")}
+          onExport={() => downloadCSV(r.incomplete_names.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "adhoore_naam.csv")}
         >
           {r.incomplete_names.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
@@ -151,7 +155,7 @@ function DataQualityPage() {
           icon={Users} title="Ek mobile number, kai patients" hint="Family ho sakti hai — ya galat entry, check karo"
           count={r.shared_mobiles.length} total={r.shared_mobiles_total}
           open={!!open.mobiles} onToggle={() => toggle("mobiles")}
-          onExport={() => downloadCSV(r.shared_mobiles.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, "Patient Code": p.patient_code ?? "" }))), "shared_mobile_numbers.csv")}
+          onExport={() => downloadCSV(r.shared_mobiles.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "shared_mobile_numbers.csv")}
         >
           {r.shared_mobiles.map((g) => (
             <div key={g.mobile} className="rounded-xl bg-background border border-border p-2.5">
@@ -203,7 +207,7 @@ function DataQualityPage() {
           icon={Phone} title="Galat mobile number" hint="10-digit number nahi hai ya khaali hai"
           count={r.invalid_mobile.length} total={r.invalid_mobile_total}
           open={!!open.badMobile} onToggle={() => toggle("badMobile")}
-          onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", "Patient Code": p.patient_code ?? "" })), "galat_mobile_number.csv")}
+          onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "galat_mobile_number.csv")}
         >
           {r.invalid_mobile.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
@@ -217,7 +221,7 @@ function DataQualityPage() {
           icon={Mail} title="Galat email" hint="Email format sahi nahi hai"
           count={r.invalid_email.length} total={r.invalid_email_total}
           open={!!open.badEmail} onToggle={() => toggle("badEmail")}
-          onExport={() => downloadCSV(r.invalid_email.map((p) => ({ Name: p.name, Email: p.email ?? "", "Patient Code": p.patient_code ?? "" })), "galat_email.csv")}
+          onExport={() => downloadCSV(r.invalid_email.map((p) => ({ Name: p.name, Email: p.email ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "galat_email.csv")}
         >
           {r.invalid_email.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
