@@ -209,7 +209,7 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string,
   try {
     const { error } = await supabase
       .from("leads")
-      .update({ status: "CONVERTED", converted_patient_id: patientId })
+      .update({ status: "CONVERTED", converted_patient_id: patientId, converted_at: new Date().toISOString() })
       .eq("mobile", mobile)
       .neq("status", "CONVERTED");
     if (error) console.error("autoConvertMatchingLead failed:", error.message);
@@ -2709,7 +2709,7 @@ export async function fetchDoctorDashboard() {
 
   const [
     todaySeen,
-    todayNew,
+    todayVisitPatients,
     todayFollowupsDone,
     monthPatientsVisits,
     monthPay,
@@ -2717,7 +2717,7 @@ export async function fetchDoctorDashboard() {
     awaitingRx,
   ] = await Promise.all([
     supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("visit_status", "DONE"),
-    supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
+    supabase.from("visits").select("patient_id").eq("visit_date", t),
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "DONE").gte("updated_at", istDayStart(t)),
     supabase.from("visits").select("patient_id").gte("visit_date", monthStart),
     supabase.from("payments").select("amount_received,visits!inner(visit_date)").gte("visits.visit_date", monthStart),
@@ -2729,6 +2729,24 @@ export async function fetchDoctorDashboard() {
 
   const monthPatients = new Set((monthPatientsVisits.data ?? []).map((v: any) => v.patient_id)).size;
   const monthRevenue = (monthPay.data ?? []).reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
+
+  // "New today" = today is this patient's EARLIEST visit, not
+  // patients.created_at (a bulk-imported patient's created_at is
+  // "whenever the import ran," not their real first-visit date) — scoped
+  // to just today's patients so this stays cheap even on a large visits
+  // table, unlike scanning the whole table for a first_visit CTE.
+  const todayPatientIds = Array.from(new Set((todayVisitPatients.data ?? []).map((v: any) => v.patient_id).filter(Boolean)));
+  let todayNewCount = 0;
+  if (todayPatientIds.length) {
+    const { data: earlierVisits, error: evErr } = await supabase
+      .from("visits")
+      .select("patient_id")
+      .in("patient_id", todayPatientIds)
+      .lt("visit_date", t);
+    if (evErr) throw dataLoadError(evErr);
+    const hasEarlier = new Set((earlierVisits ?? []).map((v: any) => v.patient_id));
+    todayNewCount = todayPatientIds.filter((pid) => !hasEarlier.has(pid)).length;
+  }
 
   const bucket = new Map<string, number>();
   for (const r of (monthComplaints.data ?? []) as any[]) {
@@ -2744,7 +2762,7 @@ export async function fetchDoctorDashboard() {
 
   return {
     todaySeen: todaySeen.count ?? 0,
-    todayNew: todayNew.count ?? 0,
+    todayNew: todayNewCount,
     todayFollowupsDone: todayFollowupsDone.count ?? 0,
     monthPatients,
     monthRevenue,
@@ -2782,19 +2800,34 @@ export async function fetchOwnerStats() {
   if (!isMissingRpc(aggErr)) throw dataLoadError(aggErr);
   void logDegradedModeAlert("owner_totals", { note: "Run 0045_report_aggregates.sql — owner totals may be truncated" });
 
-  const [todayVisitsBajaj, todayVisitsJagatpura, todayPay, monthPay, newToday, followupsToday] =
+  const [todayVisitsBajaj, todayVisitsJagatpura, todayPay, monthPay, todayVisitPatients, followupsToday] =
 
     await Promise.all([
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "BAJAJ_NAGAR"),
       supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", t).eq("branch", "JAGATPURA"),
       supabase.from("payments").select("amount_received,payment_mode,branch,visits!inner(visit_date)").eq("visits.visit_date", t),
       supabase.from("payments").select("id,amount_received,payment_mode,branch,visits!inner(visit_date)").gte("visits.visit_date", monthStart).lte("visits.visit_date", t),
-      supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(t)),
+      supabase.from("visits").select("patient_id").eq("visit_date", t),
       supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", t),
     ]);
   const sum = (rows: any[] | null, filt?: (r: any) => boolean) =>
     (rows ?? []).filter((r) => (filt ? filt(r) : true)).reduce((s, r) => s + Number(r.amount_received ?? 0), 0);
   const monthByMode = await fetchModeBreakdown((monthPay.data ?? []).map((r: any) => r.id));
+  // "New today" = today is this patient's EARLIEST visit, not
+  // patients.created_at — see the identical fix/comment in
+  // fetchDoctorDashboard's fallback just above.
+  const todayPatientIds = Array.from(new Set((todayVisitPatients.data ?? []).map((v: any) => v.patient_id).filter(Boolean)));
+  let newTodayCount = 0;
+  if (todayPatientIds.length) {
+    const { data: earlierVisits, error: evErr } = await supabase
+      .from("visits")
+      .select("patient_id")
+      .in("patient_id", todayPatientIds)
+      .lt("visit_date", t);
+    if (evErr) throw dataLoadError(evErr);
+    const hasEarlier = new Set((earlierVisits ?? []).map((v: any) => v.patient_id));
+    newTodayCount = todayPatientIds.filter((pid) => !hasEarlier.has(pid)).length;
+  }
   return {
     todayVisits: (todayVisitsBajaj.count ?? 0) + (todayVisitsJagatpura.count ?? 0),
     todayVisitsBajaj: todayVisitsBajaj.count ?? 0,
@@ -2807,7 +2840,7 @@ export async function fetchOwnerStats() {
     // 10 Aug 2026 with a dynamic per-mode breakdown so a newly-added
     // Owner payment mode shows up here without another code change.
     monthByMode,
-    newToday: newToday.count ?? 0,
+    newToday: newTodayCount,
     followupsToday: followupsToday.count ?? 0,
   };
 }
@@ -2871,11 +2904,12 @@ export async function fetchWeekRevenue() {
 
   const { data } = await supabase
     .from("payments")
-    .select("amount_received,created_at")
-    .gte("created_at", istDayStart(start));
+    .select("amount_received,visits!inner(visit_date)")
+    .gte("visits.visit_date", start)
+    .lte("visits.visit_date", end);
   return days.map((day) => {
     const total = (data ?? [])
-      .filter((r: any) => istDateOf(r.created_at) === day.d)
+      .filter((r: any) => r.visits?.visit_date === day.d)
       .reduce((s: number, r: any) => s + Number(r.amount_received ?? 0), 0);
     return [day.label, total] as [string, number];
   });
@@ -2946,26 +2980,42 @@ export async function fetchReports(
   let payQ = supabase.from("payments").select("id,amount_received,amount_charged,balance_due,payment_mode,visits!inner(visit_date)").gte("visits.visit_date", start);
 
   let visQ = supabase.from("visits").select("id,patient_id").gte("visit_date", start);
-  let patQ = supabase.from("patients").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(start));
-  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("created_at", istDayStart(start));
+  // "New patients" = a patient whose visit in this period is their
+  // EARLIEST visit ever, not patients.created_at (bulk-imported
+  // patients' created_at is "whenever the import ran," not their real
+  // first-visit date) — same bug class as owner_totals/report_totals,
+  // fixed there in 0066 but missed here in the RPC-missing fallback.
+  // "Leads converted" now uses leads.converted_at (migration 0072),
+  // not created_at (the lead's row-creation time, unrelated to when it
+  // actually converted).
+  let leadQ = supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED").gte("converted_at", istDayStart(start));
   if (branch) {
     payQ = payQ.eq("branch", branch);
     visQ = visQ.eq("branch", branch);
-    patQ = patQ.eq("branch", branch);
   }
   if (end) {
     payQ = payQ.lte("visits.visit_date", end);
     visQ = visQ.lte("visit_date", end);
-    patQ = patQ.lte("created_at", istDayEnd(end));
-    leadQ = leadQ.lte("created_at", istDayEnd(end));
+    leadQ = leadQ.lte("converted_at", istDayEnd(end));
   }
-  const [pay, vis, pat, lead] = await Promise.all([payQ, visQ, patQ, leadQ]);
+  const [pay, vis, lead] = await Promise.all([payQ, visQ, leadQ]);
   const rows = pay.data ?? [];
   const sum = (f: (r: any) => number) => rows.reduce((s, r) => s + f(r), 0);
   const totalRev = sum((r) => Number(r.amount_received ?? 0));
   const outstanding = sum((r) => Number(r.balance_due ?? 0));
-  const totalPatients = new Set((vis.data ?? []).map((v: any) => v.patient_id)).size;
-  const newPatients = pat.count ?? 0;
+  const periodPatientIds = Array.from(new Set((vis.data ?? []).map((v: any) => v.patient_id).filter(Boolean)));
+  const totalPatients = periodPatientIds.length;
+  let newPatients = 0;
+  if (periodPatientIds.length) {
+    const { data: earlierVisits, error: evErr } = await supabase
+      .from("visits")
+      .select("patient_id")
+      .in("patient_id", periodPatientIds)
+      .lt("visit_date", start);
+    if (evErr) throw dataLoadError(evErr);
+    const hasEarlier = new Set((earlierVisits ?? []).map((v: any) => v.patient_id));
+    newPatients = periodPatientIds.filter((pid) => !hasEarlier.has(pid)).length;
+  }
   const avg = totalPatients ? Math.round(totalRev / totalPatients) : 0;
   // Was fixed Cash/UPI/Card rows — 10 Aug 2026, replaced with one row per
   // active payment mode (plus any deactivated mode with real history in
@@ -3410,7 +3460,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0071_data_quality_unconfirmed_numbers";
+export const EXPECTED_SCHEMA_VERSION = "0072_leads_converted_at";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5503,10 +5553,16 @@ export async function deletePatientDocument(id: string) {
 export async function fetchDaySummary(branch?: string) {
   const t = today();
   let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);
+  // Payments joined to their visit's real visit_date, not the payment
+  // row's own created_at (import-insert timestamp) — same bug class as
+  // owner_totals/doctor_totals/report_totals/week_revenue, found live 23
+  // Sep 2026 on this exact screen: a same-morning bulk import inflated
+  // "today's revenue" to ~₹45L instead of the real day's collections,
+  // since every one of that import's payments has created_at = today.
   let payQ = supabase
     .from("payments")
-    .select("id,visit_id,amount_received,amount_charged,balance_due,branch,payment_mode")
-    .gte("created_at", istDayStart(t));
+    .select("id,visit_id,amount_received,amount_charged,balance_due,branch,payment_mode,visits!inner(visit_date)")
+    .eq("visits.visit_date", t);
   if (branch) {
     visQ = visQ.eq("branch", branch);
     payQ = payQ.eq("branch", branch);
@@ -5526,15 +5582,24 @@ export async function fetchDaySummary(branch?: string) {
   let newCount = 0;
   let followupCount = 0;
   if (patientIds.length) {
-    const { data: pats, error: patsError } = await supabase
-      .from("patients")
-      .select("id,created_at")
-      .in("id", patientIds);
-    if (patsError) throw dataLoadError(patsError);
-    (pats ?? []).forEach((p: any) => {
-      if ((p.created_at ?? "").slice(0, 10) === t) newCount++;
+    // "New today" = today is this patient's EARLIEST visit, not
+    // patients.created_at (a bulk-imported patient's created_at is
+    // "whenever the import ran," not their real first-visit date — same
+    // bug class as above, found on this same screen).
+    const { data: allVisits, error: avError } = await supabase
+      .from("visits")
+      .select("patient_id,visit_date")
+      .in("patient_id", patientIds);
+    if (avError) throw dataLoadError(avError);
+    const firstVisitByPatient = new Map<string, string>();
+    for (const v of (allVisits ?? []) as any[]) {
+      const existing = firstVisitByPatient.get(v.patient_id);
+      if (!existing || v.visit_date < existing) firstVisitByPatient.set(v.patient_id, v.visit_date);
+    }
+    for (const pid of patientIds) {
+      if (firstVisitByPatient.get(pid) === t) newCount++;
       else followupCount++;
-    });
+    }
   }
   const revenue = pays.reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const outstanding = pays.reduce((s, r: any) => s + Number(r.balance_due ?? 0), 0);
