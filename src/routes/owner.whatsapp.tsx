@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Power, RotateCcw } from "lucide-react";
-import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
+import { Power, RotateCcw, Calendar, X, AlertTriangle } from "lucide-react";
+import { AuthGate, ErrorBlock, LoadingBlock } from "@/components/yhc/AuthGate";
 import { RoleShell, Stat, Badge } from "@/components/yhc/RoleShell";
 import {
   fetchWhatsAppLog,
@@ -12,9 +12,12 @@ import {
   fetchWhatsAppControls,
   saveWhatsAppControls,
   resetWhatsAppToFullAutomatic,
+  fetchWhatsAppForecast,
+  fetchWaConsentCount,
   WHATSAPP_CAMPAIGNS,
   DEFAULT_WHATSAPP_CONTROLS,
   type WhatsAppControls,
+  type WhatsAppForecastPatient,
 } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
@@ -212,6 +215,138 @@ function WhatsAppControlsPanel() {
   );
 }
 
+// Only the due-date-driven campaigns are forecastable — the other 3
+// (REGISTRATION_CONFIRM, APPOINTMENT_REMINDER, delivery_update) fire off
+// a staff action that hasn't happened yet, so there's no due date to
+// count from.
+const FORECAST_CAMPAIGN_ORDER: WhatsAppForecastCampaignKey[] = [
+  "FOLLOWUP_REMINDER", "WINBACK", "HOLIDAY_GREETING", "birthday_wish", "anniversary_wish",
+];
+type WhatsAppForecastCampaignKey = "FOLLOWUP_REMINDER" | "WINBACK" | "HOLIDAY_GREETING" | "birthday_wish" | "anniversary_wish";
+
+function dayLabel(iso: string, index: number): string {
+  if (index === 0) return "Aaj";
+  if (index === 1) return "Kal";
+  if (index === 2) return "Parso";
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+function WhatsAppForecastPanel() {
+  const forecast = useQuery({ queryKey: ["whatsapp-forecast"], queryFn: () => fetchWhatsAppForecast(7) });
+  const consent = useQuery({ queryKey: ["wa-consent-count"], queryFn: fetchWaConsentCount });
+  const [openCell, setOpenCell] = useState<{ campaign: string; date: string; label: string; patients: WhatsAppForecastPatient[] } | null>(null);
+
+  if (forecast.isLoading) return <LoadingBlock />;
+  if (forecast.isError) return <ErrorBlock error={forecast.error} onRetry={() => forecast.refetch()} />;
+  const f = forecast.data!;
+  const byKey = new Map(f.campaigns.map((c) => [c.key, c]));
+  const totalsByDay = f.days.map((d) =>
+    FORECAST_CAMPAIGN_ORDER.reduce((s, key) => s + (byKey.get(key)?.per_day.find((p) => p.date === d)?.count ?? 0), 0),
+  );
+  const grandTotal = totalsByDay.reduce((s, n) => s + n, 0);
+
+  return (
+    <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-primary" />
+        <div className="text-[13px] font-bold text-primary">Aage kitne WhatsApp jayenge (forecast)</div>
+      </div>
+      <p className="text-[10px] text-muted-foreground -mt-2">
+        Sirf due-date wale campaigns (Follow-up, Win-back, Holiday, Birthday, Anniversary) — Registration/Appointment/Delivery messages staff ke action se turant jaate hain, unka forecast nahi ban sakta.
+      </p>
+
+      {consent.data && consent.data.consented === 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 flex gap-2">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-[11px] text-destructive">
+            {consent.data.total} patients mein se <b>0 ka WhatsApp consent ON hai</b> — isiliye neeche sab 0 dikh raha hai. Jab tak kisi patient ka consent ON nahi hota, WhatsApp master switch ON karne par bhi unhe kuch nahi jayega (bulk-import wale patients ka consent by default OFF hai — koi fresh consent nahi liya gaya tha).
+          </p>
+        </div>
+      )}
+      {consent.data && consent.data.consented > 0 && consent.data.consented < consent.data.total && (
+        <div className="text-[10px] text-muted-foreground px-0.5">
+          {consent.data.consented} / {consent.data.total} patients ka WhatsApp consent ON hai — baaki ko kabhi kuch nahi jayega jab tak consent nahi liya jaata.
+        </div>
+      )}
+
+      <div className="overflow-x-auto -mx-1">
+        <table className="w-full text-[11px] border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left font-bold text-muted-foreground px-1.5 py-1 sticky left-0 bg-surface">Campaign</th>
+              {f.days.map((d, i) => (
+                <th key={d} className="text-center font-bold text-muted-foreground px-1.5 py-1 min-w-[46px]">{dayLabel(d, i)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {FORECAST_CAMPAIGN_ORDER.map((key) => {
+              const c = byKey.get(key);
+              return (
+                <tr key={key} className="border-t border-border">
+                  <td className="px-1.5 py-1.5 font-semibold text-primary sticky left-0 bg-surface truncate max-w-[90px]">
+                    {CAMPAIGN_LABEL[key] ?? key}
+                  </td>
+                  {f.days.map((d) => {
+                    const cell = c?.per_day.find((p) => p.date === d);
+                    const count = cell?.count ?? 0;
+                    return (
+                      <td key={d} className="text-center px-1.5 py-1.5">
+                        <button
+                          disabled={count === 0}
+                          onClick={() => setOpenCell({ campaign: key, date: d, label: `${CAMPAIGN_LABEL[key] ?? key} — ${dayLabel(d, f.days.indexOf(d))}`, patients: cell?.patients ?? [] })}
+                          className={cn(
+                            "min-w-[28px] rounded-lg px-1.5 py-0.5 font-bold",
+                            count > 0 ? "bg-accent/20 text-accent-foreground underline" : "text-muted-foreground",
+                          )}
+                        >
+                          {count}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            <tr className="border-t-2 border-border">
+              <td className="px-1.5 py-1.5 font-extrabold text-primary sticky left-0 bg-surface">Total</td>
+              {totalsByDay.map((t, i) => (
+                <td key={i} className="text-center px-1.5 py-1.5 font-extrabold text-primary">{t}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-muted-foreground px-0.5">
+        Total (7 din): {grandTotal} messages. Live data se calculate hota hai — koi bhi number tap karke asli patient list dekho.
+      </p>
+
+      {openCell && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+          <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-extrabold text-primary text-sm">{openCell.label}</h2>
+              <button onClick={() => setOpenCell(null)} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+            </div>
+            {openCell.patients.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-6">Koi patient nahi.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {openCell.patients.map((p) => (
+                  <li key={p.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center justify-between">
+                    <span className="text-[13px] font-semibold text-primary">{p.name}</span>
+                    <span className="text-[11px] text-muted-foreground">{p.mobile} {p.patient_code && `• ${p.patient_code}`}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WhatsAppDashboard() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const stats = useQuery({ queryKey: ["whatsapp-stats"], queryFn: fetchWhatsAppStats });
@@ -226,6 +361,10 @@ function WhatsAppDashboard() {
   return (
     <RoleShell wide title="WhatsApp Delivery" subtitle="On/off, caps, sent / failed / opt-out — live log" showBack>
       <WhatsAppControlsPanel />
+
+      <div className="mt-3">
+        <WhatsAppForecastPanel />
+      </div>
 
       <div className="grid grid-cols-3 gap-2 mt-4">
         <Stat v={s?.sentToday ?? "—"} l="Sent aaj" tone="success" />

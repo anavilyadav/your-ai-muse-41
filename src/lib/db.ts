@@ -3476,7 +3476,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0072_leads_converted_at";
+export const EXPECTED_SCHEMA_VERSION = "0073_whatsapp_forecast";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5812,6 +5812,45 @@ export const DEFAULT_WHATSAPP_CONTROLS: WhatsAppControls = {
   masterEnabled: true,
   modules: Object.fromEntries(WHATSAPP_CAMPAIGNS.map((c) => [c, { enabled: true, dailyCap: null }])) as WhatsAppControls["modules"],
 };
+
+// Forecast — how many WhatsApp messages will actually go out, day by day,
+// campaign by campaign, before the Owner turns the master switch back on.
+// Only the due-date-driven campaigns can be forecast this way
+// (REGISTRATION_CONFIRM/APPOINTMENT_REMINDER/delivery_update are
+// triggered by a staff action that hasn't happened yet — there's no due
+// date to compute from). The RPC mirrors each cron function's real
+// send-eligibility logic (consent, dedup logs, active tiers/holidays)
+// against live data, so this is a real count, not an estimate.
+export interface WhatsAppForecastPatient { id: string; name: string; mobile: string; patient_code: string | null }
+export interface WhatsAppForecastCampaign {
+  key: "FOLLOWUP_REMINDER" | "WINBACK" | "HOLIDAY_GREETING" | "birthday_wish" | "anniversary_wish";
+  per_day: { date: string; count: number; patients: WhatsAppForecastPatient[] }[];
+}
+export interface WhatsAppForecast {
+  generated_at: string;
+  days: string[];
+  campaigns: WhatsAppForecastCampaign[];
+}
+export async function fetchWhatsAppForecast(days = 7): Promise<WhatsAppForecast> {
+  const { data, error } = await supabase.rpc("whatsapp_forecast", { p_days: days });
+  if (error) throw dataLoadError(error);
+  return data as WhatsAppForecast;
+}
+
+// Shown alongside the forecast — if this is 0 (or very low), the forecast
+// will read all-zero regardless of due dates, since every send path
+// (cron functions and send-whatsapp alike) refuses to send without
+// patients.wa_consent = true first. Without this number visible, an
+// all-zero forecast looks like a bug instead of the real, separate fact
+// that consent hasn't been captured yet.
+export async function fetchWaConsentCount(): Promise<{ consented: number; total: number }> {
+  const [{ count: consented, error: e1 }, { count: total, error: e2 }] = await Promise.all([
+    supabase.from("patients").select("id", { count: "exact", head: true }).eq("is_deleted", false).eq("wa_consent", true),
+    supabase.from("patients").select("id", { count: "exact", head: true }).eq("is_deleted", false),
+  ]);
+  if (e1 || e2) throw dataLoadError(e1 ?? e2);
+  return { consented: consented ?? 0, total: total ?? 0 };
+}
 
 export async function fetchWhatsAppControls(): Promise<WhatsAppControls> {
   // A real read error here used to silently default to "everything
