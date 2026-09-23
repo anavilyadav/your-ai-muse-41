@@ -132,8 +132,9 @@ function DataQualityPage() {
   // so dismissed groups don't inflate "issues found" forever.
   const sharedMobilePatients = activeMobileGroups.reduce((s, g) => s + g.count, 0);
   const dupCardPatients = r.duplicate_cards.reduce((s, d) => s + d.count, 0);
+  const dupPatientRecords = r.possible_duplicate_patients.reduce((s, d) => s + d.count, 0);
   const anyIssues = r.incomplete_names_total > 0 || activeMobileGroups.length > 0 || r.partial_card_total > 0
-    || r.duplicate_cards.length > 0 || r.invalid_mobile_total > 0 || r.invalid_email_total > 0;
+    || r.duplicate_cards.length > 0 || r.possible_duplicate_patients.length > 0 || r.invalid_mobile_total > 0 || r.invalid_email_total > 0;
 
   return (
     <RoleShell wide title="Data Quality" subtitle="Bulk import se pehle saaf karo" nav={OWNER_NAV}>
@@ -145,7 +146,7 @@ function DataQualityPage() {
         <span className="text-[12px]">
           {!anyIssues
             ? "Koi data-quality mistake nahi mili — abhi ke patients records saaf hain."
-            : `Neeche category-wise list hai — ${r.incomplete_names_total} adhoore naam, ${sharedMobilePatients} patients ek shared mobile number pe (${activeMobileGroups.length} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe. Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
+            : `Neeche category-wise list hai — ${r.incomplete_names_total} adhoore naam, ${sharedMobilePatients} patients ek shared mobile number pe (${activeMobileGroups.length} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe, ${dupPatientRecords} records same naam+mobile pe alag-alag ban gaye (${r.possible_duplicate_patients.length} groups). Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
         </span>
       </div>
 
@@ -268,6 +269,24 @@ function DataQualityPage() {
             <div key={`${g.card_series}-${g.card_register}-${g.card_number}`} className="rounded-xl bg-background border border-border p-2.5">
               <div className="text-[12px] font-bold text-primary mb-1.5">
                 Card {formatCardNumber(g.card_series, g.card_register, g.card_number)} <span className="text-muted-foreground font-normal">({g.count} patients)</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.patients.map((p) => <PatientChip key={p.id} p={p} />)}
+              </div>
+            </div>
+          ))}
+        </Section>
+
+        <Section
+          icon={Copy} title="Ek hi naam + mobile, alag patient records" hint="Card number alag-alag hai — shayad ek hi patient galti se dobara ban gaya, profile khol ke Merge karo"
+          count={r.possible_duplicate_patients.length} total={r.possible_duplicate_patients_total}
+          open={!!open.dupPatients} onToggle={() => toggle("dupPatients")}
+          onExport={() => downloadCSV(r.possible_duplicate_patients.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "possible_duplicate_patients.csv")}
+        >
+          {r.possible_duplicate_patients.map((g) => (
+            <div key={`${g.name}-${g.mobile}`} className="rounded-xl bg-background border border-border p-2.5">
+              <div className="text-[12px] font-bold text-primary mb-1.5">
+                {g.name} · {g.mobile} <span className="text-muted-foreground font-normal">({g.count} records)</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {g.patients.map((p) => <PatientChip key={p.id} p={p} />)}

@@ -3525,7 +3525,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0074_manual_date_entry_setting";
+export const EXPECTED_SCHEMA_VERSION = "0075_data_quality_possible_duplicate_patients";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5602,6 +5602,8 @@ export interface DataQualityReport {
   partial_card: (DQPatientRef & { card_series: string | null; card_register: string | null; card_number: string | null })[];
   partial_card_total: number;
   duplicate_cards: { card_series: string; card_register: string; card_number: string; count: number; patients: DQPatientRef[] }[];
+  possible_duplicate_patients: { name: string; mobile: string; count: number; patients: DQPatientRef[] }[];
+  possible_duplicate_patients_total: number;
   invalid_mobile: DQPatientRef[];
   invalid_mobile_total: number;
   invalid_email: (DQPatientRef & { email: string | null })[];
