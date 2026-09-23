@@ -78,6 +78,11 @@ export interface DBPatient {
   address: string | null;
   primary_disease: string | null;
   wa_consent: boolean;
+  // Independent of wa_consent — a patient can be fine with a follow-up
+  // call but not want WhatsApp, or vice versa. Defaults true (see
+  // migration 0079) since the app always called every patient with no
+  // opt-out until this existed.
+  call_consent: boolean;
   dob: string | null;
   anniversary_date: string | null;
   profession: string | null;
@@ -726,6 +731,7 @@ export async function updatePatientContactInfo(
     secondary_mobile_label: string | null;
     secondary_mobile_confirmed: boolean;
     wa_consent: boolean;
+    call_consent: boolean;
     address: string;
     city: string;
     pincode: string;
@@ -3576,7 +3582,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0078_patient_secondary_mobile";
+export const EXPECTED_SCHEMA_VERSION = "0079_patient_call_consent";
 
 export interface SchemaMigrationRow {
   filename: string;

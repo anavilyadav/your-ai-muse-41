@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, type DBPatient } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Plus, X } from "lucide-react";
@@ -28,6 +29,110 @@ export const Route = createFileRoute("/pay/$id")({
 const quick = [200, 300, 500, 700];
 
 interface SplitRow { mode: string; amount: string }
+
+// Confirm-at-payment (23 Sep 2026, Dr. Yadav) — Payment is the one
+// screen every patient reliably passes through, so it's the most
+// reliable place to (a) ask Call/WhatsApp preference, since the app
+// never had an opt-out for calls before and most patients never had a
+// chance to say no, and (b) backfill DOB/Anniversary for older patients
+// who were bulk-imported before this much was collected. Every field
+// here saves immediately on change via the same updatePatientContactInfo
+// path Patient Profile and Doctor Rx Consult use — nothing is gated
+// behind the Collect Payment button, so it's never lost if the payment
+// itself is abandoned.
+function ContactPrefsPanel({ patient, onPatientUpdate }: { patient: DBPatient; onPatientUpdate: (patch: Partial<DBPatient>) => void }) {
+  const [savingField, setSavingField] = useState<string | null>(null);
+  const [dobDraft, setDobDraft] = useState(patient.dob || "");
+  const [anniversaryDraft, setAnniversaryDraft] = useState(patient.anniversary_date || "");
+
+  const toggleCall = async (v: boolean) => {
+    setSavingField("call");
+    const res = await updatePatientContactInfo(patient.id, { call_consent: v });
+    setSavingField(null);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    onPatientUpdate({ call_consent: v });
+  };
+  const toggleWa = async (v: boolean) => {
+    setSavingField("wa");
+    const res = await updatePatientContactInfo(patient.id, { wa_consent: v });
+    setSavingField(null);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    onPatientUpdate({ wa_consent: v });
+  };
+  const saveDob = async (v: string) => {
+    setDobDraft(v);
+    if (!v) return;
+    setSavingField("dob");
+    const res = await updatePatientContactInfo(patient.id, { dob: v });
+    setSavingField(null);
+    if (!res.success) { toast.error("DOB save nahi hui: " + res.error); return; }
+    onPatientUpdate({ dob: v });
+    toast.success("DOB save ho gayi");
+  };
+  const saveAnniversary = async (v: string) => {
+    setAnniversaryDraft(v);
+    if (!v) return;
+    setSavingField("anniversary");
+    const res = await updatePatientContactInfo(patient.id, { anniversary_date: v });
+    setSavingField(null);
+    if (!res.success) { toast.error("Anniversary save nahi hui: " + res.error); return; }
+    onPatientUpdate({ anniversary_date: v });
+    toast.success("Anniversary save ho gayi");
+  };
+
+  const missingDob = !patient.dob;
+  const missingAnniversary = !patient.anniversary_date;
+
+  const prefBtn = (active: boolean) =>
+    cn(
+      "flex-1 rounded-lg py-2 text-xs font-bold border",
+      active ? "bg-success/15 border-success/40 text-success" : "bg-surface border-border text-muted-foreground",
+    );
+
+  return (
+    <div className="mt-3 rounded-xl bg-surface border border-border p-3">
+      <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Patient se confirm karo</div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-1">Follow-up Call theek hai?</div>
+          <div className="flex gap-1.5">
+            <button type="button" disabled={savingField === "call"} onClick={() => toggleCall(true)} className={prefBtn(patient.call_consent)}>Haan</button>
+            <button type="button" disabled={savingField === "call"} onClick={() => toggleCall(false)} className={prefBtn(!patient.call_consent)}>Nahi</button>
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-1">WhatsApp (updates bhi) theek hai?</div>
+          <div className="flex gap-1.5">
+            <button type="button" disabled={savingField === "wa"} onClick={() => toggleWa(true)} className={prefBtn(patient.wa_consent)}>Haan</button>
+            <button type="button" disabled={savingField === "wa"} onClick={() => toggleWa(false)} className={prefBtn(!patient.wa_consent)}>Nahi</button>
+          </div>
+        </div>
+      </div>
+
+      {(missingDob || missingAnniversary) && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-[10px] text-muted-foreground mb-1.5">
+            Purane patient ki ye details missing hain — abhi bhar do:
+          </div>
+          <div className="space-y-2">
+            {missingDob && (
+              <div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase">DOB</div>
+                <DMYDateField value={dobDraft} onChange={saveDob} className="mt-1" />
+              </div>
+            )}
+            {missingAnniversary && (
+              <div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase">Anniversary</div>
+                <DMYDateField value={anniversaryDraft} onChange={saveAnniversary} className="mt-1" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PayPage() {
   const { id } = Route.useParams();
@@ -217,6 +322,13 @@ function PayPage() {
         </div>
         <div className="mt-2 text-xs opacity-80">{visit.chief_complaint || "—"}</div>
       </div>
+
+      {visit.patient && (
+        <ContactPrefsPanel
+          patient={visit.patient}
+          onPatientUpdate={(patch) => qc.setQueryData(["visit", id], (old: any) => (old ? { ...old, patient: { ...old.patient, ...patch } } : old))}
+        />
+      )}
 
       {existingDue > 0 && (
         <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive font-semibold flex items-center justify-between">

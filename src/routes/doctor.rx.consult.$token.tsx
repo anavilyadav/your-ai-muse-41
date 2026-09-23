@@ -21,6 +21,7 @@ import {
   addMedicineToCatalog,
   recaseVisitNow,
   flagRecaseNextTime,
+  updatePatientContactInfo,
   type RxRow,
   type RxDraft,
   type NextVisitOption,
@@ -61,6 +62,42 @@ const emptyRow = (): EditableRow => ({
   duration_num: 7,
   duration_unit: "days",
 });
+
+// Call/WhatsApp DND (23 Sep 2026) — Dr. Yadav wanted these visible AND
+// editable right here at prescribing, not just at Reception/Payment
+// where they get collected. Two independent toggles (a patient can be
+// fine with calls but not WhatsApp, or vice versa) — same
+// updatePatientContactInfo path the Payment screen and Patient Profile
+// use, so a change here is the same single source of truth everywhere.
+function ContactPrefToggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const flip = async () => {
+    setSaving(true);
+    await onChange(!value);
+    setSaving(false);
+  };
+  return (
+    <button
+      type="button"
+      onClick={flip}
+      disabled={saving}
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[11px] font-bold border disabled:opacity-60",
+        value ? "bg-success/15 text-success border-success/40" : "bg-destructive/10 text-destructive border-destructive/40",
+      )}
+    >
+      {label}: {value ? "OK" : "DND"}
+    </button>
+  );
+}
 
 function toDays(n: number, u: EditableRow["duration_unit"]): number {
   return u === "days" ? n : u === "weeks" ? n * 7 : n * 30;
@@ -432,6 +469,28 @@ function RxWrite() {
             <div className="text-xs opacity-80 mt-0.5">
               {visit.patient?.age ? `${visit.patient.age}y` : ""} • {visit.patient?.gender ?? ""} • {visit.patient?.patient_code}
             </div>
+            {visit.patient_id && visit.patient && (
+              <div className="mt-2 flex gap-1.5">
+                <ContactPrefToggle
+                  label="Call"
+                  value={visit.patient.call_consent}
+                  onChange={async (v) => {
+                    const res = await updatePatientContactInfo(visit.patient_id!, { call_consent: v });
+                    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+                    qc.setQueryData(["visit", visitId], (old: any) => old ? { ...old, patient: { ...old.patient, call_consent: v } } : old);
+                  }}
+                />
+                <ContactPrefToggle
+                  label="WhatsApp"
+                  value={visit.patient.wa_consent}
+                  onChange={async (v) => {
+                    const res = await updatePatientContactInfo(visit.patient_id!, { wa_consent: v });
+                    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+                    qc.setQueryData(["visit", visitId], (old: any) => old ? { ...old, patient: { ...old.patient, wa_consent: v } } : old);
+                  }}
+                />
+              </div>
+            )}
             <div className="mt-2 text-sm">{visit.chief_complaint || "—"}</div>
           </div>
 
