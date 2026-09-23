@@ -3553,7 +3553,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0075_data_quality_possible_duplicate_patients";
+export const EXPECTED_SCHEMA_VERSION = "0077_revoke_rls_auto_enable_anon_authenticated_execute";
 
 export interface SchemaMigrationRow {
   filename: string;
