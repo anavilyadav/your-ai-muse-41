@@ -403,6 +403,7 @@ function EditContactModal({
   const [waConfirmed, setWaConfirmed] = useState(patient.whatsapp_confirmed);
   const [waCountryCode, setWaCountryCode] = useState<string>(patient.whatsapp_country_code || patient.mobile_country_code || "+91");
   const [waCountryCodeCustom, setWaCountryCodeCustom] = useState("");
+  const [waConsent, setWaConsent] = useState(patient.wa_consent);
   const [secondaryLabel, setSecondaryLabel] = useState(patient.secondary_mobile_label || "");
   const [secondaryMobile, setSecondaryMobile] = useState(patient.secondary_mobile || "");
   const [secondaryCountryCode, setSecondaryCountryCode] = useState<string>(patient.secondary_mobile_country_code || "+91");
@@ -478,6 +479,7 @@ function EditContactModal({
       // "Same as mobile" isn't a separate number to confirm — confirming
       // the mobile above already covers it.
       whatsapp_confirmed: waSameAsMobile ? mobileConfirmed : waConfirmed,
+      wa_consent: waConsent,
       secondary_mobile: secondaryMobile.trim() || null,
       secondary_mobile_country_code: effectiveSecondaryCC,
       secondary_mobile_label: secondaryLabel.trim() || null,
@@ -590,6 +592,17 @@ function EditContactModal({
                 </label>
               </>
             )}
+          </div>
+
+          <div className="rounded-lg bg-accent/10 border border-accent/30 p-2.5">
+            <label className="flex items-center gap-2 text-xs font-semibold text-primary">
+              <input type="checkbox" checked={waConsent} onChange={(e) => setWaConsent(e.target.checked)} className="h-4 w-4 rounded border-input" />
+              WhatsApp par updates/reminders bhej sakte hain
+            </label>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Bulk-imported purane patients ka consent registration ke time nahi liya gaya tha — jab bhi patient se
+              poochho aur haan bole, yahan se on kar do.
+            </p>
           </div>
 
           <div>

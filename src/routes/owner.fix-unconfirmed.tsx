@@ -43,7 +43,8 @@ function UnconfirmedRow({
   const [secondaryAdded, setSecondaryAdded] = useState(false);
   const [secondaryLabel, setSecondaryLabel] = useState("");
   const [secondaryNumber, setSecondaryNumber] = useState("");
-  const [saving, setSaving] = useState<"mobile" | "wa" | "addWa" | "addSecondary" | null>(null);
+  const [waConsentGiven, setWaConsentGiven] = useState(false);
+  const [saving, setSaving] = useState<"mobile" | "wa" | "addWa" | "addSecondary" | "waConsent" | null>(null);
   const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
   const resolved = mobileConfirmed && (!hasDistinctWa || waConfirmed);
 
@@ -106,6 +107,22 @@ function UnconfirmedRow({
     toast.success(`${secondaryLabel.trim()} ka number save ho gaya`);
   };
 
+  // WhatsApp consent (23 Sep 2026) — found live: only 3 of 5370 patients
+  // have wa_consent=true, because bulk-imported patients never had a
+  // registration-time checkbox to grant it, and until now there was NO
+  // way to set it afterward either (EditContactModal never had this
+  // field). This is the real reason the WhatsApp forecast reads all
+  // zeros — not a forecast bug. Same opportunistic-during-a-call pattern
+  // as everything else on this screen.
+  const grantWaConsent = async () => {
+    setSaving("waConsent");
+    const res = await updatePatientContactInfo(p.id, { wa_consent: true });
+    setSaving(null);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    setWaConsentGiven(true);
+    toast.success("WhatsApp consent mil gaya");
+  };
+
   return (
     <div className="rounded-xl bg-surface border border-border p-3">
       <div className="flex items-center justify-between gap-2">
@@ -146,6 +163,17 @@ function UnconfirmedRow({
           </button>
         )}
       </div>
+
+      <button
+        onClick={grantWaConsent}
+        disabled={waConsentGiven || saving === "waConsent"}
+        className={cn(
+          "mt-1.5 w-full inline-flex items-center justify-center gap-1.5 rounded-lg text-[12px] font-bold py-2",
+          waConsentGiven ? "bg-success/15 text-success" : "bg-accent/15 text-primary disabled:opacity-60",
+        )}
+      >
+        <MessageCircle className="h-3.5 w-3.5" /> {waConsentGiven ? "WhatsApp Consent ✓" : "WhatsApp Consent Liya (updates ke liye)"}
+      </button>
 
       {!hasDistinctWa && !resolved && (
         showWaInput ? (
@@ -246,7 +274,9 @@ function FixUnconfirmedPage() {
         <PhoneCall className="h-4 w-4 mt-0.5 shrink-0" />
         <span className="text-[12px]">
           Ye 5000+ calls karne ki list NAHI hai — jab bhi kisi bhi wajah se patient se baat ho (follow-up, complaint,
-          visit), tab yahan uska naam dhoondh ke ek tap mein confirm karte jao. Naturally kam hota jayega.
+          visit), tab yahan uska naam dhoondh ke ek tap mein confirm karte jao. Naturally kam hota jayega. Usi baat
+          mein WhatsApp consent bhi puch lo — bulk-imported patients ka wo bhi abhi missing hai (isiliye WhatsApp
+          forecast 0 dikhta hai, sirf 3 patients ka consent hai).
         </span>
       </div>
 

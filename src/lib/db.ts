@@ -725,6 +725,7 @@ export async function updatePatientContactInfo(
     secondary_mobile_country_code: string;
     secondary_mobile_label: string | null;
     secondary_mobile_confirmed: boolean;
+    wa_consent: boolean;
     address: string;
     city: string;
     pincode: string;
