@@ -44,6 +44,28 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+// Per-file upload failures inside the loop below already leave the row
+// pending in storage_backup_queue (picked up again next run) — but a
+// failure BEFORE or AROUND the loop (e.g. the queue read itself
+// throwing) used to just return an HTTP 500 with nothing written
+// anywhere the clinic actually looks, so a broken backup run could go
+// unnoticed indefinitely. Found live 23 Sep 2026 (audit round 2, §2.1).
+async function raiseCronCrashAlert(error: unknown) {
+  try {
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    await supabaseAdmin.from("system_alerts").insert({
+      type: "CRON_FUNCTION_CRASHED",
+      message: `backup-storage-to-drive crash ho gaya (queue read ya setup fail hua, individual uploads tak nahi pahuncha) — aaj koi photo/document Drive par backup nahi hua. Error: ${String(error)}`,
+      context: { function: "backup-storage-to-drive", error: String(error) },
+    });
+  } catch {
+    // Alert-logging must never break the response itself.
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     const expectedSecret = Deno.env.get("BACKUP_FUNCTION_SECRET");
@@ -113,6 +135,7 @@ Deno.serve(async (req) => {
       { headers: { "Content-Type": "application/json" } },
     );
   } catch (e) {
+    await raiseCronCrashAlert(e);
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 });

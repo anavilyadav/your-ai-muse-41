@@ -124,6 +124,28 @@ function istDateNDaysAgoStr(daysAgo: number): string {
   return istNow.toISOString().slice(0, 10);
 }
 
+// Per-item send failures inside the loop below already write to
+// whatsapp_log (visible on the Owner WhatsApp dashboard). A failure
+// BEFORE or AROUND the loop — e.g. the candidate query itself throwing —
+// used to just return an HTTP 500 with nothing written anywhere the
+// clinic actually looks, so a broken cron run could go unnoticed
+// indefinitely. Found live 23 Sep 2026 (audit round 2, §2.1).
+async function raiseCronCrashAlert(functionName: string, campaignName: string, error: unknown) {
+  try {
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    await supabaseAdmin.from("system_alerts").insert({
+      type: "CRON_FUNCTION_CRASHED",
+      message: `${functionName} crash ho gaya (candidate query ya setup fail hua, individual sends tak nahi pahuncha) — is run mein koi ${campaignName} message nahi gaya. Error: ${String(error)}`,
+      context: { function: functionName, campaign: campaignName, error: String(error) },
+    });
+  } catch {
+    // Alert-logging must never break the response itself.
+  }
+}
+
 Deno.serve(async (req) => {
   // Caller check: this URL is public, so without it anyone could trigger
   // a full run against real patients.
@@ -255,6 +277,7 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
+    await raiseCronCrashAlert("whatsapp-winback", "WINBACK", e);
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 });
