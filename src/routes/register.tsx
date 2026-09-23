@@ -724,7 +724,9 @@ function RegisterPage() {
 
             <div className="mt-3 pt-3 border-t border-accent/40">
               <p className="text-[11px] font-semibold text-primary mb-1.5">
-                Ya, {existingPatient.name} ke family member ka naya registration ho raha hai — relation batao:
+                Ya, {existingPatient.name} ke family member ka naya registration ho raha hai — neeche jo naam bhar
+                rahe ho ({f.name.trim() || "naya patient"}), wo <u>{existingPatient.name} ka KYA LAGTA HAI</u>, wo
+                batao:
               </p>
               <div className="flex flex-wrap gap-1.5">
                 <button
@@ -755,6 +757,13 @@ function RegisterPage() {
                   </button>
                 ))}
               </div>
+              {familyRelationship && (
+                <p className="text-[11px] mt-2 rounded-lg bg-primary/10 border border-primary/30 px-2 py-1.5 text-primary font-semibold">
+                  ✓ {f.name.trim() || "Yeh naya patient"} , {existingPatient.name} ka{" "}
+                  <b>{familyRelationship === "Other" ? customFamilyRelationship.trim() || "Other" : familyRelationship}</b>{" "}
+                  hai. Submit karte hi dono ki profile mein family member ke roop mein apne aap dikhega.
+                </p>
+              )}
               {familyRelationship === "Other" && (
                 <Field
                   value={customFamilyRelationship}

@@ -5457,6 +5457,40 @@ export async function fetchReferralLeaderboard(): Promise<ReferralGroup[]> {
 // now have any number of independent links to any number of other
 // patients, each with its own relationship label, and viewing from any
 // linked patient shows the full set of connections they're part of.
+// A reverse-direction family_links row was recorded from the OTHER
+// patient's side ("related IS <relationship> of patient"), so its label
+// describes what the OTHER patient is to me — not what I am to them.
+// Showing it as-is on my own profile would claim the wrong thing (e.g. my
+// profile showing "Husband" when I'm actually the Wife). Most of these
+// invert cleanly once you know MY OWN gender (Father's child is Son or
+// Daughter depending on my gender, not theirs); the genuinely ambiguous
+// ones (in-laws' side-of-family, Guardian, Other) fall back to a neutral
+// phrase rather than guess wrong. Found live 23 Sep 2026 (Dr. Yadav:
+// dono patients ki profile mein relation clearly dikhna chahiye).
+export function inverseRelationship(relationship: string, myGender: string | null | undefined): string {
+  const g = (myGender || "").trim().toLowerCase();
+  const male = g === "male" || g === "m";
+  const female = g === "female" || g === "f";
+  const pick = (m: string, f: string, both: string) => (male ? m : female ? f : both);
+  switch (relationship) {
+    case "Husband": return "Wife";
+    case "Wife": return "Husband";
+    case "Father": case "Mother": return pick("Son", "Daughter", "Son/Daughter");
+    case "Son": case "Daughter": return pick("Father", "Mother", "Father/Mother");
+    case "Brother": case "Sister": return pick("Brother", "Sister", "Brother/Sister");
+    case "Grandfather": case "Grandmother": return pick("Grandson", "Granddaughter", "Grandson/Granddaughter");
+    case "Grandson": case "Granddaughter": return pick("Grandfather", "Grandmother", "Grandfather/Grandmother");
+    case "Father-in-law": case "Mother-in-law": return pick("Son-in-law", "Daughter-in-law", "Son-in-law/Daughter-in-law");
+    case "Son-in-law": case "Daughter-in-law": return pick("Father-in-law", "Mother-in-law", "Father-in-law/Mother-in-law");
+    case "Brother-in-law": case "Sister-in-law": return pick("Brother-in-law", "Sister-in-law", "Brother-in-law/Sister-in-law");
+    case "Uncle": case "Aunt": return pick("Nephew", "Niece", "Nephew/Niece");
+    case "Nephew": case "Niece": return pick("Uncle", "Aunt", "Uncle/Aunt");
+    case "Cousin": return "Cousin";
+    case "Guardian": return "Ward";
+    default: return `${relationship} ka rishtedar`;
+  }
+}
+
 export async function fetchFamilyMembers(patientId: string) {
   const { data: direct } = await supabase
     .from("family_links")
@@ -5469,14 +5503,11 @@ export async function fetchFamilyMembers(patientId: string) {
 
   const relMap = new Map<string, string>();
   for (const r of direct ?? []) relMap.set(r.related_patient_id, r.relationship);
-  // A reverse-direction link was recorded from the OTHER patient's side, so
-  // its relationship label describes what I am to them, not what they are
-  // to me — showing it as-is here would claim the wrong thing about me.
-  // Framed neutrally instead of trying to grammatically invert every
-  // relationship (Father -> Son/Daughter depends on my own gender, and
-  // several others are similarly ambiguous without a full inversion table).
-  for (const r of reverse ?? []) {
-    if (!relMap.has(r.patient_id)) relMap.set(r.patient_id, `${r.relationship} ka rishtedar`);
+  if (reverse && reverse.length > 0) {
+    const { data: me } = await supabase.from("patients").select("gender").eq("id", patientId).maybeSingle();
+    for (const r of reverse) {
+      if (!relMap.has(r.patient_id)) relMap.set(r.patient_id, inverseRelationship(r.relationship, me?.gender));
+    }
   }
 
   const allIds = [...relMap.keys()];
