@@ -4910,9 +4910,36 @@ export async function fetchPatientsPage(limit: number, search?: string): Promise
   const t = search ? sanitizeOrFilterTerm(search) : "";
   if (t) {
     const like = `%${t}%`;
-    q = q.or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`);
+    const orParts = [
+      `name.ilike.${like}`,
+      `mobile.ilike.${like}`,
+      `patient_code.ilike.${like}`,
+      `card_number.ilike.${like}`,
+      `card_series.ilike.${like}`,
+      `card_register.ilike.${like}`,
+    ];
+    // A card number typed the natural way ("B-81-39", or just "81-39") has
+    // its series/register/number split across 3 separate columns — no
+    // single ILIKE above (each checking one column in isolation) ever
+    // matches that, so searching the exact thing printed on the physical
+    // card silently found nothing. Split on "-" and match each real part
+    // against its own column instead. 2 parts is ambiguous between
+    // "series-register" and "register-number", so both are tried.
+    const cardParts = t.split("-").map((p) => p.trim()).filter(Boolean);
+    if (cardParts.length === 3) {
+      const [series, register, number] = cardParts;
+      orParts.push(`and(card_series.ilike.${series},card_register.ilike.${register},card_number.ilike.${number})`);
+    } else if (cardParts.length === 2) {
+      const [a, b] = cardParts;
+      orParts.push(`and(card_series.ilike.${a},card_register.ilike.${b})`);
+      orParts.push(`and(card_register.ilike.${a},card_number.ilike.${b})`);
+    }
+    q = q.or(orParts.join(","));
   }
-  const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+  // Sorted like a real index (alphabetical by name) instead of
+  // newest-created-first — a bulk import makes "newest first" mostly
+  // reflect import order, not anything the Owner can browse meaningfully.
+  const { data, error } = await q.order("name", { ascending: true }).limit(limit);
   if (error) return { rows: [], hasMore: false };
   const rows = (data ?? []) as DBPatient[];
   return { rows, hasMore: rows.length === limit };
