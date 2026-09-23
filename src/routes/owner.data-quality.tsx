@@ -304,6 +304,14 @@ function DataQualityPage() {
           open={!!open.partialCard} onToggle={() => toggle("partialCard")}
           onExport={() => downloadCSV(r.partial_card.map((p) => ({ Name: p.name, "Patient Code": p.patient_code ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "" })), "adhoora_card_number.csv")}
         >
+          {r.partial_card_total > 3 && (
+            <Link
+              to="/owner/fix-cards"
+              className="block w-full text-center rounded-lg bg-primary text-primary-foreground py-2 text-[12px] font-bold"
+            >
+              Bulk mein theek karo ({r.partial_card_total}) →
+            </Link>
+          )}
           {applySort(r.partial_card, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />

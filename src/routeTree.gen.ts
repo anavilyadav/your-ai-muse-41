@@ -30,6 +30,7 @@ import { Route as OwnerCardIndexRouteImport } from './routes/owner.card-index'
 import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerDataQualityRouteImport } from './routes/owner.data-quality'
+import { Route as OwnerFixCardsRouteImport } from './routes/owner.fix-cards'
 import { Route as OwnerFixNamesRouteImport } from './routes/owner.fix-names'
 import { Route as OwnerFixSharedMobilesRouteImport } from './routes/owner.fix-shared-mobiles'
 import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
@@ -162,6 +163,11 @@ const OwnerControlRoute = OwnerControlRouteImport.update({
 const OwnerDataQualityRoute = OwnerDataQualityRouteImport.update({
   id: '/owner/data-quality',
   path: '/owner/data-quality',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerFixCardsRoute = OwnerFixCardsRouteImport.update({
+  id: '/owner/fix-cards',
+  path: '/owner/fix-cards',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerFixNamesRoute = OwnerFixNamesRouteImport.update({
@@ -325,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
+  '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
@@ -376,6 +383,7 @@ export interface FileRoutesByTo {
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
+  '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
@@ -428,6 +436,7 @@ export interface FileRoutesById {
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
+  '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
@@ -481,6 +490,7 @@ export interface FileRouteTypes {
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
+    | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
@@ -532,6 +542,7 @@ export interface FileRouteTypes {
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
+    | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
@@ -583,6 +594,7 @@ export interface FileRouteTypes {
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
+    | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
     | '/owner/followup-rules'
@@ -635,6 +647,7 @@ export interface RootRouteChildren {
   OwnerCaseTrackingRoute: typeof OwnerCaseTrackingRoute
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerDataQualityRoute: typeof OwnerDataQualityRoute
+  OwnerFixCardsRoute: typeof OwnerFixCardsRoute
   OwnerFixNamesRoute: typeof OwnerFixNamesRoute
   OwnerFixSharedMobilesRoute: typeof OwnerFixSharedMobilesRoute
   OwnerFollowupRulesRoute: typeof OwnerFollowupRulesRoute
@@ -814,6 +827,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/data-quality'
       fullPath: '/owner/data-quality'
       preLoaderRoute: typeof OwnerDataQualityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/fix-cards': {
+      id: '/owner/fix-cards'
+      path: '/owner/fix-cards'
+      fullPath: '/owner/fix-cards'
+      preLoaderRoute: typeof OwnerFixCardsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/fix-names': {
@@ -1035,6 +1055,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerCaseTrackingRoute: OwnerCaseTrackingRoute,
   OwnerControlRoute: OwnerControlRoute,
   OwnerDataQualityRoute: OwnerDataQualityRoute,
+  OwnerFixCardsRoute: OwnerFixCardsRoute,
   OwnerFixNamesRoute: OwnerFixNamesRoute,
   OwnerFixSharedMobilesRoute: OwnerFixSharedMobilesRoute,
   OwnerFollowupRulesRoute: OwnerFollowupRulesRoute,
