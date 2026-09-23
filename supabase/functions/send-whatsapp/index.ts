@@ -44,8 +44,16 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null; dailyCap: number | null }> {
-  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null; dailyCap: number | null }> {
+  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) {
+    // Fail CLOSED, not open — a transient read error must never be
+    // treated as "WhatsApp is on," especially when the Owner has
+    // explicitly turned it off. Found live 23 Sep 2026: this used to
+    // silently default to masterEnabled:true on ANY read failure, which
+    // could send real messages against the Owner's actual setting.
+    return { allowed: false, budget: 0, reason: "settings_error", dailyCap: null };
+  }
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
     try {
@@ -196,7 +204,7 @@ Deno.serve(async (req) => {
         campaign_name: campaignName,
         destination: destination ?? null,
         status: gate.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
-        error_message: gate.reason === "master_off" ? "WhatsApp master switch OFF" : gate.reason === "module_off" ? `${campaignName} switch OFF` : `Daily cap reached (${gate.dailyCap ?? "?"}/day for ${campaignName})`,
+        error_message: gate.reason === "master_off" ? "WhatsApp master switch OFF" : gate.reason === "module_off" ? `${campaignName} switch OFF` : gate.reason === "settings_error" ? "whatsapp_controls settings read failed — failed closed, not sent" : `Daily cap reached (${gate.dailyCap ?? "?"}/day for ${campaignName})`,
       });
       return json({ success: false, skipped: true, error: "WhatsApp paused for this campaign right now" }, 200);
     }

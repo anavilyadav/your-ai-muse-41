@@ -28,7 +28,7 @@ function ComplaintCallPage() {
   const [selected, setSelected] = useState<any | null>(null);
   const [showLog, setShowLog] = useState(false);
 
-  const { data: results } = useQuery({
+  const { data: results, isError, error, refetch } = useQuery({
     queryKey: ["complaint-call-patient-search", debouncedQ],
     queryFn: () => searchPatients(debouncedQ),
     enabled: !selected && debouncedQ.trim().length >= 2,
@@ -64,7 +64,13 @@ function ComplaintCallPage() {
               ))}
             </ul>
           )}
-          {results && results.length === 0 && debouncedQ.trim().length >= 2 && (
+          {isError && debouncedQ.trim().length >= 2 && (
+            <div className="mt-2 rounded-xl bg-destructive/10 border border-destructive/30 p-2.5">
+              <p className="text-xs text-destructive font-semibold">Search fail hui: {(error as any)?.message ?? "unknown error"}</p>
+              <button onClick={() => refetch()} className="mt-1 text-[11px] font-bold text-primary underline">Dobara try karo</button>
+            </div>
+          )}
+          {!isError && results && results.length === 0 && debouncedQ.trim().length >= 2 && (
             <p className="mt-2 text-xs text-muted-foreground">Koi patient nahi mila.</p>
           )}
         </div>

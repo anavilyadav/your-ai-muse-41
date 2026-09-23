@@ -37,9 +37,20 @@
 // immediately here too, with zero redeploy.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { constantTimeEqual } from "../_shared/cron-auth.ts";
 
 const MAX_PER_MINUTE = 30; // higher than JustDial's 20 — this serves multiple sources at once
+
+// NOTE ON INLINED HELPER (23 Sep 2026): was `import { constantTimeEqual }
+// from "../_shared/cron-auth.ts"` — inlined instead, matching every other
+// function in this project (see whatsapp-winback/index.ts's note), since
+// the MCP deploy path used for hotfixes can't resolve relative
+// shared-module imports.
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 // RF-16: the Owner's WhatsApp master switch / per-campaign toggle / daily
 // cap (Control Centre → WhatsApp) governed every scheduled campaign
@@ -55,8 +66,13 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | null }> {
-  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null }> {
+  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) {
+    // Fail CLOSED, not open — see send-whatsapp/index.ts for the full
+    // reasoning (found live 23 Sep 2026).
+    return { allowed: false, reason: "settings_error" };
+  }
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
     try {

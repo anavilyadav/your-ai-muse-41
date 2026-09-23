@@ -47,8 +47,13 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | null; dailyCap: number | null }> {
-  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; budget: number; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null; dailyCap: number | null }> {
+  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) {
+    // Fail CLOSED, not open — see send-whatsapp/index.ts for the full
+    // reasoning (found live 23 Sep 2026).
+    return { allowed: false, budget: 0, reason: "settings_error", dailyCap: null };
+  }
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
     try {
@@ -66,14 +71,14 @@ async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Prom
   if (budget <= 0) return { allowed: false, budget: 0, reason: "cap_reached", dailyCap: mod.dailyCap };
   return { allowed: true, budget, reason: null, dailyCap: mod.dailyCap };
 }
-async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached"; dailyCap?: number | null }) {
+async function logWhatsAppSkip(supabaseAdmin: any, row: { patient_id: string | null; campaign_name: string; destination: string | null; reason: "master_off" | "module_off" | "cap_reached" | "settings_error"; dailyCap?: number | null }) {
   try {
     await supabaseAdmin.from("whatsapp_log").insert({
       patient_id: row.patient_id,
       campaign_name: row.campaign_name,
       destination: row.destination,
       status: row.reason === "cap_reached" ? "skipped_cap" : "skipped_disabled",
-      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : `Daily cap reached (${row.dailyCap ?? "?"}/day for ${row.campaign_name})`,
+      error_message: row.reason === "master_off" ? "WhatsApp master switch OFF" : row.reason === "module_off" ? `${row.campaign_name} switch OFF` : row.reason === "settings_error" ? "whatsapp_controls settings read failed — failed closed, not sent" : `Daily cap reached (${row.dailyCap ?? "?"}/day for ${row.campaign_name})`,
     });
   } catch { /* logging must never break the skip/send response */ }
 }

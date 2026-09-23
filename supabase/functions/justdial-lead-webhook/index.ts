@@ -57,8 +57,16 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | null }> {
-  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null }> {
+  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) {
+    // Fail CLOSED, not open — a transient read error must never be
+    // treated as "WhatsApp is on," especially when the Owner has
+    // explicitly turned it off. Found live 23 Sep 2026: this used to
+    // silently default to masterEnabled:true on ANY read failure, which
+    // could send real messages against the Owner's actual setting.
+    return { allowed: false, reason: "settings_error" };
+  }
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
     try {

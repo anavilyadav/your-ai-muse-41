@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search as SearchIcon } from "lucide-react";
-import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { fetchPatientsPage, formatCardNumber } from "@/lib/db";
 
@@ -69,6 +69,8 @@ function PatientsPage() {
 
       {list.isLoading ? (
         <LoadingBlock />
+      ) : list.isError ? (
+        <ErrorBlock error={list.error} onRetry={() => list.refetch()} />
       ) : (
         <ul className="mt-2 space-y-2">
           {rows.length === 0 && (

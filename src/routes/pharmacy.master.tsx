@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Search, X, Pencil, Check, Ban, RotateCcw } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
-import { AuthGate, LoadingBlock, EmptyBlock } from "@/components/yhc/AuthGate";
+import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
 import {
   fetchMedicinesCatalog,
@@ -97,7 +97,8 @@ function EditRow({
     const res = await renameMedicineInCatalog(med.id, med.name, name);
     setBusy(false);
     if (!res.success) { toast.error("Rename nahi hua: " + res.error); return; }
-    toast.success("Naam update ho gaya");
+    if (res.warning) toast.warning(res.warning);
+    else toast.success("Naam update ho gaya");
     setEditing(false);
     onSaved();
   };
@@ -162,7 +163,7 @@ function MasterPage() {
   const [showInactive, setShowInactive] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: meds, isLoading } = useQuery({ queryKey: ["medicines-catalog"], queryFn: () => fetchMedicinesCatalog() });
+  const { data: meds, isLoading, isError, error, refetch } = useQuery({ queryKey: ["medicines-catalog"], queryFn: () => fetchMedicinesCatalog() });
   const { data: inv } = useQuery({ queryKey: ["inventory"], queryFn: fetchInventory });
 
   const stockMap = summarizeStockByMedicine(inv?.rows ?? []);
@@ -214,6 +215,8 @@ function MasterPage() {
       </button>
       {isLoading ? (
         <LoadingBlock />
+      ) : isError ? (
+        <ErrorBlock error={error} onRetry={() => refetch()} />
       ) : visible.length === 0 ? (
         <EmptyBlock label="No medicines found." />
       ) : (

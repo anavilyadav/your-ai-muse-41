@@ -488,6 +488,9 @@ function VisitHistoryImportTab() {
       const followupNote = res.followupsCreated > 0 ? ` — ${res.followupsCreated} follow-up calls bhi bani (future due dates se)` : "";
       const newPatientNote = res.newPatientsCreated > 0 ? ` — ${res.newPatientsCreated} naye patients bhi bane (card number se, master mein nahi the)` : "";
       const rowFailCount = res.visitsFailed.length + res.paymentsFailed.length;
+      if (res.splitsFailed.length > 0) {
+        toast.warning(`Payment mode breakdown (Cash/UPI/Card) kuch rows ke liye save nahi hui — Reports pe total sahi hoga lekin mode-wise split thoda kam dikh sakta hai. Owner Health page pe detail hai.`);
+      }
       if (rowFailCount > 0) {
         toast.warning(`${res.visitsImported} visits, ${res.paymentsImported} payments imported${newPatientNote}${followupNote} — ${rowFailCount} rows fail hui (neeche list dekho)`);
         setFailedRows([...res.visitsFailed, ...res.paymentsFailed]);
@@ -643,7 +646,7 @@ function VisitHistoryImportTab() {
 
 function RecentBatches() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["import-batches"], queryFn: fetchImportBatches });
+  const { data, isError, error, refetch } = useQuery({ queryKey: ["import-batches"], queryFn: fetchImportBatches });
   const [undoing, setUndoing] = useState<string | null>(null);
 
   const undo = async (batchId: string) => {
@@ -658,6 +661,14 @@ function RecentBatches() {
     } finally { setUndoing(null); }
   };
 
+  if (isError) {
+    return (
+      <div className="mt-5 rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+        <div className="text-[12px] font-bold text-destructive">Recent imports load nahi hui: {(error as any)?.message ?? "unknown error"}</div>
+        <button onClick={() => refetch()} className="mt-1.5 text-[11px] font-bold text-primary underline">Dobara try karo</button>
+      </div>
+    );
+  }
   if (!data || data.length === 0) return null;
 
   return (

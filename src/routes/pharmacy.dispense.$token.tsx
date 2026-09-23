@@ -22,7 +22,7 @@ function DispensePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: visit, isLoading: lv, isError: ev, error: errV, refetch: refetchV } = useQuery({ queryKey: ["visit", visitId], queryFn: () => fetchVisit(visitId) });
-  const { data: rxData, isLoading: lr } = useQuery({ queryKey: ["rx", visitId], queryFn: () => fetchVisitPrescriptions(visitId) });
+  const { data: rxData, isLoading: lr, isError: er, error: errR, refetch: refetchR } = useQuery({ queryKey: ["rx", visitId], queryFn: () => fetchVisitPrescriptions(visitId) });
   const rx = rxData ?? [];
   // RF-17 (master audit) — FEFO warning. Only meaningful once the visit's
   // branch is known, so this query is gated on `visit` (fires after the
@@ -58,6 +58,23 @@ function DispensePage() {
     return (
       <RoleShell wide title="Dispense" showBack>
         <p className="text-sm text-muted-foreground">Patient not found in pharmacy queue.</p>
+      </RoleShell>
+    );
+  }
+  // Was silently treated as "0 prescribed items" (allDone = rx.length===0
+  // OR all checked) — a real prescriptions-load failure looked identical
+  // to an advice-only consult with nothing to dispense, risking staff
+  // dispensing nothing for a real prescription that just failed to load.
+  if (er) {
+    return (
+      <RoleShell wide title="Dispense" showBack>
+        <p className="text-sm text-muted-foreground">
+          Prescription load nahi hui — connection check karo.
+          <span className="block text-[11px] mt-1 opacity-70">{(errR as any)?.message ?? ""}</span>
+        </p>
+        <button onClick={() => refetchR()} className="mt-3 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-semibold">
+          Dobara try karo
+        </button>
       </RoleShell>
     );
   }

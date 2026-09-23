@@ -44,8 +44,13 @@ function istTodayDate(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | null }> {
-  const { data } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null }> {
+  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
+  if (error) {
+    // Fail CLOSED, not open — see send-whatsapp/index.ts for the full
+    // reasoning (found live 23 Sep 2026).
+    return { allowed: false, reason: "settings_error" };
+  }
   let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
   if (data?.value) {
     try {

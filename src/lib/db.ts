@@ -2246,13 +2246,24 @@ export async function addMedicineToCatalog(name: string): Promise<{ success: boo
  * data (not money), and at present data volume the risk of a partial
  * failure leaving things briefly inconsistent is low and self-evident
  * (Owner would immediately notice a mismatched name and can re-run it). */
-export async function renameMedicineInCatalog(id: string, oldName: string, newName: string): Promise<{ success: boolean; error: string | null }> {
+export async function renameMedicineInCatalog(id: string, oldName: string, newName: string): Promise<{ success: boolean; error: string | null; warning?: string }> {
   const clean = newName.trim();
   if (!clean) return { success: false, error: "Naya naam khaali nahi ho sakta" };
   const { error } = await supabase.from("medicines").update({ name: clean, modified_at: new Date().toISOString() }).eq("id", id);
   if (error) return { success: false, error: error.code === "23505" ? "Ye naam pehle se kisi aur medicine ka hai" : error.message };
   if (oldName.trim() !== clean) {
-    await supabase.from("inventory").update({ medicine_name: clean, modified_at: new Date().toISOString() }).eq("medicine_name", oldName).eq("is_deleted", false);
+    // Was fire-and-forget with the error completely unchecked — a failed
+    // cascade left the catalog renamed but inventory rows still under the
+    // stale name (stock summaries, Dispense's stock lookup, and the
+    // "New Medicine" duplicate check would all silently split across two
+    // names), while the caller still reported a clean "renamed" success.
+    const { error: invErr } = await supabase.from("inventory").update({ medicine_name: clean, modified_at: new Date().toISOString() }).eq("medicine_name", oldName).eq("is_deleted", false);
+    if (invErr) {
+      return {
+        success: true, error: null,
+        warning: `Catalog mein naam badal gaya, lekin inventory rows purane naam "${oldName}" pe hi reh gayi (${invErr.message}) — Owner ko batao, manually theek karna padega.`,
+      };
+    }
   }
   return { success: true, error: null };
 }
@@ -2296,11 +2307,16 @@ export async function fetchInStockMedicines(term: string, branch?: string) {
 
 // ---------- Dispense ----------
 export async function fetchVisitPrescriptions(visitId: string) {
-  const { data } = await supabase
+  // error was never even destructured — a load failure on Pharmacy's
+  // dispense screen looked identical to "doctor hasn't written a
+  // prescription yet," risking staff dispensing nothing (or improvising)
+  // for a real prescription that simply failed to load.
+  const { data, error } = await supabase
     .from("prescriptions")
     .select("*")
     .eq("visit_id", visitId)
     .order("created_at", { ascending: true });
+  if (error) throw dataLoadError(error);
   return (data ?? []) as DBPrescription[];
 }
 
@@ -3537,8 +3553,13 @@ export async function fetchSettings() {
 
 /** Manual incentive split: { [userId]: percentageWeight }. Stored as one JSON blob in settings. */
 export async function fetchIncentiveSplits(): Promise<Record<string, number>> {
+  // A real read failure here used to log-and-return {} — indistinguishable
+  // from "Owner never configured a split" — which silently zeroes out
+  // every staff member's incentive share on a transient DB hiccup. Throw
+  // instead, matching every other read in this file; {} is still the
+  // right answer, just only when the row genuinely doesn't exist.
   const { data, error } = await supabase.from("settings").select("value").eq("key", "incentive_splits").maybeSingle();
-  if (error) console.error("fetchIncentiveSplits failed:", error.message);
+  if (error) throw dataLoadError(error);
   if (!data?.value) return {};
   try {
     return JSON.parse(data.value);
@@ -3559,8 +3580,10 @@ const DEFAULT_INCENTIVE_CONFIG: IncentiveConfig = { baseline: 100000, poolPercen
 // match those exact old hardcoded values, so nothing changes for anyone
 // until the Owner actually edits it.
 export async function fetchIncentiveConfig(): Promise<IncentiveConfig> {
+  // Same reasoning as fetchIncentiveSplits — a real error must not look
+  // identical to "Owner hasn't configured this yet."
   const { data, error } = await supabase.from("settings").select("value").eq("key", "incentive_config").maybeSingle();
-  if (error) console.error("fetchIncentiveConfig failed:", error.message);
+  if (error) throw dataLoadError(error);
   if (!data?.value) return DEFAULT_INCENTIVE_CONFIG;
   try {
     const parsed = JSON.parse(data.value);
@@ -3632,7 +3655,22 @@ export const FEE_LABELS: Record<keyof FeeMaster, string> = {
 
 export async function fetchFeeMaster(): Promise<FeeMaster> {
   const { data, error } = await supabase.from("settings").select("value").eq("key", "fee_master").maybeSingle();
-  if (error) console.error("fetchFeeMaster failed:", error.message);
+  // Deliberately does NOT throw here (unlike every other settings read in
+  // this file) — the whole point of always having a hardcoded default is
+  // that registration must never be blocked by a settings read failure.
+  // But silently falling back used to leave zero trace that Reception is
+  // about to charge the hardcoded default instead of whatever the Owner
+  // actually configured — raise a real alert so it's visible on Health
+  // instead of just a console line nobody in the clinic sees.
+  if (error) {
+    supabase.from("system_alerts").insert({
+      type: "SETTINGS_READ_FAILED",
+      message: `fee_master settings read fail hui — Registration/Payment screens abhi hardcoded default fees use kar rahe hain, Owner-configured fees nahi.`,
+      context: { key: "fee_master", error: error.message },
+    }).then(({ error: alertErr }) => {
+      if (alertErr) console.error("fee_master failure alert insert failed:", alertErr.message);
+    });
+  }
   if (!data?.value) return { ...DEFAULT_FEE_MASTER };
   try {
     const parsed = JSON.parse(data.value) as Partial<FeeMaster>;
@@ -3944,8 +3982,14 @@ export async function recordImportBatch(entry: { batchId: string; type: string; 
 export async function fetchImportBatches(): Promise<
   { batchId: string; type: string; count: number; date: string }[]
 > {
+  // Was log-and-return-[] on a real read failure — indistinguishable from
+  // "no imports yet." rollbackImportBatch() below calls this to rewrite
+  // import_batches after a successful delete; an empty [] from a hiccup
+  // here would have silently wiped every OTHER past import's Undo button
+  // (the exact SF-13 bug recordImportBatch's own comment describes —
+  // that one was fixed, this one, which feeds the same footgun, wasn't).
   const { data, error } = await supabase.from("settings").select("value").eq("key", "import_batches").maybeSingle();
-  if (error) console.error("fetchImportBatches failed:", error.message);
+  if (error) throw dataLoadError(error);
   try { return data?.value ? JSON.parse(data.value) : []; } catch { return []; }
 }
 
@@ -4733,6 +4777,7 @@ export async function commitVisitHistoryImport(
   const touched = new Set<string>();
   const visitsFailed: { mobile: string; visit_date: string; reason: string }[] = [...skippedForFailedPatient];
   const paymentsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
+  const splitsFailed: { mobile: string; visit_date: string; reason: string }[] = [];
   // A row's "Due Date" column is a real, sheet-recorded next-visit date —
   // when it's still in the future, that's a genuine follow-up the Owner
   // wants tracked (confirmed live 22 Sep 2026: an earlier +30-day GUESS
@@ -4851,8 +4896,12 @@ export async function commitVisitHistoryImport(
         .filter((p) => Number(p.amount_received) > 0)
         .map((p) => ({ payment_id: p.id, mode: p.payment_mode, amount: p.amount_received }));
       if (splitInserts.length) {
+        // Was console.error-only, no count tracked or surfaced — a
+        // failure here means the imported payments still count toward
+        // the period total, but Cash/UPI/Card mode breakdowns on Reports
+        // silently don't sum to it, with nothing telling the Owner why.
         const { error: se } = await supabase.from("payment_splits").insert(splitInserts);
-        if (se) console.error("payment_splits backfill for imported payments failed:", se.message);
+        if (se) splitsFailed.push({ mobile: "", visit_date: "", reason: `${splitInserts.length} payment_splits rows: ${se.message}` });
       }
     }
   }
@@ -4937,10 +4986,13 @@ export async function commitVisitHistoryImport(
   if (paymentsFailed.length > 0) {
     await logImportFailureAlert("Visit History import — payments", paymentsFailed.map((r) => ({ mobile: r.mobile, visit_date: r.visit_date, reason: r.reason })));
   }
+  if (splitsFailed.length > 0) {
+    await logImportFailureAlert("Visit History import — payment mode breakdown", splitsFailed.map((r) => ({ reason: r.reason })));
+  }
   if (totalsFailedFor.length > 0) {
     await logImportFailureAlert("Visit History import — patient totals recompute", totalsFailedFor.map((id) => ({ patient_id: id, reason: "totals update failed" })));
   }
-  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed, followupsCreated, newPatientsCreated };
+  return { visitsImported, paymentsImported, patientsUpdated: touched.size - totalsFailedFor.length, totalsFailedFor, visitsFailed, paymentsFailed, splitsFailed, followupsCreated, newPatientsCreated };
 }
 
 
@@ -5005,8 +5057,12 @@ export async function fetchPatientsPage(limit: number, search?: string): Promise
   // Sorted like a real index (alphabetical by name) instead of
   // newest-created-first — a bulk import makes "newest first" mostly
   // reflect import order, not anything the Owner can browse meaningfully.
+  // Was `if (error) return { rows: [], hasMore: false }` — indistinguishable
+  // from a genuinely empty search result, so the Owner's Master Patient
+  // List rendered as "no patients" on a real fetch error instead of
+  // showing anything was wrong.
   const { data, error } = await q.order("name", { ascending: true }).limit(limit);
-  if (error) return { rows: [], hasMore: false };
+  if (error) throw dataLoadError(error);
   const rows = (data ?? []) as DBPatient[];
   return { rows, hasMore: rows.length === limit };
 }
@@ -5183,8 +5239,12 @@ export async function createPurchaseOrder(
         },
       });
     }
-  } catch {
-    // Non-critical — the PO already saved; Owner still sees it on the dashboard.
+  } catch (e: any) {
+    // Non-critical — the PO already saved; Owner still sees it on the
+    // dashboard. But this used to swallow the error completely (not even
+    // logged), unlike every other best-effort secondary write in this
+    // file — at minimum leave a trace of why the ping didn't go out.
+    console.error("Purchase order WhatsApp ping failed:", e?.message ?? e);
   }
 
   return { success: true, error: null, poId };
@@ -5754,8 +5814,14 @@ export const DEFAULT_WHATSAPP_CONTROLS: WhatsAppControls = {
 };
 
 export async function fetchWhatsAppControls(): Promise<WhatsAppControls> {
+  // A real read error here used to silently default to "everything
+  // enabled" — the Owner's Control Centre would show WhatsApp as ON even
+  // if it's actually off and the read just failed. Throw instead; the
+  // "not configured yet" case below still correctly defaults to enabled
+  // (matches send-whatsapp/index.ts's own default), but only when the
+  // row genuinely doesn't exist, not when the read itself broke.
   const { data, error } = await supabase.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
-  if (error) console.error("fetchWhatsAppControls failed:", error.message);
+  if (error) throw dataLoadError(error);
   if (!data?.value) return DEFAULT_WHATSAPP_CONTROLS;
   try {
     const parsed = JSON.parse(data.value);

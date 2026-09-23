@@ -37,7 +37,7 @@ export function InteractionHistoryModal({
   const qc = useQueryClient();
   const { user } = useAuth();
   const queryKey = ["interactions", leadId ?? patientId];
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () => fetchInteractions({ leadId, patientId }),
   });
@@ -89,6 +89,11 @@ export function InteractionHistoryModal({
           <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Timeline</div>
           {isLoading ? (
             <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
+          ) : isError ? (
+            <div className="text-center py-4">
+              <p className="text-xs text-destructive font-semibold">History load nahi hui: {(error as any)?.message ?? "unknown error"}</p>
+              <button onClick={() => refetch()} className="mt-1.5 text-[11px] font-bold text-primary underline">Dobara try karo</button>
+            </div>
           ) : items.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">Koi call ya message record nahi hai abhi.</p>
           ) : (
