@@ -170,6 +170,14 @@ function DataQualityPage() {
           open={!!open.names} onToggle={() => toggle("names")}
           onExport={() => downloadCSV(r.incomplete_names.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "adhoore_naam.csv")}
         >
+          {r.incomplete_names_total > 5 && (
+            <Link
+              to="/owner/fix-names"
+              className="block w-full text-center rounded-lg bg-primary text-primary-foreground py-2 text-[12px] font-bold"
+            >
+              Bulk mein theek karo ({r.incomplete_names_total}) →
+            </Link>
+          )}
           {r.incomplete_names.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">
               <PatientChip p={p} />
