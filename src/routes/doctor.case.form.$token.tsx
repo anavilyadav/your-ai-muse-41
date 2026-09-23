@@ -9,6 +9,7 @@ import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl, isD
 import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
+import { ScanCropModal } from "@/components/yhc/ScanCropModal";
 
 export const Route = createFileRoute("/doctor/case/form/$token")({
   head: () => ({ meta: [{ title: "Case Taking — Doctor App" }, { name: "robots", content: "noindex" }] }),
@@ -134,6 +135,7 @@ function CaseFormPage() {
   const [tonguePhotoUrl, setTonguePhotoUrl] = useState<string | null>(null);
   const [reportsPhotoUrl, setReportsPhotoUrl] = useState<string | null>(null);
   const [uploadingKind, setUploadingKind] = useState<string | null>(null);
+  const [pendingScan, setPendingScan] = useState<{ kind: "case" | "reports"; file: File } | null>(null);
   const [thermals, setThermals] = useState<string | "">("");
   const [thirst, setThirst] = useState<string | "">("");
   const [sleep, setSleep] = useState<string | "">("");
@@ -170,6 +172,14 @@ function CaseFormPage() {
     if (kind === "tongue") setTonguePhotoUrl(res.url);
     if (kind === "reports") setReportsPhotoUrl(res.url);
     toast.success("Photo save ho gayi");
+  };
+
+  // "case" and "reports" are paper documents — crop out the table/
+  // background first via the scan step. "tongue" is a photo of the
+  // tongue itself, not a document, so it skips straight to upload.
+  const pickPhoto = (kind: "case" | "tongue" | "reports", file: File) => {
+    if (kind === "tongue") { handlePhoto(kind, file); return; }
+    setPendingScan({ kind, file });
   };
 
   // One source of truth for the case text — submit(), saveDraft() and the
@@ -280,6 +290,16 @@ function CaseFormPage() {
 
   const p = visit.patient;
 
+  if (pendingScan) {
+    return (
+      <ScanCropModal
+        file={pendingScan.file}
+        onCancel={() => setPendingScan(null)}
+        onConfirm={(cropped) => handlePhoto(pendingScan.kind, cropped)}
+      />
+    );
+  }
+
   return (
     <DoctorShell title="Case Taking" subtitle={`${visit.token_number ?? "—"} • Contact hidden`} showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 text-center">
@@ -349,7 +369,7 @@ function CaseFormPage() {
           accept="image/*"
           capture="environment"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhoto("case", f); }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) pickPhoto("case", f); }}
         />
         <div className="grid place-items-center mb-1">
           {uploadingKind === "case" ? (
@@ -403,14 +423,14 @@ function CaseFormPage() {
             icon={<span>👅</span>}
             url={tonguePhotoUrl}
             uploading={uploadingKind === "tongue"}
-            onPick={(f) => handlePhoto("tongue", f)}
+            onPick={(f) => pickPhoto("tongue", f)}
           />
           <PhotoCapture
             label="Reports scan"
             icon={<span>📋</span>}
             url={reportsPhotoUrl}
             uploading={uploadingKind === "reports"}
-            onPick={(f) => handlePhoto("reports", f)}
+            onPick={(f) => pickPhoto("reports", f)}
           />
         </div>
       </Section>

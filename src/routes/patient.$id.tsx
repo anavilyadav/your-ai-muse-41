@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
+import { ScanCropModal } from "@/components/yhc/ScanCropModal";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -489,6 +490,7 @@ function UploadDocumentModal({
   const [preview, setPreview] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState<File | null>(null);
 
   const pickFile = (f: File) => {
     // Compression (in uploadPatientDocument) shrinks the eventual upload
@@ -499,6 +501,14 @@ function UploadDocumentModal({
       toast.error("File 25MB se badi hai — chhoti photo chuno");
       return;
     }
+    // Case files (Lab Report, Prescription, etc.) are almost always a
+    // paper document — route through the crop/scan step first so the
+    // table/background around the paper doesn't end up in the upload.
+    setScanning(f);
+  };
+
+  const acceptScanned = (f: File) => {
+    setScanning(null);
     setFile(f);
     setPreview(URL.createObjectURL(f));
   };
@@ -513,6 +523,16 @@ function UploadDocumentModal({
     onUploaded();
     onClose();
   };
+
+  if (scanning) {
+    return (
+      <ScanCropModal
+        file={scanning}
+        onCancel={() => setScanning(null)}
+        onConfirm={acceptScanned}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
