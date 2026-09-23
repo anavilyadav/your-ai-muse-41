@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, ClipboardList, ListChecks, LogOut, Search, UserPlus } from "lucide-react";
+import { ArrowLeft, CalendarDays, ClipboardList, ListChecks, LogOut, Search, UserPlus } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -14,9 +14,15 @@ interface Props {
   children: ReactNode;
 }
 
+// Appointments used to only be reachable via a shortcut tile buried
+// inside Tasks (two taps, easy to never notice) even though booking/
+// confirming/arrived is as core a daily Reception job as Register or
+// Search — found live 23 Sep 2026 (Dr. Yadav: "appointment wala system
+// sahi jagah nahi hai"). Now a first-class tab like everything else.
 const navItems = [
   { to: "/", label: "Queue", icon: ClipboardList },
   { to: "/register", label: "Register", icon: UserPlus },
+  { to: "/appointments", label: "Appts", icon: CalendarDays },
   { to: "/search", label: "Search", icon: Search },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
 ] as const;
@@ -136,7 +142,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
 
           {/* Bottom nav — mobile/tablet only, sidebar takes over at lg */}
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[clamp(430px,94vw,720px)] z-30 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
-            <ul className="grid grid-cols-4">
+            <ul className="grid" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
               {navItems.map(({ to, label, icon: Icon }) => {
                 const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
                 return (
