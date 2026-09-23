@@ -4360,6 +4360,37 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
       existing.conflict = true;
     }
   }
+  // Same real person, inconsistently-written card across different rows (a
+  // dropped/extra letter in the series, a transposed register digit, a
+  // stray extra digit in the number) is a DIFFERENT failure mode than the
+  // "one card, two names" conflict above — same-or-near-same NAME sharing
+  // the SAME mobile but landing in two DIFFERENT new-card groups. Found
+  // live 23 Sep 2026: a 2018-row real import created 187 new patients, and
+  // 6 of them were exactly this — e.g. "Rajveer"/9-digit-mobile once as
+  // A-85-24 (14 visits) and again as B-85-24 (1 visit), a dropped/added
+  // letter on one row out of many. Left unmatched instead of guessed, same
+  // as the single-card conflict case — a human can tell from visit
+  // history which card is real, this code can't.
+  const mobileGroups = new Map<string, string[]>();
+  for (const [ck, g] of newPatientGroups) {
+    if (g.conflict) continue;
+    const list = mobileGroups.get(g.mobile) ?? [];
+    list.push(ck);
+    mobileGroups.set(g.mobile, list);
+  }
+  for (const cks of mobileGroups.values()) {
+    if (cks.length < 2) continue;
+    for (let i = 0; i < cks.length; i++) {
+      const a = normalizeNameKey(newPatientGroups.get(cks[i])!.name);
+      for (let j = i + 1; j < cks.length; j++) {
+        const b = normalizeNameKey(newPatientGroups.get(cks[j])!.name);
+        if (a === b || a.startsWith(b) || b.startsWith(a)) {
+          newPatientGroups.get(cks[i])!.conflict = true;
+          newPatientGroups.get(cks[j])!.conflict = true;
+        }
+      }
+    }
+  }
 
   let unmatched = 0, alreadyImported = 0;
   const alreadyImportedSamples: string[] = [];
@@ -4447,8 +4478,8 @@ export async function previewVisitHistoryImport(rows: ImportVisitRow[]) {
         if (badDateSamples.length < 10) badDateSamples.push(`${r.mobile} — "${r.visit_date}"`);
       } else if (newPatientConflict) {
         cardNameConflict++;
-        reason = `card ${r.card_no} pe alag-alag naam mile — check karo`;
-        if (cardNameConflictSamples.length < 10) cardNameConflictSamples.push(`${r.card_no}: "${r.name}"`);
+        reason = `naya patient lagta hai lekin card/naam confirm nahi — card ${r.card_no} pe alag naam mile, ya isi mobile pe alag card number bhi mila`;
+        if (cardNameConflictSamples.length < 10) cardNameConflictSamples.push(`${r.card_no}: "${r.name}" (${r.mobile})`);
       } else if (ambiguousNameCandidates > 0) {
         ambiguousName++;
         reason = `naam se ${ambiguousNameCandidates} patients milte hain`;
