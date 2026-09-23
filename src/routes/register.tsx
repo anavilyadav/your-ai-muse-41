@@ -5,7 +5,8 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled } from "@/lib/db";
+import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -149,6 +150,18 @@ function RegisterPage() {
     });
   };
 
+  // "Purani Tareekh Se Entry" — Owner-gated backfill mode (Owner → Control
+  // Centre toggle). Hidden entirely from staff unless the Owner has it ON,
+  // so normal daily registration is never even one extra tap away from
+  // accidentally picking the wrong date.
+  const { data: manualDateEnabled } = useQuery({ queryKey: ["manual-date-entry-enabled"], queryFn: fetchManualDateEntryEnabled });
+  const [dateMode, setDateMode] = useState<"auto" | "manual">("auto");
+  const [manualDate, setManualDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const effectiveVisitDate = dateMode === "manual" && manualDate ? manualDate : undefined;
+
   const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
   const [familyRelationship, setFamilyRelationship] = useState(RELATIONSHIPS[0]);
@@ -243,6 +256,7 @@ function RegisterPage() {
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
         case_channel: f.caseChannel,
+        visit_date: effectiveVisitDate,
       });
       setSaved({
         token: visit.token_number ?? "T-01",
@@ -318,6 +332,7 @@ function RegisterPage() {
       case_channel: f.caseChannel,
       lead_source: f.leadSource,
       idempotency_key: registrationIdempotencyKey,
+      visit_date: effectiveVisitDate,
     };
     try {
       const { patient, visit } = await createPatientWithVisit(registrationInput);
@@ -534,6 +549,46 @@ function RegisterPage() {
         <div className="rounded-xl bg-primary/10 text-primary text-[12px] px-3 py-2.5">
           {t("Follow-up / purana patient aaya hai? Niche mobile number daalo — agar pehle se registered hai to Check-In ka button apne aap aa jaayega, naya form bharne ki zaroorat nahi.")}
         </div>
+
+        {/* Owner-gated backfill mode — invisible unless the Owner has
+            turned "Purani Tareekh Se Entry" ON from Control Centre. */}
+        {manualDateEnabled && (
+          <div className="rounded-xl border border-accent/50 bg-accent/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-bold text-primary">Kis tareekh ki entry hai?</span>
+              <div className="flex rounded-full bg-surface border border-border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setDateMode("auto")}
+                  className={cn("rounded-full px-3 py-1 text-[11px] font-semibold", dateMode === "auto" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                >
+                  Aaj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDateMode("manual")}
+                  className={cn("rounded-full px-3 py-1 text-[11px] font-semibold", dateMode === "manual" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                >
+                  Purani Tareekh
+                </button>
+              </div>
+            </div>
+            {dateMode === "manual" && (
+              <>
+                <input
+                  type="date"
+                  value={manualDate}
+                  max={today()}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="w-full rounded-lg bg-surface border border-input px-3 py-2 text-sm"
+                />
+                <p className="text-[10px] text-accent-foreground">
+                  Is tareekh se ye visit turant "DONE" maana jayega — aaj ki live queue (Doctor/Pharmacy) mein nahi dikhega, sirf record ban jayega.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Moved up from the bottom of the form (was after Payment/DOB/
             Profession) — a check-in could go through on the wrong branch

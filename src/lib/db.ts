@@ -249,6 +249,8 @@ export async function checkInExistingPatient(input: {
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
   case_channel?: "WALK_IN" | "ONLINE";
+  // Backfill mode — see the matching field on createPatientWithVisit.
+  visit_date?: string;
 }): Promise<{ visit: DBVisit }> {
   // Token generation + visit insert + lifetime_visits bump + follow-up
   // closure all happen inside one Postgres function now — this was the
@@ -259,8 +261,9 @@ export async function checkInExistingPatient(input: {
     p_patient_id: input.patient_id,
     p_branch: input.branch,
     p_chief_complaint: input.chief_complaint ?? null,
-    p_visit_date: today(),
+    p_visit_date: input.visit_date || today(),
   });
+  const isBackfill = !!input.visit_date && input.visit_date !== today();
   if (!error && data) {
     let visit = data as DBVisit;
     if (input.case_channel === "ONLINE") {
@@ -281,6 +284,19 @@ export async function checkInExistingPatient(input: {
       if (onlineErr) console.error("Marking visit as VIDEO failed:", onlineErr.message);
       if (updatedVisit) visit = updatedVisit as DBVisit;
     }
+    if (isBackfill) {
+      // See the matching comment on createPatientWithVisit — a backfilled
+      // check-in already happened in real life, so it must not show up as
+      // "waiting" in today's live queues.
+      const { data: doneVisit, error: doneErr } = await supabase
+        .from("visits")
+        .update({ visit_status: "DONE" })
+        .eq("id", visit.id)
+        .select("*")
+        .maybeSingle();
+      if (doneErr) console.error("Marking backfilled check-in as DONE failed:", doneErr.message);
+      if (doneVisit) visit = doneVisit as DBVisit;
+    }
     return { visit };
   }
   // Fall back to the old approach only if the RPC isn't deployed yet
@@ -297,15 +313,19 @@ async function checkInExistingPatientLegacy(input: {
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
   case_channel?: "WALK_IN" | "ONLINE";
+  visit_date?: string;
 }): Promise<{ visit: DBVisit }> {
-  const token = await nextTokenForToday(input.branch);
+  const legacyVisitDate = input.visit_date || today();
+  const token = legacyVisitDate === today()
+    ? await nextTokenForToday(input.branch)
+    : `T-${String(((await supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", legacyVisitDate).eq("branch", input.branch)).count ?? 0) + 1).padStart(2, "0")}`;
   const { data: v, error: ve } = await supabase
     .from("visits")
     .insert({
       patient_id: input.patient_id,
-      visit_date: today(),
+      visit_date: legacyVisitDate,
       visit_type: input.case_channel === "ONLINE" ? "VIDEO" : "OPD", // FIXED 06 Aug — visits_visit_type_check has no "ONLINE"
-      visit_status: "REGISTERED",
+      visit_status: legacyVisitDate === today() ? "REGISTERED" : "DONE",
       token_number: token,
       branch: input.branch,
       chief_complaint: input.chief_complaint ?? null,
@@ -418,7 +438,14 @@ export async function createPatientWithVisit(input: {
   // of that same submission, so a network blip that retries the request
   // can never create a second, duplicate patient.
   idempotency_key?: string;
-
+  // Backfill mode (Owner-gated "Purani Tareekh Se Entry" toggle, 23 Sep
+  // 2026) — lets staff catch up real historical patients one at a time
+  // through this same form instead of another CSV import, by picking the
+  // real visit date instead of always today. Only meaningful when it's
+  // actually in the past; a same-day value behaves exactly like omitting
+  // it. See the DONE-status follow-up write below for why this can't just
+  // be "pass a different date and nothing else changes."
+  visit_date?: string;
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
@@ -437,9 +464,10 @@ export async function createPatientWithVisit(input: {
     p_wa_consent: input.wa_consent,
     p_branch: input.branch,
     p_chief_complaint: input.chief_complaint ?? null,
-    p_visit_date: today(),
+    p_visit_date: input.visit_date || today(),
     p_idempotency_key: input.idempotency_key ?? null,
   });
+  const isBackfill = !!input.visit_date && input.visit_date !== today();
   if (!error && data) {
     let patient = data.patient as DBPatient;
     // The atomic RPC doesn't know about these newer columns yet (it's a
@@ -500,6 +528,23 @@ export async function createPatientWithVisit(input: {
       if (onlineErr) console.error("Marking visit as VIDEO failed:", onlineErr.message);
       if (updatedVisit) visit = updatedVisit as DBVisit;
     }
+    if (isBackfill) {
+      // A backfilled historical visit already happened in real life —
+      // leaving it as REGISTERED would surface it in today's live
+      // Reception/Doctor/Pharmacy queues (fetchTodayQueue shows any
+      // non-DONE visit from the last 30 days, not just today's), mixing a
+      // resolved past-day patient in with real walk-ins. Matches exactly
+      // how the CSV Visit History import already treats every row
+      // (visit_status: "DONE" — see commitVisitHistoryImport).
+      const { data: doneVisit, error: doneErr } = await supabase
+        .from("visits")
+        .update({ visit_status: "DONE" })
+        .eq("id", visit.id)
+        .select("*")
+        .maybeSingle();
+      if (doneErr) console.error("Marking backfilled visit as DONE failed:", doneErr.message);
+      if (doneVisit) visit = doneVisit as DBVisit;
+    }
     return { patient, visit };
   }
   // Fall back to the old two-step approach if the RPC isn't deployed yet
@@ -550,9 +595,17 @@ async function createPatientWithVisitLegacy(input: {
   branch: "BAJAJ_NAGAR" | "JAGATPURA";
   chief_complaint?: string;
   case_channel?: "WALK_IN" | "ONLINE";
+  visit_date?: string;
 }) {
   const code = await nextPatientCode();
-  const token = await nextTokenForToday(input.branch);
+  const legacyVisitDate = input.visit_date || today();
+  // nextTokenForToday is hardcoded to today's date — fine for the common
+  // case, but a backfilled visit needs its token scoped to ITS OWN date
+  // (matches register_patient_with_visit's own p_visit_date-scoped count),
+  // not mixed into today's real counter.
+  const token = legacyVisitDate === today()
+    ? await nextTokenForToday(input.branch)
+    : `T-${String(((await supabase.from("visits").select("id", { count: "exact", head: true }).eq("visit_date", legacyVisitDate).eq("branch", input.branch)).count ?? 0) + 1).padStart(2, "0")}`;
   const { data: p, error: pe } = await supabase
     .from("patients")
     .insert({
@@ -587,9 +640,11 @@ async function createPatientWithVisitLegacy(input: {
     .from("visits")
     .insert({
       patient_id: p.id,
-      visit_date: today(),
+      visit_date: legacyVisitDate,
       visit_type: input.case_channel === "ONLINE" ? "VIDEO" : "OPD", // FIXED 06 Aug — visits_visit_type_check has no "ONLINE"
-      visit_status: "REGISTERED",
+      // A backfilled historical visit is already resolved in real life —
+      // see the matching comment on the primary (non-legacy) path.
+      visit_status: legacyVisitDate === today() ? "REGISTERED" : "DONE",
       token_number: token,
       branch: input.branch,
       chief_complaint: input.chief_complaint ?? null,
@@ -3476,7 +3531,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0073_whatsapp_forecast";
+export const EXPECTED_SCHEMA_VERSION = "0074_manual_date_entry_setting";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -3549,6 +3604,15 @@ export async function runHealthChecks() {
 export async function fetchSettings() {
   const { data } = await supabase.from("settings").select("*");
   return data ?? [];
+}
+
+// "Purani Tareekh Se Entry" — Owner-gated backfill mode (Owner → Control
+// Centre). Register.tsx checks this before showing the Auto/Manual date
+// toggle at all, so it stays invisible to staff during normal daily use.
+export async function fetchManualDateEntryEnabled(): Promise<boolean> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "manual_date_entry_enabled").maybeSingle();
+  if (error) throw dataLoadError(error);
+  return data?.value === "true";
 }
 
 /** Manual incentive split: { [userId]: percentageWeight }. Stored as one JSON blob in settings. */

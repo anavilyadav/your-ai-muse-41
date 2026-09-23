@@ -1012,6 +1012,12 @@ function ControlPage() {
             title="Pharmacy Permissions — per screen ON/OFF"
             helpText="Default sabke liye ON hai."
           />
+          <LeadSourceToggle
+            settings={data ?? []}
+            settingKey="manual_date_entry_enabled"
+            title="Purani Tareekh Se Entry (Backfill Mode)"
+            help="ON karne par Register/Check-in screen pe purani date chunne ka option aayega — chhoote hue purane patients ki entry karne ke liye. Us tareekh se banaya gaya visit turant DONE maana jayega, aaj ki live queue mein nahi dikhega. Kaam poora hote hi OFF kar do."
+          />
           <JustDialToggle settings={data ?? []} />
           <LeadSourcesPanel settings={data ?? []} />
           <div>
