@@ -62,6 +62,14 @@ export interface DBPatient {
   whatsapp_country_code: string | null;
   whatsapp_number: string | null;
   whatsapp_confirmed: boolean;
+  // Second reachable contact (23 Sep 2026) — e.g. a child patient's
+  // Mother/Father number, distinct from the primary mobile above. Purely
+  // a "staff can see and personally call/WhatsApp this too" field — NOT
+  // wired into automated WhatsApp campaign sends (see migration 0078).
+  secondary_mobile: string | null;
+  secondary_mobile_country_code: string;
+  secondary_mobile_label: string | null;
+  secondary_mobile_confirmed: boolean;
   age: number | null;
   gender: string | null;
   blood_group: string | null;
@@ -404,6 +412,16 @@ export function patientWaMeNumber(p: {
   return cc + digits;
 }
 
+// Same wa.me full-number shape as patientWaMeNumber, for the OTHER
+// contact (secondary_mobile) — a distinct person (e.g. a child patient's
+// mother/father), not a fallback for the patient's own number.
+export function secondaryWaMeNumber(p: { secondary_mobile: string | null; secondary_mobile_country_code?: string | null }): string {
+  const digits = (p.secondary_mobile ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  const cc = (p.secondary_mobile_country_code || "+91").replace(/\D/g, "");
+  return cc + digits;
+}
+
 export async function createPatientWithVisit(input: {
   name: string;
   mobile: string;
@@ -703,6 +721,10 @@ export async function updatePatientContactInfo(
     whatsapp_country_code: string | null;
     whatsapp_number: string | null;
     whatsapp_confirmed: boolean;
+    secondary_mobile: string | null;
+    secondary_mobile_country_code: string;
+    secondary_mobile_label: string | null;
+    secondary_mobile_confirmed: boolean;
     address: string;
     city: string;
     pincode: string;
@@ -3553,7 +3575,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0077_revoke_rls_auto_enable_anon_authenticated_execute";
+export const EXPECTED_SCHEMA_VERSION = "0078_patient_secondary_mobile";
 
 export interface SchemaMigrationRow {
   filename: string;

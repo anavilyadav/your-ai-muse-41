@@ -25,6 +25,7 @@ import {
   updatePatientContactInfo,
   isDuplicateMobile,
   patientWaMeNumber,
+  secondaryWaMeNumber,
   fetchPatientInteractions,
   INTERACTION_TYPE_LABELS,
   DOC_TYPES,
@@ -402,6 +403,11 @@ function EditContactModal({
   const [waConfirmed, setWaConfirmed] = useState(patient.whatsapp_confirmed);
   const [waCountryCode, setWaCountryCode] = useState<string>(patient.whatsapp_country_code || patient.mobile_country_code || "+91");
   const [waCountryCodeCustom, setWaCountryCodeCustom] = useState("");
+  const [secondaryLabel, setSecondaryLabel] = useState(patient.secondary_mobile_label || "");
+  const [secondaryMobile, setSecondaryMobile] = useState(patient.secondary_mobile || "");
+  const [secondaryCountryCode, setSecondaryCountryCode] = useState<string>(patient.secondary_mobile_country_code || "+91");
+  const [secondaryCountryCodeCustom, setSecondaryCountryCodeCustom] = useState("");
+  const [secondaryConfirmed, setSecondaryConfirmed] = useState(patient.secondary_mobile_confirmed);
   const [address, setAddress] = useState(patient.address || "");
   const [city, setCity] = useState(patient.city || "");
   const [pincode, setPincode] = useState(patient.pincode || "");
@@ -429,6 +435,7 @@ function EditContactModal({
 
   const effectiveCC = countryCode === "other" ? countryCodeCustom.trim() || "+" : countryCode;
   const effectiveWaCC = waCountryCode === "other" ? waCountryCodeCustom.trim() || "+" : waCountryCode;
+  const effectiveSecondaryCC = secondaryCountryCode === "other" ? secondaryCountryCodeCustom.trim() || "+" : secondaryCountryCode;
   const isIndia = effectiveCC === "+91";
 
   const onMobileChange = async (v: string) => {
@@ -471,6 +478,10 @@ function EditContactModal({
       // "Same as mobile" isn't a separate number to confirm — confirming
       // the mobile above already covers it.
       whatsapp_confirmed: waSameAsMobile ? mobileConfirmed : waConfirmed,
+      secondary_mobile: secondaryMobile.trim() || null,
+      secondary_mobile_country_code: effectiveSecondaryCC,
+      secondary_mobile_label: secondaryLabel.trim() || null,
+      secondary_mobile_confirmed: secondaryMobile.trim() ? secondaryConfirmed : false,
       address: address.trim() || undefined,
       city: city.trim() || undefined,
       pincode: pincode.trim() || undefined,
@@ -578,6 +589,46 @@ function EditContactModal({
                   Patient se WhatsApp number confirm kar liya hai
                 </label>
               </>
+            )}
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Doosra Number (optional)</label>
+            <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
+              Kai patients (khaaskar bacchon) ke 2 reachable number hote hain — jaise Mother/Father. Yahan dusra bhi
+              save kar sakte ho, staff call/WhatsApp donon kar sakenge.
+            </p>
+            <input
+              value={secondaryLabel}
+              onChange={(e) => setSecondaryLabel(e.target.value)}
+              placeholder="Kiska number hai? (e.g. Mother, Father, Guardian)"
+              className="w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm mb-2"
+            />
+            <div className="flex gap-2">
+              <select
+                value={secondaryCountryCode}
+                onChange={(e) => setSecondaryCountryCode(e.target.value)}
+                className="w-[118px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+              >
+                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.label}</option>)}
+              </select>
+              <input
+                inputMode="numeric"
+                placeholder="Doosra number"
+                value={secondaryMobile}
+                onChange={(e) => {
+                  const maxLen = effectiveSecondaryCC === "+91" ? 10 : 15;
+                  setSecondaryMobile(e.target.value.replace(/\D/g, "").slice(0, maxLen));
+                  setSecondaryConfirmed(false);
+                }}
+                className="flex-1 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm"
+              />
+            </div>
+            {secondaryMobile.trim() && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                <input type="checkbox" checked={secondaryConfirmed} onChange={(e) => setSecondaryConfirmed(e.target.checked)} className="h-4 w-4 rounded border-input" />
+                Isse bhi confirm kar liya hai
+              </label>
             )}
           </div>
 
@@ -1034,6 +1085,24 @@ function PatientProfilePage() {
         <Row icon={PhoneCall} label="Mobile" value={`${patient.mobile_country_code || "+91"} ${patient.mobile}`} badge={<ConfirmBadge confirmed={patient.mobile_confirmed} />} />
         {patient.whatsapp_number && (
           <Row icon={MessageCircle} label="WhatsApp" value={`${patient.whatsapp_country_code || patient.mobile_country_code || "+91"} ${patient.whatsapp_number}`} badge={<ConfirmBadge confirmed={patient.whatsapp_confirmed} />} />
+        )}
+        {patient.secondary_mobile && (
+          <Row
+            icon={PhoneCall}
+            label={patient.secondary_mobile_label || "Doosra"}
+            value={`${patient.secondary_mobile_country_code || "+91"} ${patient.secondary_mobile}`}
+            badge={
+              <div className="flex items-center gap-1.5 shrink-0">
+                <ConfirmBadge confirmed={patient.secondary_mobile_confirmed} />
+                <a href={`tel:+${(patient.secondary_mobile_country_code || "+91").replace(/\D/g, "")}${patient.secondary_mobile}`} className="h-6 w-6 grid place-items-center rounded-full bg-success/15 text-success">
+                  <PhoneCall className="h-3 w-3" />
+                </a>
+                <a href={`https://wa.me/${secondaryWaMeNumber(patient)}`} target="_blank" rel="noreferrer" className="h-6 w-6 grid place-items-center rounded-full bg-accent/15 text-primary">
+                  <MessageCircle className="h-3 w-3" />
+                </a>
+              </div>
+            }
+          />
         )}
         <Row icon={MapPin} label="Branch" value={branchLabel} />
         <Row icon={Cake} label="City" value={patient.city ?? "—"} />

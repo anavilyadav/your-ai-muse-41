@@ -39,7 +39,11 @@ function UnconfirmedRow({
   const [hasDistinctWa, setHasDistinctWa] = useState(p.has_distinct_whatsapp);
   const [showWaInput, setShowWaInput] = useState(false);
   const [waNumber, setWaNumber] = useState("");
-  const [saving, setSaving] = useState<"mobile" | "wa" | "addWa" | null>(null);
+  const [showSecondaryInput, setShowSecondaryInput] = useState(false);
+  const [secondaryAdded, setSecondaryAdded] = useState(false);
+  const [secondaryLabel, setSecondaryLabel] = useState("");
+  const [secondaryNumber, setSecondaryNumber] = useState("");
+  const [saving, setSaving] = useState<"mobile" | "wa" | "addWa" | "addSecondary" | null>(null);
   const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
   const resolved = mobileConfirmed && (!hasDistinctWa || waConfirmed);
 
@@ -78,6 +82,28 @@ function UnconfirmedRow({
     setShowWaInput(false);
     toast.success("WhatsApp number save ho gaya");
     if (mobileConfirmed) onResolved(p.id);
+  };
+
+  // Doosra number (23 Sep 2026) — e.g. a child patient's Mother/Father,
+  // a second reachable contact, distinct from the patient's own
+  // mobile/WhatsApp above. Purely additive — doesn't affect this row's
+  // resolved/confirmed state, mobile confirmation is still separate.
+  const saveSecondary = async () => {
+    const digits = secondaryNumber.replace(/\D/g, "");
+    if (digits.length < 10) { toast.error("Poora number likho"); return; }
+    if (!secondaryLabel.trim()) { toast.error("Kiska number hai likho (Mother/Father/Guardian)"); return; }
+    setSaving("addSecondary");
+    const res = await updatePatientContactInfo(p.id, {
+      secondary_mobile: digits,
+      secondary_mobile_country_code: "+91",
+      secondary_mobile_label: secondaryLabel.trim(),
+      secondary_mobile_confirmed: true,
+    });
+    setSaving(null);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    setSecondaryAdded(true);
+    setShowSecondaryInput(false);
+    toast.success(`${secondaryLabel.trim()} ka number save ho gaya`);
   };
 
   return (
@@ -145,6 +171,42 @@ function UnconfirmedRow({
             className="mt-2 w-full text-center text-[11px] font-semibold text-primary underline"
           >
             + Alag WhatsApp number add karo
+          </button>
+        )
+      )}
+
+      {!secondaryAdded && (
+        showSecondaryInput ? (
+          <div className="mt-2 space-y-1.5">
+            <div className="flex gap-1.5">
+              <input
+                value={secondaryLabel}
+                onChange={(e) => setSecondaryLabel(e.target.value)}
+                placeholder="Kiska number? (Mother/Father)"
+                className="w-[150px] shrink-0 rounded-lg bg-background border border-input px-2.5 py-2 text-sm"
+              />
+              <input
+                inputMode="numeric"
+                placeholder="Number"
+                value={secondaryNumber}
+                onChange={(e) => setSecondaryNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                className="flex-1 min-w-0 rounded-lg bg-background border border-input px-2.5 py-2 text-sm"
+              />
+            </div>
+            <button
+              onClick={saveSecondary}
+              disabled={saving === "addSecondary"}
+              className="w-full rounded-lg bg-accent text-accent-foreground text-[12px] font-bold py-2 disabled:opacity-60"
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowSecondaryInput(true)}
+            className="mt-2 w-full text-center text-[11px] font-semibold text-primary underline"
+          >
+            + Doosra number add karo (Mother/Father)
           </button>
         )
       )}
