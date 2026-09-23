@@ -4935,6 +4935,57 @@ export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; n
   return data ?? [];
 }
 
+// Physical card index (A-01-01, A-01-02, ... A-02-01, ...) — a real,
+// paper-book hierarchy (series letter -> register number -> patient
+// number within that register) that the master sheet doesn't otherwise
+// expose anywhere sortable. Built 23 Sep 2026 after a real import created
+// a handful of duplicate patients from inconsistently-typed card numbers
+// (e.g. "A-85-24" and "B-85-24" for the same person) — this view lets the
+// Owner visually scan a series' registers in order and spot exactly that
+// kind of anomaly (a stray register out of sequence, a register with far
+// fewer patients than its neighbours) themselves, the same way they would
+// flipping through the physical card boxes.
+export interface CardIndexPatient {
+  id: string;
+  name: string;
+  mobile: string;
+  patient_code: string | null;
+  card_register: string;
+  card_number: string;
+  lifetime_visits: number;
+}
+export async function fetchCardIndex(): Promise<Record<string, CardIndexPatient[]>> {
+  const PAGE = 1000;
+  const bySeries: Record<string, CardIndexPatient[]> = {};
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id,name,mobile,patient_code,card_series,card_register,card_number,lifetime_visits")
+      .eq("is_deleted", false)
+      .not("card_series", "is", null)
+      .not("card_register", "is", null)
+      .not("card_number", "is", null)
+      .range(from, from + PAGE - 1);
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    for (const p of data as any[]) {
+      const series = p.card_series as string;
+      (bySeries[series] ??= []).push({
+        id: p.id, name: p.name, mobile: p.mobile, patient_code: p.patient_code,
+        card_register: p.card_register, card_number: p.card_number, lifetime_visits: p.lifetime_visits ?? 0,
+      });
+    }
+    if (data.length < PAGE) break;
+  }
+  for (const series of Object.keys(bySeries)) {
+    bySeries[series].sort((a, b) => {
+      const r = Number(a.card_register) - Number(b.card_register);
+      return r !== 0 ? r : Number(a.card_number) - Number(b.card_number);
+    });
+  }
+  return bySeries;
+}
+
 // WhatsApp delivery health for a patient's own profile (10 Sep 2026) — a
 // per-patient view over whatsapp_log's delivered_at/read_at/
 // delivery_failed_at columns (added in 0048_whatsapp_delivery_tracking.sql).

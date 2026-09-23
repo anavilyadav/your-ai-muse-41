@@ -26,6 +26,7 @@ import { Route as DoctorIndexRouteImport } from './routes/doctor.index'
 import { Route as DoctorComplaintsRouteImport } from './routes/doctor.complaints'
 import { Route as OwnerIndexRouteImport } from './routes/owner.index'
 import { Route as OwnerAuditLogRouteImport } from './routes/owner.audit-log'
+import { Route as OwnerCardIndexRouteImport } from './routes/owner.card-index'
 import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
 import { Route as OwnerDataQualityRouteImport } from './routes/owner.data-quality'
@@ -139,6 +140,11 @@ const OwnerIndexRoute = OwnerIndexRouteImport.update({
 const OwnerAuditLogRoute = OwnerAuditLogRouteImport.update({
   id: '/owner/audit-log',
   path: '/owner/audit-log',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerCardIndexRoute = OwnerCardIndexRouteImport.update({
+  id: '/owner/card-index',
+  path: '/owner/card-index',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerCaseTrackingRoute = OwnerCaseTrackingRouteImport.update({
@@ -303,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRoute
   '/doctor/complaints': typeof DoctorComplaintsRoute
   '/owner/audit-log': typeof OwnerAuditLogRoute
+  '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
@@ -351,6 +358,7 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksRoute
   '/doctor/complaints': typeof DoctorComplaintsRoute
   '/owner/audit-log': typeof OwnerAuditLogRoute
+  '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
@@ -400,6 +408,7 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRoute
   '/doctor/complaints': typeof DoctorComplaintsRoute
   '/owner/audit-log': typeof OwnerAuditLogRoute
+  '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
@@ -450,6 +459,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/doctor/complaints'
     | '/owner/audit-log'
+    | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
@@ -498,6 +508,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/doctor/complaints'
     | '/owner/audit-log'
+    | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
@@ -546,6 +557,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/doctor/complaints'
     | '/owner/audit-log'
+    | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
     | '/owner/data-quality'
@@ -595,6 +607,7 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   DoctorComplaintsRoute: typeof DoctorComplaintsRoute
   OwnerAuditLogRoute: typeof OwnerAuditLogRoute
+  OwnerCardIndexRoute: typeof OwnerCardIndexRoute
   OwnerCaseTrackingRoute: typeof OwnerCaseTrackingRoute
   OwnerControlRoute: typeof OwnerControlRoute
   OwnerDataQualityRoute: typeof OwnerDataQualityRoute
@@ -747,6 +760,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/audit-log'
       fullPath: '/owner/audit-log'
       preLoaderRoute: typeof OwnerAuditLogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/card-index': {
+      id: '/owner/card-index'
+      path: '/owner/card-index'
+      fullPath: '/owner/card-index'
+      preLoaderRoute: typeof OwnerCardIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/case-tracking': {
@@ -971,6 +991,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   DoctorComplaintsRoute: DoctorComplaintsRoute,
   OwnerAuditLogRoute: OwnerAuditLogRoute,
+  OwnerCardIndexRoute: OwnerCardIndexRoute,
   OwnerCaseTrackingRoute: OwnerCaseTrackingRoute,
   OwnerControlRoute: OwnerControlRoute,
   OwnerDataQualityRoute: OwnerDataQualityRoute,

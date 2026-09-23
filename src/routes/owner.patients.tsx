@@ -39,7 +39,20 @@ function PatientsPage() {
   const hasMore = list.data?.hasMore ?? false;
 
   return (
-    <RoleShell wide title="Master Patient List" subtitle="Sabhi registered patients — sirf Owner ko dikhta hai" showBack>
+    <RoleShell
+      wide
+      title="Master Patient List"
+      subtitle="Sabhi registered patients — sirf Owner ko dikhta hai"
+      showBack
+      right={
+        <Link
+          to="/owner/card-index"
+          className="rounded-full bg-white/15 text-primary-foreground text-[11px] px-3 py-1.5 font-semibold"
+        >
+          Card Index
+        </Link>
+      }
+    >
       <div className="relative">
         <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
