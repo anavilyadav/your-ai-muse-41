@@ -408,6 +408,14 @@ function DataQualityPage() {
               "WhatsApp Confirmed": p.has_distinct_whatsapp ? (p.whatsapp_confirmed ? "Yes" : "No") : "N/A (same as mobile)",
             })), "unconfirmed_numbers.csv")}
           >
+            {r.unconfirmed_numbers_total > 3 && (
+              <Link
+                to="/owner/fix-unconfirmed"
+                className="block w-full text-center rounded-lg bg-primary text-primary-foreground py-2 text-[12px] font-bold"
+              >
+                Bulk mein confirm karo ({r.unconfirmed_numbers_total}) →
+              </Link>
+            )}
             {applySort(r.unconfirmed_numbers, (p) => p).map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2">
                 <PatientChip p={p} />

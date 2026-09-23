@@ -33,6 +33,7 @@ import { Route as OwnerDataQualityRouteImport } from './routes/owner.data-qualit
 import { Route as OwnerFixCardsRouteImport } from './routes/owner.fix-cards'
 import { Route as OwnerFixNamesRouteImport } from './routes/owner.fix-names'
 import { Route as OwnerFixSharedMobilesRouteImport } from './routes/owner.fix-shared-mobiles'
+import { Route as OwnerFixUnconfirmedRouteImport } from './routes/owner.fix-unconfirmed'
 import { Route as OwnerFollowupRulesRouteImport } from './routes/owner.followup-rules'
 import { Route as OwnerHealthRouteImport } from './routes/owner.health'
 import { Route as OwnerHolidaysRouteImport } from './routes/owner.holidays'
@@ -178,6 +179,11 @@ const OwnerFixNamesRoute = OwnerFixNamesRouteImport.update({
 const OwnerFixSharedMobilesRoute = OwnerFixSharedMobilesRouteImport.update({
   id: '/owner/fix-shared-mobiles',
   path: '/owner/fix-shared-mobiles',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerFixUnconfirmedRoute = OwnerFixUnconfirmedRouteImport.update({
+  id: '/owner/fix-unconfirmed',
+  path: '/owner/fix-unconfirmed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerFollowupRulesRoute = OwnerFollowupRulesRouteImport.update({
@@ -334,6 +340,7 @@ export interface FileRoutesByFullPath {
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
+  '/owner/fix-unconfirmed': typeof OwnerFixUnconfirmedRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -386,6 +393,7 @@ export interface FileRoutesByTo {
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
+  '/owner/fix-unconfirmed': typeof OwnerFixUnconfirmedRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -439,6 +447,7 @@ export interface FileRoutesById {
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
   '/owner/fix-shared-mobiles': typeof OwnerFixSharedMobilesRoute
+  '/owner/fix-unconfirmed': typeof OwnerFixUnconfirmedRoute
   '/owner/followup-rules': typeof OwnerFollowupRulesRoute
   '/owner/health': typeof OwnerHealthRoute
   '/owner/holidays': typeof OwnerHolidaysRoute
@@ -493,6 +502,7 @@ export interface FileRouteTypes {
     | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
+    | '/owner/fix-unconfirmed'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -545,6 +555,7 @@ export interface FileRouteTypes {
     | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
+    | '/owner/fix-unconfirmed'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -597,6 +608,7 @@ export interface FileRouteTypes {
     | '/owner/fix-cards'
     | '/owner/fix-names'
     | '/owner/fix-shared-mobiles'
+    | '/owner/fix-unconfirmed'
     | '/owner/followup-rules'
     | '/owner/health'
     | '/owner/holidays'
@@ -650,6 +662,7 @@ export interface RootRouteChildren {
   OwnerFixCardsRoute: typeof OwnerFixCardsRoute
   OwnerFixNamesRoute: typeof OwnerFixNamesRoute
   OwnerFixSharedMobilesRoute: typeof OwnerFixSharedMobilesRoute
+  OwnerFixUnconfirmedRoute: typeof OwnerFixUnconfirmedRoute
   OwnerFollowupRulesRoute: typeof OwnerFollowupRulesRoute
   OwnerHealthRoute: typeof OwnerHealthRoute
   OwnerHolidaysRoute: typeof OwnerHolidaysRoute
@@ -848,6 +861,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/fix-shared-mobiles'
       fullPath: '/owner/fix-shared-mobiles'
       preLoaderRoute: typeof OwnerFixSharedMobilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/fix-unconfirmed': {
+      id: '/owner/fix-unconfirmed'
+      path: '/owner/fix-unconfirmed'
+      fullPath: '/owner/fix-unconfirmed'
+      preLoaderRoute: typeof OwnerFixUnconfirmedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/followup-rules': {
@@ -1058,6 +1078,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerFixCardsRoute: OwnerFixCardsRoute,
   OwnerFixNamesRoute: OwnerFixNamesRoute,
   OwnerFixSharedMobilesRoute: OwnerFixSharedMobilesRoute,
+  OwnerFixUnconfirmedRoute: OwnerFixUnconfirmedRoute,
   OwnerFollowupRulesRoute: OwnerFollowupRulesRoute,
   OwnerHealthRoute: OwnerHealthRoute,
   OwnerHolidaysRoute: OwnerHolidaysRoute,
