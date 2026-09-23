@@ -5,7 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -162,9 +162,17 @@ function RegisterPage() {
   });
   const effectiveVisitDate = dateMode === "manual" && manualDate ? manualDate : undefined;
 
-  const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null } | null>(null);
+  const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null; card_series: string | null; card_register: string | null; card_number: string | null } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
-  const [familyRelationship, setFamilyRelationship] = useState(RELATIONSHIPS[0]);
+  // Not pre-selected (was RELATIONSHIPS[0] = "Husband") — a plain mobile
+  // match used to silently link every new registration as "Husband" of
+  // whoever already used that number unless staff actively noticed and
+  // changed it. Breaks hard for the free specially-abled-children camp,
+  // where one shared/organizer mobile number legitimately belongs to many
+  // unrelated patients — found live 23 Sep 2026 (Dr. Yadav: "mobile number
+  // se galat patient aa raha hai"). Now null = no family link unless staff
+  // explicitly picks a relationship.
+  const [familyRelationship, setFamilyRelationship] = useState<string | null>(null);
   const [customFamilyRelationship, setCustomFamilyRelationship] = useState("");
 
   // Inline payment collection at registration (Dr. Yadav, 13 Aug 2026) —
@@ -229,7 +237,7 @@ function RegisterPage() {
         const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
         setDupWarn(isDup);
         setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
-        setFamilyRelationship(RELATIONSHIPS[0]);
+        setFamilyRelationship(null);
       } catch {
         // RF-09: this used to fail open silently (no error check → treated
         // as "not a duplicate"). There's no DB-level unique constraint on
@@ -375,7 +383,7 @@ function RegisterPage() {
         paymentAmount: amountToCollect,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
-      if (existingPatient) {
+      if (existingPatient && familyRelationship) {
         const finalRelationship = familyRelationship === "Other" ? customFamilyRelationship.trim() || "Other" : familyRelationship;
         try {
           const linkRes = await linkFamilyMember(existingPatient.id, patient.id, finalRelationship);
@@ -423,7 +431,7 @@ function RegisterPage() {
                   idempotency_key: paymentIdempotencyKey,
                 }
               : null,
-            familyLink: existingPatient ? { existingPatientId: existingPatient.id, relationship: finalRelationship } : null,
+            familyLink: existingPatient && familyRelationship ? { existingPatientId: existingPatient.id, relationship: finalRelationship } : null,
           },
           `Registration — ${f.name.trim()}`,
         );
@@ -658,13 +666,20 @@ function RegisterPage() {
 
         {existingPatient && (
           <div className="rounded-xl bg-accent/15 border border-accent p-3">
-            <p className="text-xs font-semibold text-primary">
-              {existingPatient.name} is number se already registered hai ({existingPatient.patient_code ?? "—"})
+            <p className="text-xs font-semibold text-primary flex items-center gap-1.5 flex-wrap">
+              {existingPatient.name} is number se already registered hai
+              {formatCardNumber(existingPatient.card_series, existingPatient.card_register, existingPatient.card_number) && (
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
+                  Card: {formatCardNumber(existingPatient.card_series, existingPatient.card_register, existingPatient.card_number)}
+                </span>
+              )}
+              <span className="text-[10px] font-normal text-muted-foreground">({existingPatient.patient_code ?? "—"})</span>
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Agar {existingPatient.name} khud aaye hain to inko check-in karo. Agar koi aur hai — family member jo isi
-              number use karta hai — to bas neeche form bharte raho, naya register ho jayega aur dono ka family group
-              bhi yahin ban jayega.
+              Agar {existingPatient.name} khud aaye hain to inko check-in karo. Agar family member hai jo isi number
+              use karta hai, to neeche relation batao. <b>Agar bilkul alag/anjaan patient hai — sirf number match hua
+              hai (jaise camp ke patients ek hi number share karte hain) — to koi relation select mat karo, bas form
+              bharte raho, alag patient hi banega, family link nahi.</b>
             </p>
 
             {/* Same f.caseChannel the new-registration "Case Type" section
@@ -712,6 +727,18 @@ function RegisterPage() {
                 Ya, {existingPatient.name} ke family member ka naya registration ho raha hai — relation batao:
               </p>
               <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFamilyRelationship(null)}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-[11px] font-semibold border",
+                    familyRelationship === null
+                      ? "bg-destructive text-destructive-foreground border-destructive"
+                      : "bg-surface border-border text-muted-foreground",
+                  )}
+                >
+                  Alag/Anjaan Patient (link na karo)
+                </button>
                 {RELATIONSHIPS.map((r) => (
                   <button
                     key={r}

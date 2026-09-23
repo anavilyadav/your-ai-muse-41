@@ -226,10 +226,10 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string,
 // for them (no duplicate patient record), and since they've now actually
 // walked in, resolve any pending follow-ups for them automatically so
 // reminders don't keep going out to someone who's already here.
-export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{ id: string; name: string; patient_code: string | null } | null> {
+export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{ id: string; name: string; patient_code: string | null; card_series: string | null; card_register: string | null; card_number: string | null } | null> {
   const { data, error } = await supabase
     .from("patients")
-    .select("id, name, patient_code")
+    .select("id, name, patient_code, card_series, card_register, card_number")
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode)
     .eq("is_deleted", false)

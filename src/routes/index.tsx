@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, branchLabel, statusLabel, normalizeBranchKey } from "@/lib/db";
+import { fetchTodayQueue, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -190,8 +190,13 @@ function QueuePage() {
                     <div className="text-sm font-bold leading-tight">{r.token_number ?? "—"}</div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="truncate font-semibold text-sm text-primary">{r.patient?.name ?? "Unknown"}</p>
+                      {formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number) && (
+                        <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
+                          {formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number)}
+                        </span>
+                      )}
                       <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{r.chief_complaint || "—"}</p>
