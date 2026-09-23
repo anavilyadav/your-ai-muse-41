@@ -62,10 +62,12 @@ const countryCodes = [
 
 function LinkFamilyModal({
   patientId,
+  patientName,
   onClose,
   onLinked,
 }: {
   patientId: string;
+  patientName: string;
   onClose: () => void;
   onLinked: () => void;
 }) {
@@ -73,7 +75,10 @@ function LinkFamilyModal({
   const debouncedQ = useDebouncedValue(q, 300);
   const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
-  const [relationship, setRelationship] = useState(RELATIONSHIPS[0]);
+  // Not pre-selected — see register.tsx's identical fix (Dr. Yadav, 23 Sep
+  // 2026): a pre-highlighted "Husband" here risked the same silent-wrong-
+  // relationship submit if staff didn't notice/change it before saving.
+  const [relationship, setRelationship] = useState<string | null>(null);
   const [customRelationship, setCustomRelationship] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -86,6 +91,7 @@ function LinkFamilyModal({
 
   const submit = async () => {
     if (!selected) { toast.error("Pehle patient select karo"); return; }
+    if (!relationship) { toast.error("Relation batao pehle"); return; }
     const finalRelationship = relationship === "Other" ? customRelationship.trim() || "Other" : relationship;
     setSaving(true);
     const res = await linkFamilyMember(patientId, selected.id, finalRelationship);
@@ -129,7 +135,9 @@ function LinkFamilyModal({
             )}
           </div>
           <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Yeh patient family mein kaun hai?</label>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">
+              {selected ? selected.name : "Jo patient upar select karoge, wo"} , {patientName} ka <u>KYA LAGTA HAI</u>?
+            </label>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {RELATIONSHIPS.map((r) => (
                 <button
@@ -151,6 +159,12 @@ function LinkFamilyModal({
                 placeholder="Relation likho (e.g. Bahnoi, Sasural)"
                 className="w-full mt-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
               />
+            )}
+            {selected && relationship && (
+              <p className="text-[11px] mt-2 rounded-lg bg-primary/10 border border-primary/30 px-2 py-1.5 text-primary font-semibold">
+                ✓ {selected.name} , {patientName} ka{" "}
+                <b>{relationship === "Other" ? customRelationship.trim() || "Other" : relationship}</b> hai.
+              </p>
             )}
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
@@ -478,9 +492,9 @@ function EditContactModal({
               <select
                 value={countryCode}
                 onChange={(e) => { setCountryCode(e.target.value); setMobile(""); setDupWarn(false); }}
-                className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+                className="w-[118px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
               >
-                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.label}</option>)}
               </select>
               <input
                 inputMode="numeric"
@@ -518,9 +532,9 @@ function EditContactModal({
                   <select
                     value={waCountryCode}
                     onChange={(e) => setWaCountryCode(e.target.value)}
-                    className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
+                    className="w-[118px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs"
                   >
-                    {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+                    {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.label}</option>)}
                   </select>
                   <input
                     inputMode="numeric"
@@ -865,7 +879,7 @@ function PatientProfilePage() {
   return (
     <MobileShell title={patient.name} subtitle={patient.patient_code ?? patient.id.slice(0, 8)} showBack>
       {showLinkModal && (
-        <LinkFamilyModal patientId={id} onClose={() => setShowLinkModal(false)} onLinked={reload} />
+        <LinkFamilyModal patientId={id} patientName={patient.name} onClose={() => setShowLinkModal(false)} onLinked={reload} />
       )}
       {showUploadModal && (
         <UploadDocumentModal patientId={id} onClose={() => setShowUploadModal(false)} onUploaded={reload} />

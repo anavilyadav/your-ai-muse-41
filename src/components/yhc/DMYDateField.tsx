@@ -87,6 +87,13 @@ export function DMYDateField({
     setYear(nextYear);
     if (clampedDay && nextMonth && nextYear) {
       onChange(toISO(clampedDay, nextMonth, nextYear));
+    } else if (!clampedDay && !nextMonth && !nextYear) {
+      // Resetting all three dropdowns back to their blank placeholder used
+      // to do nothing — onChange only ever fired once a FULL date was
+      // picked, never on a reset, so a wrongly-entered DOB/Anniversary
+      // (Owner: "staff ne apne mann se likh di, hataani ho to hata nahi
+      // sakta") could never actually be cleared back to empty from here.
+      onChange("");
     }
   };
 

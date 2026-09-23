@@ -633,9 +633,9 @@ function RegisterPage() {
             <select
               value={f.countryCode}
               onChange={(e) => { set("countryCode", e.target.value as typeof f.countryCode); set("mobile", ""); setDupWarn(false); }}
-              className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-[118px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+              {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.label}</option>)}
             </select>
             <Field
               inputMode="numeric"
@@ -793,9 +793,9 @@ function RegisterPage() {
               <select
                 value={f.waCountryCode}
                 onChange={(e) => set("waCountryCode", e.target.value as typeof f.waCountryCode)}
-                className="w-[92px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-[118px] shrink-0 rounded-lg bg-surface border border-input px-1.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.code}</option>)}
+                {countryCodes.map((c) => <option key={c.code} value={c.code}>{c.code === "other" ? "Other" : c.label}</option>)}
               </select>
               <Field
                 inputMode="numeric"
