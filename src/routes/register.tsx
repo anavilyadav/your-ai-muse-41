@@ -34,6 +34,16 @@ registerSubmitter("register", async (payload: any) => {
 });
 
 export const Route = createFileRoute("/register")({
+  // Prefill from Appointments' "Arrived" hand-off (24 Sep 2026) — a
+  // walk-up appointment booked before the patient existed as a real
+  // record has nothing to check in against, so Arrived sends staff here
+  // instead of making them retype the name/mobile that was already
+  // collected at booking time.
+  validateSearch: (search: Record<string, unknown>): { name?: string; mobile?: string; branch?: string } => ({
+    name: typeof search.name === "string" ? search.name : undefined,
+    mobile: typeof search.mobile === "string" ? search.mobile : undefined,
+    branch: typeof search.branch === "string" ? search.branch : undefined,
+  }),
   head: () => ({ meta: [{ title: "Register / Check-in — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="register">
@@ -86,6 +96,7 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 function RegisterPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const qc = useQueryClient();
   const t = useT();
   const { user } = useAuth();
@@ -95,7 +106,7 @@ function RegisterPage() {
   } | null>(null);
 
   const [f, setF] = useState({
-    name: "",
+    name: search.name ?? "",
     mobile: "",
     countryCode: "+91" as (typeof countryCodes)[number]["code"],
     countryCodeCustom: "",
@@ -116,7 +127,7 @@ function RegisterPage() {
     anniversary: "",
     profession: "",
     annualIncome: "",
-    branch: "" as "" | "BAJAJ_NAGAR" | "JAGATPURA",
+    branch: (normalizeBranchKey(search.branch) || "") as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
     // Online-case tracking (Dr. Yadav, 29 Jul 2026)
     caseChannel: "WALK_IN" as "WALK_IN" | "ONLINE",
@@ -253,6 +264,15 @@ function RegisterPage() {
       setExistingPatient(null);
     }
   };
+
+  // Appointments hand-off (24 Sep 2026) — runs the mobile through the
+  // exact same path as if staff had typed it, so the usual duplicate
+  // check/existing-patient box still fires correctly for a walk-up
+  // appointment's number, instead of just silently sitting in the field.
+  useEffect(() => {
+    if (search.mobile) onMobileChange(search.mobile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const checkInInstead = async () => {
     if (!existingPatient) return;

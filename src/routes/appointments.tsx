@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffectiveRole } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
@@ -12,6 +12,8 @@ import {
   fetchAppointments,
   createAppointment,
   updateAppointmentStatus,
+  checkInExistingPatient,
+  normalizeBranchKey,
   searchPatients,
   fetchSlotAvailability,
   fetchSlotConfig,
@@ -444,6 +446,7 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
 function AppointmentsPage() {
   const role = useEffectiveRole();
   const isOwner = role === "OWNER";
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(today());
   // Was previously fetchAppointments() with no date at all — pulled every
   // appointment ever booked (past + future, unbounded) despite the page
@@ -477,26 +480,61 @@ function AppointmentsPage() {
     const res = await updateAppointmentStatus(a.id, status);
     if (res.success) {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
-      if (status === "Arrived") {
-        toast.success(`${a.patient_name} marked arrived`);
-      } else {
-        toast.error(`${a.patient_name} cancelled`, {
-          action: {
-            label: "Undo",
-            onClick: async () => {
-              const undoRes = await updateAppointmentStatus(a.id, previousStatus);
-              if (undoRes.success) {
-                queryClient.invalidateQueries({ queryKey: ["appointments"] });
-                toast.success("Cancel undo ho gaya");
-              } else {
-                toast.error("Undo nahi hua: " + undoRes.error);
-              }
-            },
+      toast.error(`${a.patient_name} cancelled`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            const undoRes = await updateAppointmentStatus(a.id, previousStatus);
+            if (undoRes.success) {
+              queryClient.invalidateQueries({ queryKey: ["appointments"] });
+              toast.success("Cancel undo ho gaya");
+            } else {
+              toast.error("Undo nahi hua: " + undoRes.error);
+            }
           },
-        });
-      }
+        },
+      });
     } else {
       toast.error("Update nahi hua: " + res.error);
+    }
+  };
+
+  // "Arrived" used to just flip a status column on the appointment row —
+  // completely disconnected from the real queue. Reception would mark
+  // someone Arrived here, then separately walk over to Register and redo
+  // the whole check-in from scratch (re-searching the same mobile,
+  // re-entering the same name) — the exact "dono alag alag same hi kaam
+  // kar rahe hai" duplicate-work complaint (Dr. Yadav, 24 Sep 2026). Now
+  // Arrived actually performs the check-in: for an appointment booked
+  // against a real patient record, it creates the token right here; for
+  // one booked before the patient existed (walk-up new-case booking),
+  // it hands off to Register pre-filled with what's already known so
+  // staff isn't retyping the name/mobile a second time.
+  const markArrived = async (a: any) => {
+    const res = await updateAppointmentStatus(a.id, "Arrived");
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    queryClient.invalidateQueries({ queryKey: ["appointments"] });
+
+    if (a.patient_id) {
+      const branch = normalizeBranchKey(a.branch) || "BAJAJ_NAGAR";
+      try {
+        const { visit } = await checkInExistingPatient({
+          patient_id: a.patient_id,
+          branch: branch as "BAJAJ_NAGAR" | "JAGATPURA",
+          chief_complaint: a.reason || undefined,
+          case_channel: "WALK_IN",
+        });
+        queryClient.invalidateQueries({ queryKey: ["today-queue"] });
+        toast.success(`${a.patient_name} check-in ho gaya — Token ${visit.token_number}`);
+      } catch (e: any) {
+        toast.warning(`${a.patient_name} arrived mark ho gaya, par check-in nahi hua: ${e?.message ?? e} — Register se manually check-in karo`);
+      }
+    } else {
+      toast.success(`${a.patient_name} arrived — registration poora karo`);
+      navigate({
+        to: "/register",
+        search: { name: a.patient_name ?? "", mobile: a.mobile ?? "", branch: normalizeBranchKey(a.branch) || "" },
+      });
     }
   };
 
@@ -635,7 +673,7 @@ function AppointmentsPage() {
                   <MessageCircle className="h-3 w-3" /> WA
                 </a>
                 <button
-                  onClick={() => setStatus(a, "Arrived")}
+                  onClick={() => markArrived(a)}
                   className="rounded-lg bg-primary text-primary-foreground py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
                   <CheckCircle2 className="h-3 w-3" /> Arrived
