@@ -34,6 +34,7 @@ import {
   fetchInteractions,
   uploadPatientPhoto,
   resolveComplaint,
+  createManualFollowup,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
@@ -154,6 +155,98 @@ function LinkFamilyModal({
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Linking…" : "Link Family Member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Manual follow-up (23 Sep 2026) — Search → Patient Profile had no way to
+// schedule a follow-up for a patient directly; the only path that ever
+// created one was automatically off a prescription's next_visit_date.
+// Dr. Yadav: "wahan se option nahi aa raha uska follow up add karne ka."
+function AddFollowupModal({
+  patientId,
+  branch,
+  onClose,
+  onAdded,
+}: {
+  patientId: string;
+  branch: string;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [channel, setChannel] = useState<"CALL" | "WHATSAPP">("CALL");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!dueDate) { toast.error("Date chuno"); return; }
+    setSaving(true);
+    try {
+      await createManualFollowup({ patient_id: patientId, branch, due_date: dueDate, channel, notes: note });
+      toast.success("Follow-up add ho gaya");
+      onAdded();
+      onClose();
+    } catch (e: any) {
+      toast.error("Follow-up add nahi hua: " + (e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Follow-up Add Karo</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Kab follow-up karna hai</label>
+            <input
+              type="date"
+              value={dueDate}
+              min={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Kaise contact karna hai</label>
+            <div className="flex gap-1.5 mt-1">
+              {(["CALL", "WHATSAPP"] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setChannel(c)}
+                  className={cn(
+                    "flex-1 rounded-lg px-2.5 py-2 text-xs font-semibold border",
+                    channel === c ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
+                  )}
+                >
+                  {c === "CALL" ? "Call" : "WhatsApp"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Note (optional)</label>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Medicine khatam hone wali hai"
+              className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+          </div>
+          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Save ho raha hai…" : "Follow-up Add Karo"}
           </button>
         </div>
       </div>
@@ -648,6 +741,7 @@ function PatientProfilePage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [showFollowupModal, setShowFollowupModal] = useState(false);
   const [waHealth, setWaHealth] = useState<WhatsAppDeliveryHealth | null>(null);
 
   const reload = async () => {
@@ -782,6 +876,9 @@ function PatientProfilePage() {
       {showLogModal && (
         <LogInteractionModal patientId={id} onClose={() => setShowLogModal(false)} onLogged={reload} />
       )}
+      {showFollowupModal && (
+        <AddFollowupModal patientId={id} branch={patient.branch} onClose={() => setShowFollowupModal(false)} onAdded={reload} />
+      )}
       {showMergeModal && isOwner && (
         <MergePatientModal
           patientId={id}
@@ -827,15 +924,28 @@ function PatientProfilePage() {
             <Pencil className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           <a href={`tel:+${(patient.mobile_country_code || "+91").replace(/\D/g, "")}${patient.mobile}`} className="rounded-lg bg-success text-success-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <PhoneCall className="h-3.5 w-3.5" /> Call
           </a>
           <a href={`https://wa.me/${patientWaMeNumber(patient)}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
             <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
           </a>
+          <button onClick={() => setShowFollowupModal(true)} className="rounded-lg bg-primary-foreground/15 text-primary-foreground py-2 text-xs font-bold inline-flex items-center justify-center gap-1">
+            <Calendar className="h-3.5 w-3.5" /> Follow-up
+          </button>
         </div>
       </div>
+
+      {(!patient.address || !patient.city || !patient.dob || !patient.profession) && (
+        <button
+          onClick={() => setShowEditModal(true)}
+          className="mt-3 w-full rounded-xl bg-accent/15 border border-accent p-2.5 text-left text-[11px] text-primary font-semibold flex items-center gap-2"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-accent-foreground" />
+          Iski kuch details (address/city/DOB/profession) missing hain — tap karke bharo
+        </button>
+      )}
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <Stat icon={Calendar} label="Visits" value={String(patient.lifetime_visits ?? visits.length)} />

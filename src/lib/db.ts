@@ -1795,6 +1795,34 @@ export async function reopenFollowup(id: string) {
   if (error) throw error;
 }
 
+// Manual follow-up (23 Sep 2026) — until now the ONLY way a followups row
+// got created was automatically off a prescription's next_visit_date
+// (generateFollowupSchedule). Reception had no way to schedule one for a
+// patient directly — found live via Search → Patient Profile, no option
+// there to add a follow-up at all. `visit_id` deliberately null (not tied
+// to any specific past visit) — the Follow-up CRM's own query
+// (fetchFollowups) never joins on visits, so this shows up there exactly
+// like an auto-generated one.
+export async function createManualFollowup(input: {
+  patient_id: string;
+  branch: string;
+  due_date: string;
+  followup_type?: string;
+  channel?: "CALL" | "WHATSAPP";
+  notes?: string;
+}) {
+  const { error } = await supabase.from("followups").insert({
+    patient_id: input.patient_id,
+    branch: input.branch,
+    due_date: input.due_date,
+    followup_type: input.followup_type?.trim() || "MANUAL",
+    channel: input.channel ?? "CALL",
+    notes: input.notes?.trim() || null,
+    status: "PENDING",
+  });
+  if (error) throw error;
+}
+
 // ---------- Leads ----------
 // ---------- Call + WhatsApp interaction timeline ----------
 // Shared by Lead CRM and Follow-up CRM. Whoever picks up the phone next —
