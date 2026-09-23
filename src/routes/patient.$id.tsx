@@ -35,6 +35,8 @@ import {
   uploadPatientPhoto,
   resolveComplaint,
   createManualFollowup,
+  isDuplicateCardNumber,
+  savePatientCardNumber,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
@@ -407,8 +409,23 @@ function EditContactModal({
   const [anniversary, setAnniversary] = useState(patient.anniversary_date || "");
   const [profession, setProfession] = useState(patient.profession || "");
   const [annualIncome, setAnnualIncome] = useState(patient.annual_income != null ? String(patient.annual_income) : "");
+  const [cardSeries, setCardSeries] = useState(patient.card_series || "");
+  const [cardRegister, setCardRegister] = useState(patient.card_register || "");
+  const [cardNumber, setCardNumber] = useState(patient.card_number || "");
+  const [dupCardWarn, setDupCardWarn] = useState(false);
   const [dupWarn, setDupWarn] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const checkDupCard = async (series: string, register: string, number: string) => {
+    if (series.trim() && register.trim() && number.trim()) {
+      setDupCardWarn(await isDuplicateCardNumber(series, register, number, patient.id));
+    } else {
+      setDupCardWarn(false);
+    }
+  };
+  const onCardSeriesChange = (v: string) => { setCardSeries(v); checkDupCard(v, cardRegister, cardNumber); };
+  const onCardRegisterChange = (v: string) => { setCardRegister(v); checkDupCard(cardSeries, v, cardNumber); };
+  const onCardNumberChange = (v: string) => { setCardNumber(v); checkDupCard(cardSeries, cardRegister, v); };
 
   const effectiveCC = countryCode === "other" ? countryCodeCustom.trim() || "+" : countryCode;
   const effectiveWaCC = waCountryCode === "other" ? waCountryCodeCustom.trim() || "+" : waCountryCode;
@@ -442,6 +459,7 @@ function EditContactModal({
     if (!name.trim()) { toast.error("Naam khaali nahi ho sakta"); return; }
     if (mobile.length < minLen) { toast.error("Mobile number check karo"); return; }
     if (dupWarn) { toast.error("Ye number kisi aur patient ke paas already hai"); return; }
+    if (dupCardWarn) { toast.error("Ye card number kisi aur patient ke paas already hai"); return; }
     setSaving(true);
     const res = await updatePatientContactInfo(patient.id, {
       name: name.trim(),
@@ -461,6 +479,13 @@ function EditContactModal({
       profession: profession.trim() || null,
       annual_income: annualIncome ? Number(annualIncome) : null,
     });
+    // Card number lives in a separate save (savePatientCardNumber) — same
+    // split the Case-Taking form already uses, not folded into
+    // updatePatientContactInfo's field set.
+    if (res.success && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
+      const cardRes = await savePatientCardNumber(patient.id, cardSeries, cardRegister, cardNumber);
+      if (!cardRes.success) toast.warning("Baaki details save ho gayi, par card number save nahi hua: " + cardRes.error);
+    }
     setSaving(false);
     if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
     toast.success("Details update ho gayi");
@@ -587,6 +612,44 @@ function EditContactModal({
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Annual Income (₹)</label>
               <input inputMode="numeric" value={annualIncome} onChange={(e) => setAnnualIncome(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
             </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Card Number</label>
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <input
+                placeholder="Series (e.g. B)"
+                value={cardSeries}
+                maxLength={2}
+                onChange={(e) => onCardSeriesChange(e.target.value.toUpperCase())}
+                className={cn(
+                  "rounded-lg bg-surface border px-3 py-2.5 text-sm uppercase",
+                  dupCardWarn ? "border-destructive" : "border-input",
+                )}
+              />
+              <input
+                placeholder="Register no."
+                value={cardRegister}
+                onChange={(e) => onCardRegisterChange(e.target.value)}
+                className={cn(
+                  "rounded-lg bg-surface border px-3 py-2.5 text-sm",
+                  dupCardWarn ? "border-destructive" : "border-input",
+                )}
+              />
+              <input
+                placeholder="Card no."
+                value={cardNumber}
+                onChange={(e) => onCardNumberChange(e.target.value)}
+                className={cn(
+                  "rounded-lg bg-surface border px-3 py-2.5 text-sm",
+                  dupCardWarn ? "border-destructive" : "border-input",
+                )}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Series-Register-Card, e.g. B-10-12</p>
+            {dupCardWarn && (
+              <p className="text-[11px] text-destructive mt-1.5">⚠ Ye card number isi series/register mein kisi aur patient ke paas hai</p>
+            )}
           </div>
 
           <button
