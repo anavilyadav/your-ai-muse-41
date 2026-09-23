@@ -5616,6 +5616,35 @@ export async function fetchDataQualityReport(): Promise<DataQualityReport> {
   return data as DataQualityReport;
 }
 
+// Dismissed shared-mobile groups (23 Sep 2026) — Dr. Yadav's free camp has
+// many genuinely unrelated patients sharing one organizer/family phone;
+// "shared_mobiles" flags this every time regardless, with no way to say
+// "checked this, not a data error, stop showing it." A plain settings-
+// backed list (not a DB column on patients — this is a review state for a
+// MOBILE NUMBER, not any one patient) that data-quality.tsx filters
+// against client-side. Reversible on purpose: dismissing is a one-tap
+// "not related" while still being able to recheck/undo later, same
+// request that came with this feature.
+const DISMISSED_SHARED_MOBILES_KEY = "dq_dismissed_shared_mobiles";
+
+export async function fetchDismissedSharedMobiles(): Promise<string[]> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", DISMISSED_SHARED_MOBILES_KEY).maybeSingle();
+  if (error) throw dataLoadError(error);
+  if (!data?.value) return [];
+  try {
+    const parsed = JSON.parse(data.value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setSharedMobileDismissed(mobile: string, dismissed: boolean): Promise<void> {
+  const current = await fetchDismissedSharedMobiles();
+  const next = dismissed ? Array.from(new Set([...current, mobile])) : current.filter((m) => m !== mobile);
+  await upsertSetting(DISMISSED_SHARED_MOBILES_KEY, JSON.stringify(next));
+}
+
 // ---------- Patient Documents (general staff upload — follow-up notes, new case notes, reports) ----------
 // Lets Dr. Yadav keep writing on paper; any staff with access to this
 // screen just photographs the page against the right patient. Reuses the

@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, CreditCard, Copy, Phone, Mail, Download, PhoneCall } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, CreditCard, Copy, Phone, Mail, Download, PhoneCall, EyeOff, RotateCcw } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { fetchDataQualityReport, formatCardNumber, type DQPatientRef } from "@/lib/db";
+import { fetchDataQualityReport, fetchDismissedSharedMobiles, setSharedMobileDismissed, formatCardNumber, type DQPatientRef } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/data-quality")({
@@ -91,22 +92,47 @@ function Section({
 }
 
 function DataQualityPage() {
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ["data-quality-report"], queryFn: fetchDataQualityReport });
+  const dismissedQ = useQuery({ queryKey: ["dq-dismissed-shared-mobiles"], queryFn: fetchDismissedSharedMobiles });
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
+  const [dismissing, setDismissing] = useState<string | null>(null);
+
+  const setDismissed = async (mobile: string, dismissed: boolean) => {
+    setDismissing(mobile);
+    try {
+      await setSharedMobileDismissed(mobile, dismissed);
+      await qc.invalidateQueries({ queryKey: ["dq-dismissed-shared-mobiles"] });
+      toast.success(dismissed ? "Ignore kar diya — dubara nahi dikhega, jab chaho recheck kar sakte ho" : "Wapas active list mein aa gaya");
+    } catch (e: any) {
+      toast.error("Save nahi hua: " + (e?.message ?? e));
+    } finally {
+      setDismissing(null);
+    }
+  };
 
   if (q.isLoading) return <RoleShell wide title="Data Quality" nav={OWNER_NAV}><LoadingBlock /></RoleShell>;
   if (q.isError) return <RoleShell wide title="Data Quality" nav={OWNER_NAV}><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></RoleShell>;
 
   const r = q.data!;
+  // Some shared-mobile groups are genuinely unrelated patients (Dr.
+  // Yadav's free camp — many share one organizer/family phone) with
+  // nothing to fix. Dismissing one is reversible — it just moves the
+  // group from the active list into its own "already reviewed" section
+  // below, never deleted, always one tap from coming back.
+  const dismissedSet = new Set(dismissedQ.data ?? []);
+  const activeMobileGroups = r.shared_mobiles.filter((g) => !dismissedSet.has(g.mobile));
+  const dismissedMobileGroups = r.shared_mobiles.filter((g) => dismissedSet.has(g.mobile));
   // Patient-level count, not group count — a shared-mobile "group" of 3
   // patients counts as 3 here, not 1, so this matches what the Owner
   // actually sees when they open each category (avoids the earlier bug
   // where 9 duplicate-mobile GROUPS covering 198 patients was reported as
-  // "9 patient records").
-  const sharedMobilePatients = r.shared_mobiles.reduce((s, g) => s + g.count, 0);
+  // "9 patient records"). Uses activeMobileGroups (not r.shared_mobiles),
+  // so dismissed groups don't inflate "issues found" forever.
+  const sharedMobilePatients = activeMobileGroups.reduce((s, g) => s + g.count, 0);
   const dupCardPatients = r.duplicate_cards.reduce((s, d) => s + d.count, 0);
-  const anyIssues = r.incomplete_names_total > 0 || r.shared_mobiles_total > 0 || r.partial_card_total > 0
+  const anyIssues = r.incomplete_names_total > 0 || activeMobileGroups.length > 0 || r.partial_card_total > 0
     || r.duplicate_cards.length > 0 || r.invalid_mobile_total > 0 || r.invalid_email_total > 0;
 
   return (
@@ -119,7 +145,7 @@ function DataQualityPage() {
         <span className="text-[12px]">
           {!anyIssues
             ? "Koi data-quality mistake nahi mili — abhi ke patients records saaf hain."
-            : `Neeche category-wise list hai — ${r.incomplete_names_total} adhoore naam, ${sharedMobilePatients} patients ek shared mobile number pe (${r.shared_mobiles_total} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe. Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
+            : `Neeche category-wise list hai — ${r.incomplete_names_total} adhoore naam, ${sharedMobilePatients} patients ek shared mobile number pe (${activeMobileGroups.length} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe. Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
         </span>
       </div>
 
@@ -153,14 +179,24 @@ function DataQualityPage() {
 
         <Section
           icon={Users} title="Ek mobile number, kai patients" hint="Family ho sakti hai — ya galat entry, check karo"
-          count={r.shared_mobiles.length} total={r.shared_mobiles_total}
+          count={activeMobileGroups.length} total={activeMobileGroups.length}
           open={!!open.mobiles} onToggle={() => toggle("mobiles")}
-          onExport={() => downloadCSV(r.shared_mobiles.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "shared_mobile_numbers.csv")}
+          onExport={() => downloadCSV(activeMobileGroups.flatMap((g) => g.patients.map((p) => ({ Mobile: g.mobile, Name: p.name, Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" }))), "shared_mobile_numbers.csv")}
         >
-          {r.shared_mobiles.map((g) => (
+          {activeMobileGroups.map((g) => (
             <div key={g.mobile} className="rounded-xl bg-background border border-border p-2.5">
-              <div className="text-[12px] font-bold text-primary mb-1.5 inline-flex items-center gap-1.5">
-                <Phone className="h-3.5 w-3.5" /> {g.mobile} <span className="text-muted-foreground font-normal">({g.count} patients)</span>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="text-[12px] font-bold text-primary inline-flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5" /> {g.mobile} <span className="text-muted-foreground font-normal">({g.count} patients)</span>
+                </div>
+                <button
+                  onClick={() => setDismissed(g.mobile, true)}
+                  disabled={dismissing === g.mobile}
+                  title="Ye log related nahi hain — list se hata do (recheck kar sakte ho baad mein)"
+                  className="shrink-0 inline-flex items-center gap-1 rounded-full bg-muted text-muted-foreground text-[10px] font-bold px-2 py-1 disabled:opacity-60"
+                >
+                  <EyeOff className="h-3 w-3" /> Not related
+                </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {g.patients.map((p) => <PatientChip key={p.id} p={p} />)}
@@ -168,6 +204,43 @@ function DataQualityPage() {
             </div>
           ))}
         </Section>
+
+        {dismissedMobileGroups.length > 0 && (
+          <div className="rounded-2xl bg-surface border border-border overflow-hidden">
+            <button onClick={() => toggle("dismissedMobiles")} className="w-full flex items-center gap-2.5 p-3.5 text-left">
+              <EyeOff className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-bold text-primary">Already reviewed — related nahi hai</div>
+                <div className="text-[11px] text-muted-foreground">Ye groups "Not related" mark kiye ja chuke hain</div>
+              </div>
+              <span className="shrink-0 text-[11px] font-bold text-muted-foreground">{dismissedMobileGroups.length}</span>
+              {open.dismissedMobiles ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+            </button>
+            {open.dismissedMobiles && (
+              <div className="border-t border-border p-3 space-y-2">
+                {dismissedMobileGroups.map((g) => (
+                  <div key={g.mobile} className="rounded-xl bg-background border border-border p-2.5 opacity-75">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="text-[12px] font-bold text-primary inline-flex items-center gap-1.5">
+                        <Phone className="h-3.5 w-3.5" /> {g.mobile} <span className="text-muted-foreground font-normal">({g.count} patients)</span>
+                      </div>
+                      <button
+                        onClick={() => setDismissed(g.mobile, false)}
+                        disabled={dismissing === g.mobile}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-full bg-accent/15 text-primary text-[10px] font-bold px-2 py-1 disabled:opacity-60"
+                      >
+                        <RotateCcw className="h-3 w-3" /> Recheck karo
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {g.patients.map((p) => <PatientChip key={p.id} p={p} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <Section
           icon={CreditCard} title="Adhoora card number" hint="Series/Register/Number teeno bharna zaroori hai"
