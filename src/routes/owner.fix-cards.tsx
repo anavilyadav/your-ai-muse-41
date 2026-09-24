@@ -6,7 +6,7 @@ import { Check, Search, CreditCard } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { SortToggle, type SortMode } from "./owner.data-quality";
+import { SortToggle, applyDirection, type SortMode, type SortDirection } from "./owner.data-quality";
 import {
   fetchDataQualityReport, isDuplicateCardNumber, savePatientCardNumber,
   compareByName, compareByCardNumber, type DQPatientRef,
@@ -113,6 +113,7 @@ function FixCardsPage() {
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const handleSaved = (id: string) => {
     setFixedIds((s) => new Set(s).add(id));
@@ -129,7 +130,7 @@ function FixCardsPage() {
   const filtered = searchLower
     ? all.filter((p) => (p.name ?? "").toLowerCase().includes(searchLower) || (p.patient_code ?? "").toLowerCase().includes(searchLower))
     : all;
-  const sorted = sortMode === "default" ? filtered : [...filtered].sort(sortMode === "name" ? compareByName : compareByCardNumber);
+  const sorted = sortMode === "default" ? (sortDirection === "asc" ? filtered : [...filtered].reverse()) : [...filtered].sort((a, b) => applyDirection((sortMode === "name" ? compareByName : compareByCardNumber)(a, b), sortDirection));
   const visible = sorted.slice(0, visibleCount);
 
   return (
@@ -152,7 +153,7 @@ function FixCardsPage() {
         />
       </div>
 
-      <SortToggle mode={sortMode} onChange={setSortMode} />
+      <SortToggle mode={sortMode} onChange={setSortMode} direction={sortDirection} onDirectionChange={setSortDirection} />
 
       {all.length === 0 ? (
         <div className="rounded-2xl bg-success/10 text-success p-5 text-center text-sm font-semibold">

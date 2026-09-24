@@ -6,7 +6,7 @@ import { Users, Phone, EyeOff, Link2 } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { PatientChip, SortToggle, type SortMode } from "./owner.data-quality";
+import { PatientChip, SortToggle, applyDirection, type SortMode, type SortDirection } from "./owner.data-quality";
 import {
   fetchDataQualityReport, fetchDismissedSharedMobiles, setSharedMobileDismissed,
   linkFamilyMember, compareByName, compareByCardNumber, RELATIONSHIPS, type DQPatientRef,
@@ -145,6 +145,7 @@ function FixSharedMobilesPage() {
   const dismissedQ = useQuery({ queryKey: ["dq-dismissed-shared-mobiles"], queryFn: fetchDismissedSharedMobiles });
   const [resolvedMobiles, setResolvedMobiles] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const handleResolved = (mobile: string) => {
     setResolvedMobiles((s) => new Set(s).add(mobile));
@@ -156,7 +157,9 @@ function FixSharedMobilesPage() {
 
   const dismissedSet = new Set(dismissedQ.data ?? []);
   const groups = (q.data!.shared_mobiles ?? []).filter((g) => !dismissedSet.has(g.mobile) && !resolvedMobiles.has(g.mobile));
-  const sorted = sortMode === "default" ? groups : [...groups].sort((a, b) => (sortMode === "name" ? compareByName : compareByCardNumber)(a.patients[0] ?? {}, b.patients[0] ?? {}));
+  const sorted = sortMode === "default"
+    ? (sortDirection === "asc" ? groups : [...groups].reverse())
+    : [...groups].sort((a, b) => applyDirection((sortMode === "name" ? compareByName : compareByCardNumber)(a.patients[0] ?? {}, b.patients[0] ?? {}), sortDirection));
 
   return (
     <RoleShell wide title="Shared Mobile Review" subtitle={`${groups.length} baaki hain`} nav={OWNER_NAV}>
@@ -168,7 +171,7 @@ function FixSharedMobilesPage() {
         </span>
       </div>
 
-      <SortToggle mode={sortMode} onChange={setSortMode} />
+      <SortToggle mode={sortMode} onChange={setSortMode} direction={sortDirection} onDirectionChange={setSortDirection} />
 
       {groups.length === 0 ? (
         <div className="rounded-2xl bg-success/10 text-success p-5 text-center text-sm font-semibold">

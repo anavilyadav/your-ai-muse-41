@@ -50,14 +50,23 @@ export function PatientChip({ p }: { p: DQPatientRef }) {
 }
 
 // Shared across this page and the bulk review tools (fix-names,
-// fix-shared-mobiles) — Dr. Yadav works through his physical card
-// register books one at a time, so every bulk list needs to be sortable
-// to match ("har jagah" — 23 Sep 2026), not just the default
-// most-recent-first order these all started with.
+// fix-shared-mobiles, fix-cards, fix-unconfirmed) — Dr. Yadav works
+// through his physical card register books one at a time, so every bulk
+// list needs to be sortable to match ("har jagah" — 23 Sep 2026), not
+// just the default most-recent-first order these all started with.
+// Direction toggle added 24 Sep 2026 (Dr. Yadav: "ascending or
+// descending order me bhi chahiye") — applies to every mode, including
+// "Recent" (newest-first vs oldest-first), not just Naam/Card Number.
 export type SortMode = "default" | "name" | "card";
-export function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode) => void }) {
+export type SortDirection = "asc" | "desc";
+export function SortToggle({
+  mode, onChange, direction, onDirectionChange,
+}: {
+  mode: SortMode; onChange: (m: SortMode) => void;
+  direction: SortDirection; onDirectionChange: (d: SortDirection) => void;
+}) {
   return (
-    <div className="flex items-center gap-1.5 mb-3">
+    <div className="flex items-center gap-1.5 mb-3 flex-wrap">
       <span className="text-[11px] font-bold text-muted-foreground mr-0.5">Sort:</span>
       {(["default", "name", "card"] as const).map((m) => (
         <button
@@ -71,8 +80,21 @@ export function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: S
           {m === "default" ? "Recent" : m === "name" ? "Naam" : "Card Number"}
         </button>
       ))}
+      <button
+        onClick={() => onDirectionChange(direction === "asc" ? "desc" : "asc")}
+        title={direction === "asc" ? "Ascending (A→Z, chhota→bada)" : "Descending (Z→A, bada→chhota)"}
+        className="rounded-full px-3 py-1.5 text-[11px] font-bold border bg-surface border-border text-muted-foreground inline-flex items-center gap-1"
+      >
+        {direction === "asc" ? "↑ Ascending" : "↓ Descending"}
+      </button>
     </div>
   );
+}
+
+// Reverses a comparator's result for descending order — used everywhere
+// SortToggle's direction is threaded into an actual .sort() call.
+export function applyDirection(cmp: number, direction: SortDirection): number {
+  return direction === "asc" ? cmp : -cmp;
 }
 
 function Section({
@@ -125,15 +147,16 @@ function DataQualityPage() {
   const toggle = (k: string) => setOpen((s) => ({ ...s, [k]: !s[k] }));
   const [dismissing, setDismissing] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   // Every list on this page is a different shape (plain patients, or
   // groups with their own card fields, or groups keyed by name) — keyFn
   // picks out the {name, card_series, card_register, card_number} to sort
   // each item BY, so one sort control (and one pair of comparators) covers
   // every section instead of each needing its own.
   const applySort = <T,>(list: T[], keyFn: (item: T) => { name?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null }): T[] => {
-    if (sortMode === "default") return list;
+    if (sortMode === "default") return sortDirection === "asc" ? list : [...list].reverse();
     const cmp = sortMode === "name" ? compareByName : compareByCardNumber;
-    return [...list].sort((a, b) => cmp(keyFn(a), keyFn(b)));
+    return [...list].sort((a, b) => applyDirection(cmp(keyFn(a), keyFn(b)), sortDirection));
   };
 
   const setDismissed = async (mobile: string, dismissed: boolean) => {
@@ -200,7 +223,7 @@ function DataQualityPage() {
         </button>
       </div>
 
-      <SortToggle mode={sortMode} onChange={setSortMode} />
+      <SortToggle mode={sortMode} onChange={setSortMode} direction={sortDirection} onDirectionChange={setSortDirection} />
 
       <div className="space-y-2.5">
         <Section
