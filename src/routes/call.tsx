@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import {
   searchPatients,
   fetchStaff,
+  fetchPatientById,
   fetchOnlineFollowupRequests,
   createOnlineFollowupRequest,
   cancelOnlineFollowupRequest,
@@ -31,6 +32,7 @@ import {
   type OnlineFollowupRequest,
   type PatientAddress,
   type ApptBranch,
+  type DBPatient,
 } from "@/lib/db";
 import { NewAppointmentModal } from "./appointments";
 import { AddLeadModal } from "./leads";
@@ -43,6 +45,13 @@ import { AddLeadModal } from "./leads";
 // Pharmacy each keep their own queue) — only the START of the work is
 // unified here.
 export const Route = createFileRoute("/call")({
+  // Search hand-off (25 Sep 2026) — Dr. Yadav: patient search-karke milne
+  // ke baad seedha follow-up/online follow-up banane ka koi tarika nahi
+  // tha. search.tsx now links here with the patient already picked, same
+  // prefill pattern as Appointments' "Arrived" hand-off to /register.
+  validateSearch: (search: Record<string, unknown>): { patientId?: string } => ({
+    patientId: typeof search.patientId === "string" ? search.patientId : undefined,
+  }),
   head: () => ({ meta: [{ title: "Call Desk — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="callDesk">
@@ -59,12 +68,24 @@ const DELIVERY_METHOD_LABELS: Record<OnlineFollowupDeliveryMethod, string> = {
 
 function CallDeskPage() {
   const { user } = useAuth();
+  const search = Route.useSearch();
   const qc = useQueryClient();
   const [showAppt, setShowAppt] = useState(false);
   const [showOnlineFollowup, setShowOnlineFollowup] = useState(false);
   const [showComplaint, setShowComplaint] = useState(false);
   const [showLead, setShowLead] = useState(false);
   const [confirmingRequest, setConfirmingRequest] = useState<OnlineFollowupRequest | null>(null);
+  const [prefilledPatient, setPrefilledPatient] = useState<DBPatient | null>(null);
+
+  // Search hand-off — a patientId in the URL (from search.tsx's "Online
+  // Follow-up" quick action) opens the request modal already pointed at
+  // that patient, skipping the redundant re-search inside the modal.
+  useEffect(() => {
+    if (!search.patientId) return;
+    fetchPatientById(search.patientId).then((p) => {
+      if (p) { setPrefilledPatient(p); setShowOnlineFollowup(true); }
+    });
+  }, [search.patientId]);
 
   const awaitingQ = useQuery({ queryKey: ["online-followup-awaiting"], queryFn: () => fetchOnlineFollowupRequests("AWAITING_PAYMENT") });
   const staffQ = useQuery({ queryKey: ["staff-for-leads"], queryFn: fetchStaff });
@@ -141,7 +162,8 @@ function CallDeskPage() {
       {showOnlineFollowup && (
         <OnlineFollowupRequestModal
           staffName={user?.name}
-          onClose={() => setShowOnlineFollowup(false)}
+          initialPatient={prefilledPatient ?? undefined}
+          onClose={() => { setShowOnlineFollowup(false); setPrefilledPatient(null); }}
           onCreated={refreshAwaiting}
         />
       )}
@@ -177,11 +199,23 @@ const DELIVERY_METHODS: OnlineFollowupDeliveryMethod[] = ["SELF_PICKUP", "JAIPUR
 // combinable family courier at the same address (Part B — the surcharge
 // only applies once per combined group), and offers an optional call-time
 // slot (Part G) once the request is created.
-function OnlineFollowupRequestModal({ staffName, onClose, onCreated }: { staffName?: string; onClose: () => void; onCreated: () => void }) {
+function OnlineFollowupRequestModal({
+  staffName,
+  initialPatient,
+  onClose,
+  onCreated,
+}: {
+  staffName?: string;
+  // Search hand-off (25 Sep 2026) — when set, skips the search step and
+  // goes straight to the form, same as this modal's own "pick" flow.
+  initialPatient?: DBPatient;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q, 300);
-  const [selected, setSelected] = useState<any | null>(null);
-  const [branch, setBranch] = useState<ApptBranch>("BAJAJ_NAGAR");
+  const [selected, setSelected] = useState<any | null>(initialPatient ?? null);
+  const [branch, setBranch] = useState<ApptBranch>((normalizeBranchKey(initialPatient?.branch) || "BAJAJ_NAGAR") as ApptBranch);
   const [note, setNote] = useState("");
   const [days, setDays] = useState("");
   const [method, setMethod] = useState<OnlineFollowupDeliveryMethod>("SELF_PICKUP");
@@ -200,6 +234,18 @@ function OnlineFollowupRequestModal({ staffName, onClose, onCreated }: { staffNa
     fetchOnlineFollowupPricing().then(setPricing);
   }, []);
 
+  const loadAddresses = async (patientId: string) => {
+    const addrs = await fetchPatientAddresses(patientId);
+    setAddresses(addrs);
+    const def = addrs.find((a) => a.is_default) ?? addrs[0] ?? null;
+    setSelectedAddressId(def?.id ?? null);
+  };
+
+  useEffect(() => {
+    if (initialPatient) loadAddresses(initialPatient.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { data: results } = useQuery({
     queryKey: ["call-desk-onlinefollowup-search", debouncedQ],
     queryFn: () => searchPatients(debouncedQ),
@@ -210,10 +256,7 @@ function OnlineFollowupRequestModal({ staffName, onClose, onCreated }: { staffNa
     setSelected(p);
     setQ("");
     setBranch((normalizeBranchKey(p.branch) || "BAJAJ_NAGAR") as ApptBranch);
-    const addrs = await fetchPatientAddresses(p.id);
-    setAddresses(addrs);
-    const def = addrs.find((a) => a.is_default) ?? addrs[0] ?? null;
-    setSelectedAddressId(def?.id ?? null);
+    await loadAddresses(p.id);
   };
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;

@@ -77,11 +77,11 @@ function SearchPage() {
           <li className="text-center text-sm text-muted-foreground py-8">Searching…</li>
         )}
         {results.map((p) => (
-          <li key={p.id}>
+          <li key={p.id} className="rounded-xl bg-surface border border-border p-3">
             <Link
               to="/patient/$id"
               params={{ id: p.id }}
-              className="rounded-xl bg-surface border border-border p-3 flex items-center gap-3"
+              className="flex items-center gap-3"
             >
               <div className="h-11 w-11 rounded-lg bg-primary text-primary-foreground grid place-items-center text-xs font-bold">
                 {(p.name ?? "?").charAt(0)}
@@ -96,6 +96,29 @@ function SearchPage() {
                 </p>
               </div>
             </Link>
+            {/* Direct follow-up hand-off (25 Sep 2026) — Dr. Yadav: patient
+                mil jaane ke baad seedha follow-up/online follow-up banane
+                ka koi tarika nahi tha, dubara Register/Call Desk pe jaake
+                search karna padta tha. Follow-up reuses Register's existing
+                mobile-prefill (same hand-off pattern as Appointments'
+                "Arrived"); Online Follow-up reuses Call Desk's patientId
+                hand-off. */}
+            <div className="flex gap-1.5 mt-2.5">
+              <Link
+                to="/register"
+                search={{ mobile: p.mobile ?? undefined, name: p.name ?? undefined, branch: p.branch ?? undefined }}
+                className="flex-1 text-center rounded-lg bg-primary/10 text-primary text-[11px] font-bold py-1.5"
+              >
+                Follow-up
+              </Link>
+              <Link
+                to="/call"
+                search={{ patientId: p.id }}
+                className="flex-1 text-center rounded-lg bg-accent/15 text-accent-foreground text-[11px] font-bold py-1.5"
+              >
+                Online Follow-up
+              </Link>
+            </div>
           </li>
         ))}
       </ul>
