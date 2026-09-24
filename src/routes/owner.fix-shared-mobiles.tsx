@@ -44,24 +44,33 @@ function GroupCard({ group, onResolved }: { group: Group; onResolved: (mobile: s
     }
   };
 
+  // Audit finding (24 Sep 2026): with a for-loop + single try/catch, a
+  // 3+-patient group where the 2nd link failed would abort immediately —
+  // the 1st link stayed committed (linkFamilyMember upserts, so the data
+  // itself was never wrong), but the toast only ever said "Link nahi
+  // hua" with no indication which patient failed or that others already
+  // succeeded. Now attempts every link regardless of earlier failures,
+  // and reports exactly which ones didn't go through.
   const linkFamily = async () => {
     if (others.some((p) => !relations[p.id])) { toast.error("Sabke liye relation chuno"); return; }
     setSaving(true);
-    try {
-      for (const p of others) {
-        const res = await linkFamilyMember(anchor.id, p.id, relations[p.id]!);
-        if (!res.success) throw new Error(res.error ?? "link fail hua");
-      }
-      // Once the relationship is on record, this mobile isn't "unresolved"
-      // anymore — same as clicking Not related, just a different resolution.
-      await setSharedMobileDismissed(group.mobile, true);
-      toast.success("Family link ho gaya");
-      onResolved(group.mobile);
-    } catch (e: any) {
-      toast.error("Link nahi hua: " + (e?.message ?? e));
-    } finally {
-      setSaving(false);
+    const failed: string[] = [];
+    for (const p of others) {
+      const res = await linkFamilyMember(anchor.id, p.id, relations[p.id]!);
+      if (!res.success) failed.push(`${p.name} (${res.error ?? "unknown error"})`);
     }
+    if (failed.length > 0) {
+      toast.error(`Kuch links nahi hue: ${failed.join(", ")} — baaki ho gaye, inhe dobara try karo`);
+      setSaving(false);
+      return;
+    }
+    // Once every relationship is on record, this mobile isn't
+    // "unresolved" anymore — same as clicking Not related, just a
+    // different resolution.
+    await setSharedMobileDismissed(group.mobile, true);
+    toast.success("Family link ho gaya");
+    setSaving(false);
+    onResolved(group.mobile);
   };
 
   return (
