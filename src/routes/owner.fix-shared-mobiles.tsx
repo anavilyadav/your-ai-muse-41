@@ -161,8 +161,8 @@ function FixSharedMobilesPage() {
     qc.invalidateQueries({ queryKey: ["dq-dismissed-shared-mobiles"] });
   };
 
-  if (q.isLoading || dismissedQ.isLoading) return <RoleShell wide title="Shared Mobile Review" nav={OWNER_NAV}><LoadingBlock /></RoleShell>;
-  if (q.isError) return <RoleShell wide title="Shared Mobile Review" nav={OWNER_NAV}><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></RoleShell>;
+  if (q.isLoading || dismissedQ.isLoading) return <RoleShell wide showBack title="Shared Mobile Review" nav={OWNER_NAV}><LoadingBlock /></RoleShell>;
+  if (q.isError) return <RoleShell wide showBack title="Shared Mobile Review" nav={OWNER_NAV}><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></RoleShell>;
 
   const dismissedSet = new Set(dismissedQ.data ?? []);
   const groups = (q.data!.shared_mobiles ?? []).filter((g) => !dismissedSet.has(g.mobile) && !resolvedMobiles.has(g.mobile));
@@ -171,7 +171,7 @@ function FixSharedMobilesPage() {
     : [...groups].sort((a, b) => applyDirection((sortMode === "name" ? compareByName : compareByCardNumber)(a.patients[0] ?? {}, b.patients[0] ?? {}), sortDirection));
 
   return (
-    <RoleShell wide title="Shared Mobile Review" subtitle={`${groups.length} baaki hain`} nav={OWNER_NAV}>
+    <RoleShell wide showBack title="Shared Mobile Review" subtitle={`${groups.length} baaki hain`} nav={OWNER_NAV}>
       <div className="rounded-2xl bg-primary text-primary-foreground p-3.5 flex items-start gap-2 mb-3">
         <Users className="h-4 w-4 mt-0.5 shrink-0" />
         <span className="text-[12px]">

@@ -101,12 +101,13 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
           >
             <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               {showBack ? (
+                // No `lg:hidden` here on purpose (unlike the logo below) —
+                // the `wide` desktop sidebar only lists top-level nav
+                // tabs, so a drill-down page had no way back at lg+ once
+                // this vanished. Found live 24 Sep 2026.
                 <button
                   onClick={() => router.history.back()}
-                  className={cn(
-                    "shrink-0 h-9 w-9 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 transition",
-                    wide && "lg:hidden",
-                  )}
+                  className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 transition"
                   aria-label="Back"
                 >
                   <ArrowLeft className="h-5 w-5" />

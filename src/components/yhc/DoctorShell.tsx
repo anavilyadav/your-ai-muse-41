@@ -89,9 +89,13 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
           <header className="sticky top-0 z-20 bg-primary text-primary-foreground px-4 md:px-6 pt-4 pb-4 rounded-b-2xl lg:rounded-none lg:px-8">
             <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               {showBack ? (
+                // No `lg:hidden` here on purpose — see MobileShell's
+                // identical fix (24 Sep 2026): the desktop sidebar only
+                // lists top-level tabs, so a drill-down page had no way
+                // back at lg+ once this vanished.
                 <button
                   onClick={() => router.history.back()}
-                  className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 transition lg:hidden"
+                  className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 transition"
                   aria-label="Back"
                 >
                   <ArrowLeft className="h-5 w-5" />

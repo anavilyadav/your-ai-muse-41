@@ -258,8 +258,8 @@ function FixUnconfirmedPage() {
     );
   };
 
-  if (q.isLoading) return <RoleShell wide title="Number Confirm Karo" nav={OWNER_NAV}><LoadingBlock /></RoleShell>;
-  if (q.isError) return <RoleShell wide title="Number Confirm Karo" nav={OWNER_NAV}><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></RoleShell>;
+  if (q.isLoading) return <RoleShell wide showBack title="Number Confirm Karo" nav={OWNER_NAV}><LoadingBlock /></RoleShell>;
+  if (q.isError) return <RoleShell wide showBack title="Number Confirm Karo" nav={OWNER_NAV}><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></RoleShell>;
 
   const all = ((q.data!.unconfirmed_numbers ?? []) as UnconfirmedPatient[]).filter((p) => !resolvedIds.has(p.id));
   const searchLower = search.trim().toLowerCase();
@@ -270,7 +270,7 @@ function FixUnconfirmedPage() {
   const visible = sorted.slice(0, visibleCount);
 
   return (
-    <RoleShell wide title="Number Confirm Karo" subtitle={`${all.length} baaki hain`} nav={OWNER_NAV}>
+    <RoleShell wide showBack title="Number Confirm Karo" subtitle={`${all.length} baaki hain`} nav={OWNER_NAV}>
       <div className="rounded-2xl bg-primary text-primary-foreground p-3.5 flex items-start gap-2 mb-3">
         <PhoneCall className="h-4 w-4 mt-0.5 shrink-0" />
         <span className="text-[12px]">
