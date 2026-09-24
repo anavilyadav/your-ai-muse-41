@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, type DBPatient } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, fetchQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, fetchSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, type DBPatient } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Plus, X } from "lucide-react";
@@ -25,8 +25,6 @@ export const Route = createFileRoute("/pay/$id")({
     </AuthGate>
   ),
 });
-
-const quick = [200, 300, 500, 700];
 
 interface SplitRow { mode: string; amount: string }
 
@@ -164,6 +162,13 @@ function PayPage() {
   const [splitRows, setSplitRows] = useState<SplitRow[]>([{ mode: "CASH", amount: "" }, { mode: "UPI", amount: "" }]);
   const { data: paymentModes } = useQuery({ queryKey: ["payment-modes"], queryFn: () => fetchPaymentModes(true) });
   const modes = paymentModes ?? [];
+  const { data: quickFillData } = useQuery({ queryKey: ["quick-fill-amounts"], queryFn: fetchQuickFillAmounts });
+  const quick = quickFillData ?? DEFAULT_QUICK_FILL_AMOUNTS;
+  // SLX/"dawai lene ka tarika" reminder (25 Sep 2026, Dr. Yadav) — was only
+  // ever shown on the Doctor Rx screen + printed PDF, not here, even
+  // though Payment is often the last moment staff sees the patient before
+  // they leave with medicine.
+  const { data: slxInstructions } = useQuery({ queryKey: ["slx-instructions"], queryFn: fetchSlxInstructions });
   const splitTotal = splitRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const splitValid = isSplit && splitRows.some((r) => Number(r.amount) > 0) && splitTotal === received;
   // 04 Aug 2026 fix: one key per mount of this screen (not per click) —
@@ -383,15 +388,22 @@ function PayPage() {
         <div className="grid grid-cols-4 gap-2">
           {quick.map((q) => (
             <button
-              key={q}
-              onClick={() => { setCharged(q); setReceived(q); }}
+              key={q.id}
+              onClick={() => { setCharged(q.amount); setReceived(q.amount); }}
               className="rounded-lg border border-border bg-surface py-2 text-sm font-bold text-primary"
             >
-              ₹{q}
+              ₹{q.amount}
             </button>
           ))}
         </div>
       </div>
+
+      {slxInstructions && (
+        <div className="mt-3 rounded-xl bg-accent/10 border border-accent/30 p-2.5">
+          <p className="text-[11px] font-bold text-primary">Dawai lene ka tarika (patient ko batao)</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{slxInstructions}</p>
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div>

@@ -792,6 +792,12 @@ export async function fetchTodayQueue(branch?: string) {
     .from("visits")
     .select("*, patient:patients(*)")
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
+    // 25 Sep 2026, Dr. Yadav: "date wise token nahi dikhte, decending order
+    // me ho, date naye sabse upar baaki niche" — was created_at ascending
+    // only, so a 20-day-old still-open visit sat above today's queue with
+    // no date grouping at all. Newest visit_date first, token order
+    // preserved within each date.
+    .order("visit_date", { ascending: false })
     .order("created_at", { ascending: true });
   if (branch) q = q.eq("branch", branch);
   const { data, error } = await q;
@@ -843,6 +849,8 @@ export async function fetchTodayQueueCaseDR(branch?: string) {
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
+    // Same date-descending fix as fetchTodayQueue above.
+    .order("visit_date", { ascending: false })
     .order("created_at", { ascending: true });
   if (branch) q = q.eq("branch", branch);
   const { data, error } = await q;
@@ -4198,6 +4206,39 @@ export async function fetchNextVisitOptions(): Promise<NextVisitOption[]> {
 
 export async function saveNextVisitOptions(options: NextVisitOption[]) {
   await upsertSetting("next_visit_options", JSON.stringify(options));
+}
+
+// ---------- Payment Quick Fill amounts (25 Sep 2026) ----------
+// Was a hardcoded [200, 300, 500, 700] baked into pay.$id.tsx — Dr. Yadav:
+// "collect payment ki jagah quick fill add ya edit karne ka option banao."
+// Same owner-editable-list-in-settings pattern as Next Visit Options above.
+export interface QuickFillAmount {
+  id: string;
+  amount: number;
+}
+
+export const DEFAULT_QUICK_FILL_AMOUNTS: QuickFillAmount[] = [
+  { id: "qf-200", amount: 200 },
+  { id: "qf-300", amount: 300 },
+  { id: "qf-500", amount: 500 },
+  { id: "qf-700", amount: 700 },
+];
+
+export async function fetchQuickFillAmounts(): Promise<QuickFillAmount[]> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "payment_quick_fill_amounts").maybeSingle();
+  if (error) console.error("fetchQuickFillAmounts failed:", error.message);
+  if (!data?.value) return [...DEFAULT_QUICK_FILL_AMOUNTS];
+  try {
+    const parsed = JSON.parse(data.value);
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_QUICK_FILL_AMOUNTS];
+    return parsed;
+  } catch {
+    return [...DEFAULT_QUICK_FILL_AMOUNTS];
+  }
+}
+
+export async function saveQuickFillAmounts(amounts: QuickFillAmount[]) {
+  await upsertSetting("payment_quick_fill_amounts", JSON.stringify(amounts));
 }
 
 // ---------- SLX Instructions (Rx improvements item E, 03 Aug 2026) ----------

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing, fetchQuickFillAmounts, saveQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, type QuickFillAmount } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -807,6 +807,90 @@ function NextVisitOptionsCard() {
   );
 }
 
+// Quick Fill amounts (25 Sep 2026) — was hardcoded [200,300,500,700] on
+// the Payment screen; Dr. Yadav wanted these add/edit-able like every
+// other owner-configurable list.
+function QuickFillAmountsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["quick-fill-amounts"], queryFn: fetchQuickFillAmounts });
+  const saved = data ?? DEFAULT_QUICK_FILL_AMOUNTS;
+  const [draft, setDraft] = useState<QuickFillAmount[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const amounts = draft ?? saved;
+
+  const update = (id: string, amount: number) => {
+    setDraft(amounts.map((a) => (a.id === id ? { ...a, amount } : a)));
+  };
+  const addAmount = () => setDraft([...amounts, { id: crypto.randomUUID(), amount: 0 }]);
+  const removeAmount = (id: string) => setDraft(amounts.filter((a) => a.id !== id));
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      await saveQuickFillAmounts(draft);
+      qc.invalidateQueries({ queryKey: ["quick-fill-amounts"] });
+      setDraft(null);
+      toast.success("Quick Fill amounts update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Quick Fill Amounts — Payment screen ke shortcut buttons
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+        {amounts.length === 0 && (
+          <p className="text-[12px] text-muted-foreground">Koi amount nahi hai. Neeche se add karo.</p>
+        )}
+        {amounts.map((a) => (
+          <div key={a.id} className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">₹</span>
+            <input
+              inputMode="numeric"
+              value={a.amount || ""}
+              onChange={(e) => update(a.id, Number(e.target.value.replace(/\D/g, "")) || 0)}
+              className="flex-1 min-w-0 rounded-lg border border-border bg-background px-2.5 py-2 text-[13px]"
+            />
+            <button
+              type="button"
+              onClick={() => removeAmount(a.id)}
+              className="shrink-0 h-8 w-8 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+              aria-label="Amount hatao"
+              title="Amount hatao"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addAmount}
+          className="w-full rounded-full border-2 border-dashed border-accent text-accent-foreground font-semibold py-2 text-[13px]"
+        >
+          + Naya amount add karo
+        </button>
+        {draft && (
+          <button
+            onClick={save}
+            disabled={saving || amounts.some((a) => a.amount <= 0)}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Amounts"}
+          </button>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Reception Payment collect karte waqt in par tap karke Charged/Received turant bhar sakti hai.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ---------- SLX Instructions (Rx improvements item E, 03 Aug 2026) ----------
 function SlxInstructionsCard() {
   const qc = useQueryClient();
@@ -1109,6 +1193,7 @@ function ControlPage() {
           </div>
           <FeeMasterCard />
           <FeeRulesCard />
+          <QuickFillAmountsCard />
           <NextVisitOptionsCard />
           <SlxInstructionsCard />
           <ReferenceRubricsCard />

@@ -34,9 +34,23 @@ function RxQueue() {
   });
 
 
-  const rows = (data ?? []).filter((r) =>
-    ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR", "PRESCRIBED"].includes(r.visit_status),
-  );
+  // Fixed 25 Sep 2026 — Dr. Yadav found live: a case still being taken
+  // (visit_status='CASE_TAKING', not yet submitted) was already showing
+  // up here, and so was every brand-new patient's REGISTERED visit before
+  // Case-Taking had even started — a Prescribing Doctor could write a
+  // prescription with no case ever taken. Mirrors doctor.case.index.tsx's
+  // own condition, inverted: REGISTERED only counts here once it's a
+  // follow-up that legitimately skips Case-Taking (not the first visit,
+  // and not flagged for a fresh case). CASE_TAKING (in progress) is gone
+  // entirely — only WAITING_DOCTOR (submitted) and PRESCRIBED (already
+  // written, for revisiting the same day) belong on this board now.
+  const rows = (data ?? []).filter((r) => {
+    if (r.visit_status === "REGISTERED") {
+      const isFollowUpNoRecase = (r.patient?.lifetime_visits ?? 1) > 1 && !r.needs_recase;
+      return isFollowUpNoRecase;
+    }
+    return ["WAITING", "WAITING_DOCTOR", "PRESCRIBED"].includes(r.visit_status);
+  });
 
   return (
     <DoctorShell title="Rx Queue" subtitle="Today + any pending" showLogout nav="rx">
