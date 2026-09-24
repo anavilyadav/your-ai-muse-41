@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Wallet, Camera, FileText, Trash2, Pencil, Briefcase, Gift, Heart, GitMerge, AlertTriangle } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
+import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
@@ -62,6 +63,10 @@ const countryCodes = [
   { code: "+27", label: "+27 South Africa" },
   { code: "other", label: "Other — type code" },
 ] as const;
+
+const secondaryLabelOptions = ["Mother", "Father", "Guardian", "Spouse"] as const;
+const cityOptions = ["Jaipur"] as const;
+const professionOptions = ["Business", "Service/Job", "Housewife", "Student", "Retired", "Farmer"] as const;
 
 function LinkFamilyModal({
   patientId,
@@ -611,12 +616,9 @@ function EditContactModal({
               Kai patients (khaaskar bacchon) ke 2 reachable number hote hain — jaise Mother/Father. Yahan dusra bhi
               save kar sakte ho, staff call/WhatsApp donon kar sakenge.
             </p>
-            <input
-              value={secondaryLabel}
-              onChange={(e) => setSecondaryLabel(e.target.value)}
-              placeholder="Kiska number hai? (e.g. Mother, Father, Guardian)"
-              className="w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm mb-2"
-            />
+            <div className="mb-2">
+              <PillOrOtherField options={secondaryLabelOptions} value={secondaryLabel} onChange={setSecondaryLabel} otherPlaceholder="Kiska number hai? likho" />
+            </div>
             <div className="flex gap-2">
               <select
                 value={secondaryCountryCode}
@@ -652,7 +654,9 @@ function EditContactModal({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] font-bold text-muted-foreground uppercase">City</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+              <div className="mt-1">
+                <PillOrOtherField options={cityOptions} value={city} onChange={setCity} otherPlaceholder="City likho" />
+              </div>
             </div>
             <div>
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Pincode</label>
@@ -670,7 +674,9 @@ function EditContactModal({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Profession</label>
-              <input value={profession} onChange={(e) => setProfession(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+              <div className="mt-1">
+                <PillOrOtherField options={professionOptions} value={profession} onChange={setProfession} otherPlaceholder="Profession likho" />
+              </div>
             </div>
             <div>
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Annual Income (₹)</label>

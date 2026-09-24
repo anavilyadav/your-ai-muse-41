@@ -21,6 +21,12 @@ export const Route = createFileRoute("/owner/fix-unconfirmed")({
 
 const PAGE_SIZE = 50;
 
+// Pills over free text (24 Sep 2026 UX pass) — "Mother"/"Father" typed by
+// hand drifts (Mom/Mata/mother ji/...), which breaks anything that ever
+// wants to filter or display this consistently. "Other" still opens a
+// free text field for the rare case (aunt, neighbour, driver, etc).
+const SECONDARY_LABELS = ["Mother", "Father", "Guardian", "Spouse"] as const;
+
 type UnconfirmedPatient = DQPatientRef & { mobile_confirmed: boolean; whatsapp_confirmed: boolean; has_distinct_whatsapp: boolean };
 
 function UnconfirmedRow({
@@ -42,6 +48,7 @@ function UnconfirmedRow({
   const [showSecondaryInput, setShowSecondaryInput] = useState(false);
   const [secondaryAdded, setSecondaryAdded] = useState(false);
   const [secondaryLabel, setSecondaryLabel] = useState("");
+  const [secondaryLabelOther, setSecondaryLabelOther] = useState(false);
   const [secondaryNumber, setSecondaryNumber] = useState("");
   const [waConsentGiven, setWaConsentGiven] = useState(false);
   const [saving, setSaving] = useState<"mobile" | "wa" | "addWa" | "addSecondary" | "waConsent" | null>(null);
@@ -206,13 +213,39 @@ function UnconfirmedRow({
       {!secondaryAdded && (
         showSecondaryInput ? (
           <div className="mt-2 space-y-1.5">
-            <div className="flex gap-1.5">
+            <p className="text-[11px] font-semibold text-muted-foreground">Kiska number hai?</p>
+            <div className="flex flex-wrap gap-1">
+              {SECONDARY_LABELS.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => { setSecondaryLabel(l); setSecondaryLabelOther(false); }}
+                  className={cn(
+                    "rounded-full px-2.5 py-1.5 text-[11px] font-semibold border",
+                    !secondaryLabelOther && secondaryLabel === l ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground",
+                  )}
+                >
+                  {l}
+                </button>
+              ))}
+              <button
+                onClick={() => { setSecondaryLabelOther(true); setSecondaryLabel(""); }}
+                className={cn(
+                  "rounded-full px-2.5 py-1.5 text-[11px] font-semibold border",
+                  secondaryLabelOther ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground",
+                )}
+              >
+                Other
+              </button>
+            </div>
+            {secondaryLabelOther && (
               <input
                 value={secondaryLabel}
                 onChange={(e) => setSecondaryLabel(e.target.value)}
-                placeholder="Kiska number? (Mother/Father)"
-                className="w-[150px] shrink-0 rounded-lg bg-background border border-input px-2.5 py-2 text-sm"
+                placeholder="Kiska number? likho"
+                className="w-full rounded-lg bg-background border border-input px-2.5 py-2 text-sm"
               />
+            )}
+            <div className="flex gap-1.5">
               <input
                 inputMode="numeric"
                 placeholder="Number"
@@ -220,14 +253,14 @@ function UnconfirmedRow({
                 onChange={(e) => setSecondaryNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                 className="flex-1 min-w-0 rounded-lg bg-background border border-input px-2.5 py-2 text-sm"
               />
+              <button
+                onClick={saveSecondary}
+                disabled={saving === "addSecondary"}
+                className="shrink-0 rounded-lg bg-accent text-accent-foreground text-[12px] font-bold px-4 disabled:opacity-60"
+              >
+                Save
+              </button>
             </div>
-            <button
-              onClick={saveSecondary}
-              disabled={saving === "addSecondary"}
-              className="w-full rounded-lg bg-accent text-accent-foreground text-[12px] font-bold py-2 disabled:opacity-60"
-            >
-              Save
-            </button>
           </div>
         ) : (
           <button

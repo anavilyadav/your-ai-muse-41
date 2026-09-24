@@ -4,6 +4,7 @@ import { CheckCircle2 } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
+import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -54,6 +55,8 @@ export const Route = createFileRoute("/register")({
 
 const genders = ["Male", "Female", "Other"] as const;
 const blood = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-", "Not Known"] as const;
+const cityOptions = ["Jaipur"] as const;
+const professionOptions = ["Business", "Service/Job", "Housewife", "Student", "Retired", "Farmer"] as const;
 const branchOpts = BRANCH_KEYS.map((key) => ({ key, label: branchLabel(key) }));
 const countryCodes = [
   { code: "+91", label: "+91 India" },
@@ -882,7 +885,7 @@ function RegisterPage() {
 
         <div className="grid grid-cols-2 gap-3">
           <Section label="City">
-            <Field placeholder="Jaipur" value={f.city} onChange={(e) => set("city", e.target.value)} />
+            <PillOrOtherField options={cityOptions} value={f.city} onChange={(v) => set("city", v)} otherPlaceholder="City likho" />
           </Section>
           <Section label="Pincode">
             <Field inputMode="numeric" placeholder="302001" value={f.pincode} onChange={(e) => set("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))} />
@@ -962,7 +965,7 @@ function RegisterPage() {
 
         <div className="grid grid-cols-2 gap-3">
           <Section label="Profession">
-            <Field placeholder="e.g. Teacher, Business" value={f.profession} onChange={(e) => set("profession", e.target.value)} />
+            <PillOrOtherField options={professionOptions} value={f.profession} onChange={(v) => set("profession", v)} otherPlaceholder="Profession likho" />
           </Section>
           <Section label="Annual Income (₹)">
             <Field inputMode="numeric" placeholder="e.g. 600000" value={f.annualIncome} onChange={(e) => set("annualIncome", e.target.value.replace(/\D/g, ""))} />
