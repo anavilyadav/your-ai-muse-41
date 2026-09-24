@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffectiveRole } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
@@ -11,8 +11,7 @@ import { cn } from "@/lib/utils";
 import {
   fetchAppointments,
   createAppointment,
-  updateAppointmentStatus,
-  checkInExistingPatient,
+  rescheduleAppointment,
   normalizeBranchKey,
   searchPatients,
   fetchSlotAvailability,
@@ -30,6 +29,7 @@ import {
   type ApptType,
   type SlotConfig,
 } from "@/lib/db";
+import { useAppointmentActions } from "@/hooks/use-appointment-actions";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { today } from "@/lib/supabase";
 
@@ -44,14 +44,15 @@ export const Route = createFileRoute("/appointments")({
 
 const branches: ("All" | ApptBranch)[] = ["All", ...BRANCH_KEYS];
 
-const statusStyle: Record<string, string> = {
+export const apptStatusStyle: Record<string, string> = {
   Confirmed: "bg-success/15 text-success border-success/40",
   Tentative: "bg-accent/25 text-accent-foreground border-accent/50",
   Cancelled: "bg-destructive/15 text-destructive border-destructive/40",
   Arrived: "bg-primary/15 text-primary border-primary/40",
 };
+const statusStyle = apptStatusStyle;
 
-function SlotPicker({
+export function SlotPicker({
   date, branch, type, value, onChange, isOwner,
 }: {
   date: string; branch: ApptBranch; type: ApptType; value: string; onChange: (t: string) => void; isOwner: boolean;
@@ -241,6 +242,84 @@ function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdde
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Create Appointment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Reschedule (24 Sep 2026) — moves an existing appointment instead of
+// cancel + recreate, which would have dropped the patient_id link.
+// Exported so both the standalone Appointments page and the Queue's
+// "today's appointments" section use the exact same flow.
+export function RescheduleModal({ appt, onClose, onRescheduled }: { appt: any; onClose: () => void; onRescheduled: () => void }) {
+  const role = useEffectiveRole();
+  const isOwner = role === "OWNER";
+  const [date, setDate] = useState(appt.appointment_date);
+  const [branch, setBranch] = useState<ApptBranch>((normalizeBranchKey(appt.branch) || "BAJAJ_NAGAR") as ApptBranch);
+  const [type, setType] = useState<ApptType>((appt.appointment_type ?? "FOLLOWUP") as ApptType);
+  const [time, setTime] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!time) { toast.error("Naya slot chuno"); return; }
+    setSaving(true);
+    const cfg = await fetchSlotConfig();
+    const res = await rescheduleAppointment(appt.id, {
+      appointment_date: date,
+      appointment_time: time,
+      slot_minutes: cfg.typeConfig[type]?.slotMinutes ?? DEFAULT_SLOT_CONFIG.typeConfig[type].slotMinutes,
+      branch,
+      appointment_type: type,
+    });
+    setSaving(false);
+    if (!res.success) { toast.error("Reschedule nahi hua: " + res.error); return; }
+    toast.success(`${appt.patient_name} ka appointment reschedule ho gaya`);
+    onRescheduled();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">Reschedule — {appt.patient_name}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div className="text-[11px] text-muted-foreground">
+            Pehle se: {appt.appointment_date} • {appt.appointment_time}
+          </div>
+          <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <div className="flex gap-1.5">
+            {[...BRANCH_KEYS].map((b) => (
+              <button key={b} onClick={() => { setBranch(b); setTime(""); }} className={cn("rounded-full px-3 py-1.5 text-[12px] font-bold", branch === b ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-muted-foreground")}>{branchLabel(b)}</button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {APPT_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setType(t); setTime(""); }}
+                className={cn(
+                  "rounded-xl border py-2.5 text-[13px] font-bold",
+                  type === t ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                )}
+              >
+                {apptTypeLabel(t)}
+              </button>
+            ))}
+          </div>
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+              Naya slot {time && <span className="normal-case font-semibold text-primary">— {time} selected</span>}
+            </div>
+            <SlotPicker date={date} branch={branch} type={type} value={time} onChange={setTime} isOwner={isOwner} />
+          </div>
+          <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Reschedule Confirm Karo"}
           </button>
         </div>
       </div>
@@ -446,7 +525,6 @@ function SlotSettingsModal({ onClose }: { onClose: () => void }) {
 function AppointmentsPage() {
   const role = useEffectiveRole();
   const isOwner = role === "OWNER";
-  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(today());
   // Was previously fetchAppointments() with no date at all — pulled every
   // appointment ever booked (past + future, unbounded) despite the page
@@ -475,68 +553,11 @@ function AppointmentsPage() {
     return { confirmed, arrived, cancelled };
   }, [appts]);
 
-  const setStatus = async (a: any, status: string) => {
-    const previousStatus = a.status;
-    const res = await updateAppointmentStatus(a.id, status);
-    if (res.success) {
-      queryClient.invalidateQueries({ queryKey: ["appointments"] });
-      toast.error(`${a.patient_name} cancelled`, {
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            const undoRes = await updateAppointmentStatus(a.id, previousStatus);
-            if (undoRes.success) {
-              queryClient.invalidateQueries({ queryKey: ["appointments"] });
-              toast.success("Cancel undo ho gaya");
-            } else {
-              toast.error("Undo nahi hua: " + undoRes.error);
-            }
-          },
-        },
-      });
-    } else {
-      toast.error("Update nahi hua: " + res.error);
-    }
-  };
-
-  // "Arrived" used to just flip a status column on the appointment row —
-  // completely disconnected from the real queue. Reception would mark
-  // someone Arrived here, then separately walk over to Register and redo
-  // the whole check-in from scratch (re-searching the same mobile,
-  // re-entering the same name) — the exact "dono alag alag same hi kaam
-  // kar rahe hai" duplicate-work complaint (Dr. Yadav, 24 Sep 2026). Now
-  // Arrived actually performs the check-in: for an appointment booked
-  // against a real patient record, it creates the token right here; for
-  // one booked before the patient existed (walk-up new-case booking),
-  // it hands off to Register pre-filled with what's already known so
-  // staff isn't retyping the name/mobile a second time.
-  const markArrived = async (a: any) => {
-    const res = await updateAppointmentStatus(a.id, "Arrived");
-    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
-    queryClient.invalidateQueries({ queryKey: ["appointments"] });
-
-    if (a.patient_id) {
-      const branch = normalizeBranchKey(a.branch) || "BAJAJ_NAGAR";
-      try {
-        const { visit } = await checkInExistingPatient({
-          patient_id: a.patient_id,
-          branch: branch as "BAJAJ_NAGAR" | "JAGATPURA",
-          chief_complaint: a.reason || undefined,
-          case_channel: "WALK_IN",
-        });
-        queryClient.invalidateQueries({ queryKey: ["today-queue"] });
-        toast.success(`${a.patient_name} check-in ho gaya — Token ${visit.token_number}`);
-      } catch (e: any) {
-        toast.warning(`${a.patient_name} arrived mark ho gaya, par check-in nahi hua: ${e?.message ?? e} — Register se manually check-in karo`);
-      }
-    } else {
-      toast.success(`${a.patient_name} arrived — registration poora karo`);
-      navigate({
-        to: "/register",
-        search: { name: a.patient_name ?? "", mobile: a.mobile ?? "", branch: normalizeBranchKey(a.branch) || "" },
-      });
-    }
-  };
+  // Shared with the Queue's "today's appointments" section — one real
+  // implementation of Arrive/Cancel so the two surfaces can't drift
+  // apart on behavior (24 Sep 2026).
+  const { markArrived, cancelAppointment } = useAppointmentActions();
+  const [rescheduling, setRescheduling] = useState<any | null>(null);
 
   return (
     <MobileShell
@@ -558,6 +579,13 @@ function AppointmentsPage() {
     >
       {showNew && <NewAppointmentModal onClose={() => setShowNew(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["appointments"] })} />}
       {showSettings && <SlotSettingsModal onClose={() => setShowSettings(false)} />}
+      {rescheduling && (
+        <RescheduleModal
+          appt={rescheduling}
+          onClose={() => setRescheduling(null)}
+          onRescheduled={() => queryClient.invalidateQueries({ queryKey: ["appointments"] })}
+        />
+      )}
       <div className="grid grid-cols-3 gap-2">
         <StatCard label="Confirmed" value={stats.confirmed} tone="success" />
         <StatCard label="Arrived" value={stats.arrived} />
@@ -657,7 +685,7 @@ function AppointmentsPage() {
             </div>
 
             {a.status !== "Cancelled" && a.status !== "Arrived" && (
-              <div className="mt-2.5 grid grid-cols-4 gap-1.5">
+              <div className="mt-2.5 grid grid-cols-5 gap-1.5">
                 <a
                   href={`tel:${a.mobile}`}
                   className="rounded-lg bg-success text-success-foreground py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
@@ -679,9 +707,15 @@ function AppointmentsPage() {
                   <CheckCircle2 className="h-3 w-3" /> Arrived
                 </button>
                 <button
+                  onClick={() => setRescheduling(a)}
+                  className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
+                >
+                  <Clock className="h-3 w-3" /> Resched.
+                </button>
+                <button
                   onClick={() => {
                     if (!window.confirm(`${a.patient_name ?? "Ye"} appointment cancel karein?`)) return;
-                    setStatus(a, "Cancelled");
+                    cancelAppointment(a);
                   }}
                   className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >

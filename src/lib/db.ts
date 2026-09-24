@@ -3212,6 +3212,19 @@ export async function updateAppointmentStatus(id: string, status: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+// Reschedule (24 Sep 2026) — moves an existing appointment to a new
+// date/time/branch/type instead of cancel-and-recreate, which would have
+// lost the original patient_id link and any WhatsApp-consent context
+// already captured on the row. Status is deliberately left untouched —
+// a rescheduled Tentative stays Tentative, a Confirmed stays Confirmed.
+export async function rescheduleAppointment(
+  id: string,
+  patch: { appointment_date: string; appointment_time: string; slot_minutes?: number; branch?: string; appointment_type?: ApptType },
+) {
+  const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Appointment slot config + VIP reserved slots ----------
 // Deliberately built on the existing `settings` key-value table (already
 // used for backup-doctor config, reception permissions, Case-DR levels) —

@@ -1,14 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber } from "@/lib/db";
+import { fetchTodayQueue, fetchAppointments, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+import { useAppointmentActions } from "@/hooks/use-appointment-actions";
+import { RescheduleModal } from "./appointments";
 
 
 export const Route = createFileRoute("/")({
@@ -41,6 +43,85 @@ const statusStyles: Record<string, string> = {
   "Pay Due": "bg-destructive/15 text-destructive border-destructive/40",
   Done: "bg-muted text-muted-foreground border-border",
 };
+
+// "Aaj ke Appointments" (24 Sep 2026, Dr. Yadav) — Reception used to have
+// to check a completely separate /appointments screen to see who's
+// scheduled today, then come BACK here to actually work the real queue.
+// Same Arrive/Reschedule/Cancel actions as the standalone Appointments
+// page (via the shared useAppointmentActions hook + RescheduleModal),
+// just a more compact card since this sits above an already-busy Queue.
+// Hidden entirely once nothing's left to act on (arrived/cancelled
+// appointments drop out), not just empty.
+function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
+  const qc = useQueryClient();
+  const apptDate = todayStr();
+  const { data } = useQuery({
+    queryKey: ["appointments", apptDate],
+    queryFn: () => fetchAppointments(apptDate),
+    refetchInterval: 30_000,
+  });
+  const { markArrived, cancelAppointment } = useAppointmentActions([["today-queue"]]);
+  const [rescheduling, setRescheduling] = useState<any | null>(null);
+
+  const upcoming = (data?.rows ?? []).filter(
+    (a: any) => (a.status === "Confirmed" || a.status === "Tentative") && (!branchScope || a.branch === branchScope),
+  );
+
+  if (upcoming.length === 0) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2 flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5" /> Aaj ke Appointments ({upcoming.length})
+      </div>
+      <ul className="space-y-2">
+        {upcoming.map((a: any) => (
+          <li key={a.id} className="rounded-xl bg-surface border border-border p-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="min-w-0 flex items-center gap-1.5">
+                <span className="shrink-0 text-[11px] font-bold text-primary inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {a.appointment_time}
+                </span>
+                <span className="truncate text-sm font-semibold text-primary">{a.patient_name}</span>
+              </div>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {apptTypeLabel((a.appointment_type ?? "FOLLOWUP") as ApptType)} • {branchLabel(a.branch)}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-5 gap-1.5">
+              <a href={`tel:${a.mobile}`} aria-label="Call" className="rounded-lg bg-success text-success-foreground py-1.5 grid place-items-center">
+                <PhoneCall className="h-3.5 w-3.5" />
+              </a>
+              <a href={`https://wa.me/91${a.mobile}`} target="_blank" rel="noreferrer" aria-label="WhatsApp" className="rounded-lg bg-accent text-accent-foreground py-1.5 grid place-items-center">
+                <MessageCircle className="h-3.5 w-3.5" />
+              </a>
+              <button onClick={() => markArrived(a)} aria-label="Arrived" className="rounded-lg bg-primary text-primary-foreground py-1.5 grid place-items-center">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => setRescheduling(a)} aria-label="Reschedule" className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 grid place-items-center">
+                <CalendarClock className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => { if (!window.confirm(`${a.patient_name ?? "Ye"} appointment cancel karein?`)) return; cancelAppointment(a); }}
+                aria-label="Cancel"
+                className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 grid place-items-center"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {rescheduling && (
+        <RescheduleModal
+          appt={rescheduling}
+          onClose={() => setRescheduling(null)}
+          onRescheduled={() => qc.invalidateQueries({ queryKey: ["appointments"] })}
+        />
+      )}
+    </div>
+  );
+}
 
 function QueuePage() {
   const navigate = useNavigate();
@@ -135,6 +216,8 @@ function QueuePage() {
       >
         📞 Complaint / Support Call
       </Link>
+
+      <TodaysAppointmentsSection branchScope={branchScope} />
 
       <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
         {filters.map((f) => {
