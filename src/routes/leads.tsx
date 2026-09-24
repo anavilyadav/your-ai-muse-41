@@ -520,7 +520,9 @@ function StatCard({
 // mandatory Referred-By patient link specifically when source = REFERRAL
 // (a referral you can't trace back to the referring patient is useless for
 // a thank-you follow-up later).
-function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () => void; onAdded: () => void }) {
+// Exported (25 Sep 2026) so the unified Call Desk's "Inquiry" tile can
+// open this exact same modal instead of duplicating the lead-capture form.
+export function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClose: () => void; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [source, setSource] = useState<string>("WALK_IN");

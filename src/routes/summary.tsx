@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
-import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users } from "lucide-react";
+import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users, PhoneCall, Clock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
 import { fetchDaySummary } from "@/lib/db";
@@ -87,15 +87,35 @@ function SummaryPage() {
         <MiniStat icon={BarChart3} label="Due" value={s.pendingPayments} tone="destructive" />
       </div>
 
+      {/* Walk-in/Online split added (25 Sep 2026, Dr. Yadav: "token count ko
+          detail me thik karo sab include karke") — the plain New/Follow-up
+          totals stay as headline numbers, each now broken down by channel
+          right underneath. */}
       <SectionTitle>New vs Follow-up</SectionTitle>
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-xl bg-surface border border-border p-3 text-center">
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">New</div>
           <div className="text-xl font-bold text-primary mt-1">{s.newPatients}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">{s.newWalkIn} Walk-in · {s.newOnline} Online</div>
         </div>
         <div className="rounded-xl bg-surface border border-border p-3 text-center">
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Follow-up</div>
           <div className="text-xl font-bold text-primary mt-1">{s.followupPatients}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">{s.followupWalkIn} Walk-in · {s.followupOnline} Online</div>
+        </div>
+      </div>
+
+      <SectionTitle>Complaints &amp; Online Follow-up</SectionTitle>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-surface border border-border p-3 text-center">
+          <PhoneCall className="h-4 w-4 mx-auto text-destructive" />
+          <div className="text-xl font-bold text-primary mt-1">{s.complaintsLoggedToday}</div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Aaj Log Hui{s.complaintsOpenTotal > 0 ? ` · ${s.complaintsOpenTotal} pending` : ""}</div>
+        </div>
+        <div className="rounded-xl bg-surface border border-border p-3 text-center">
+          <Clock className="h-4 w-4 mx-auto text-accent-foreground" />
+          <div className="text-xl font-bold text-primary mt-1">{s.onlineFollowupAwaitingPayment}</div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Payment Baaki (rough){s.onlineFollowupConfirmedToday > 0 ? ` · ${s.onlineFollowupConfirmedToday} confirmed aaj` : ""}</div>
         </div>
       </div>
 

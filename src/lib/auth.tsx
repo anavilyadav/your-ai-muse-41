@@ -33,6 +33,13 @@ export const RECEPTION_SCREENS: { key: string; label: string }[] = [
   { key: "outstanding", label: "Outstanding Dues" },
   { key: "tasks", label: "Tasks Hub" },
   { key: "caseTracking", label: "Case Tracking (Pending Discussion)" },
+  // Call Desk (25 Sep 2026) — the unified entry point for appointment
+  // booking, online follow-up requests, complaints, and inquiries. Kept as
+  // its own separable permKey (not folded into "appointments" or "queue")
+  // on purpose — see the reception-flow rebuild plan's "Deferred,
+  // designed-for" note on keeping this narrow enough for a future
+  // call-only role to be carved out of just this screen.
+  { key: "callDesk", label: "Call Desk" },
 ];
 
 // 04 Aug 2026 — Operational Manual Part 7B: Owner wanted the same
@@ -55,6 +62,11 @@ export const DOCTOR_SCREENS: { key: string; label: string }[] = [
   { key: "rxDashboard", label: "Doctor Dashboard" },
   { key: "rxHistory", label: "Rx History" },
   { key: "caseReference", label: "Reference Performa" },
+  // Same "complaints" permKey /doctor/complaints already uses for CASE_DR
+  // (see CASE_DR_SCREENS above) — added here too (25 Sep 2026) now that
+  // Prescribing Dr's own nav links to it, so Owner Control can toggle it
+  // per-role for Doctor the same way it already could for Case-DR.
+  { key: "complaints", label: "Complaint Calls" },
 ];
 
 export const PHARMACY_SCREENS: { key: string; label: string }[] = [

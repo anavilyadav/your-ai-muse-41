@@ -15,10 +15,15 @@ interface Props {
   children: ReactNode;
 }
 
+// Complaints added here (25 Sep 2026) — /doctor/complaints already allowed
+// DOCTOR (Prescribing) in its AuthGate, but had no nav link anywhere in
+// this shell, so a Prescribing Dr had no way to find it. Dr. Yadav: "complaint
+// sirf case taking wale ko dikhti hai, prescribing ko nahi dikhti."
 const rxNav = [
   { to: "/doctor/rx", label: "Queue", icon: ClipboardList, exact: true },
   { to: "/doctor/rx/history", label: "History", icon: Clock, exact: false },
   { to: "/doctor/rx/dashboard", label: "Dashboard", icon: BarChart3, exact: false },
+  { to: "/doctor/complaints", label: "Complaints", icon: PhoneCall, exact: false },
 ] as const;
 
 const caseNav = [

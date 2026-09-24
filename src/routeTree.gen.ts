@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppointmentsRouteImport } from './routes/appointments'
+import { Route as CallRouteImport } from './routes/call'
 import { Route as ComplaintCallRouteImport } from './routes/complaint-call'
 import { Route as DeliveryRouteImport } from './routes/delivery'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
@@ -69,6 +70,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppointmentsRoute = AppointmentsRouteImport.update({
   id: '/appointments',
   path: '/appointments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CallRoute = CallRouteImport.update({
+  id: '/call',
+  path: '/call',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ComplaintCallRoute = ComplaintCallRouteImport.update({
@@ -320,6 +326,7 @@ const DoctorRxConsultTokenRoute = DoctorRxConsultTokenRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/appointments': typeof AppointmentsRoute
+  '/call': typeof CallRoute
   '/complaint-call': typeof ComplaintCallRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
@@ -373,6 +380,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/appointments': typeof AppointmentsRoute
+  '/call': typeof CallRoute
   '/complaint-call': typeof ComplaintCallRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
@@ -427,6 +435,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/appointments': typeof AppointmentsRoute
+  '/call': typeof CallRoute
   '/complaint-call': typeof ComplaintCallRoute
   '/delivery': typeof DeliveryRoute
   '/follow-up': typeof FollowUpRoute
@@ -482,6 +491,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/appointments'
+    | '/call'
     | '/complaint-call'
     | '/delivery'
     | '/follow-up'
@@ -535,6 +545,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/appointments'
+    | '/call'
     | '/complaint-call'
     | '/delivery'
     | '/follow-up'
@@ -588,6 +599,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/appointments'
+    | '/call'
     | '/complaint-call'
     | '/delivery'
     | '/follow-up'
@@ -642,6 +654,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppointmentsRoute: typeof AppointmentsRoute
+  CallRoute: typeof CallRoute
   ComplaintCallRoute: typeof ComplaintCallRoute
   DeliveryRoute: typeof DeliveryRoute
   FollowUpRoute: typeof FollowUpRoute
@@ -707,6 +720,13 @@ declare module '@tanstack/react-router' {
       path: '/appointments'
       fullPath: '/appointments'
       preLoaderRoute: typeof AppointmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/call': {
+      id: '/call'
+      path: '/call'
+      fullPath: '/call'
+      preLoaderRoute: typeof CallRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/complaint-call': {
@@ -1058,6 +1078,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppointmentsRoute: AppointmentsRoute,
+  CallRoute: CallRoute,
   ComplaintCallRoute: ComplaintCallRoute,
   DeliveryRoute: DeliveryRoute,
   FollowUpRoute: FollowUpRoute,

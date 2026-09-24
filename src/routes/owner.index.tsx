@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks, Eye, EyeOff } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks, Eye, EyeOff, PhoneCall } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash } from "@/lib/db";
+import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash, fetchOpenComplaints } from "@/lib/db";
 import { RoleSwitcher } from "@/components/yhc/RoleSwitcher";
 
 export const Route = createFileRoute("/owner/")({
@@ -68,6 +68,11 @@ function OwnerDashboard() {
   const pendingPoCount = (purchaseOrders.data ?? []).filter((po) => po.status === "PENDING" || po.status === "PARTIAL").length;
   const trash = useQuery({ queryKey: ["trash"], queryFn: fetchActiveTrash });
   const trashCount = (trash.data ?? []).length;
+  // Owner previously had no way to reach /doctor/complaints at all (25 Sep
+  // 2026, Dr. Yadav: "complaint... owner ko bhi nahi dikhti") — AuthGate
+  // already allowed OWNER, it just had no link anywhere in Owner's own nav.
+  const openComplaints = useQuery({ queryKey: ["open-complaints"], queryFn: fetchOpenComplaints });
+  const openComplaintsCount = (openComplaints.data ?? []).length;
   const s = stats.data;
   const w = week.data ?? [];
   const max = Math.max(1, ...w.map((x) => x[1]));
@@ -156,6 +161,11 @@ function OwnerDashboard() {
           <CalendarCheck className="h-5 w-5 text-primary" />
           <div className="font-bold text-primary text-sm mt-1">Appointments</div>
           <div className="text-[11px] text-muted-foreground">Book · slot & time settings</div>
+        </Link>
+        <Link to="/doctor/complaints" className="rounded-2xl bg-surface border border-border p-3.5">
+          <PhoneCall className="h-5 w-5 text-destructive" />
+          <div className="font-bold text-primary text-sm mt-1">Complaint Calls{openComplaintsCount > 0 ? ` (${openComplaintsCount})` : ""}</div>
+          <div className="text-[11px] text-muted-foreground">Reception ne register ki, jawab pending</div>
         </Link>
         <Link to="/owner/incentives" className="rounded-2xl bg-surface border border-border p-3.5">
           <Target className="h-5 w-5 text-accent-foreground" />

@@ -3239,9 +3239,14 @@ export type ApptBranch = "BAJAJ_NAGAR" | "JAGATPURA";
 // for the same undifferentiated slot grid. Deliberately NOT tied to a
 // specific Junior Doctor yet — that's a time-block only for now, doctor
 // assignment can be added later without reshaping this.
-export type ApptType = "NEW" | "FOLLOWUP";
-export const APPT_TYPES: ApptType[] = ["NEW", "FOLLOWUP"];
-export const apptTypeLabel = (t: ApptType) => (t === "NEW" ? "New Case" : "Follow-up");
+// CALL_BACK (25 Sep 2026) — a scheduled time for an Online Follow-up call
+// or a Complaint callback, booked from the new Call Desk. Dr. Yadav will
+// define the real hour-windows (when he takes online patients vs when
+// complaints get answered) later; for now it shares the same branch-level
+// `hours` every type already uses, with its own slotMinutes/dailyCap.
+export type ApptType = "NEW" | "FOLLOWUP" | "CALL_BACK";
+export const APPT_TYPES: ApptType[] = ["NEW", "FOLLOWUP", "CALL_BACK"];
+export const apptTypeLabel = (t: ApptType) => (t === "NEW" ? "New Case" : t === "FOLLOWUP" ? "Follow-up" : "Call Back");
 
 export interface TypeSlotConfig {
   slotMinutes: number;
@@ -3274,6 +3279,10 @@ export const DEFAULT_SLOT_CONFIG: SlotConfig = {
       slotMinutes: 15,
       dailyCap: { BAJAJ_NAGAR: null, JAGATPURA: null },
     },
+    CALL_BACK: {
+      slotMinutes: 15,
+      dailyCap: { BAJAJ_NAGAR: null, JAGATPURA: null },
+    },
   },
 };
 
@@ -3292,6 +3301,7 @@ export async function fetchSlotConfig(): Promise<SlotConfig> {
       typeConfig: {
         NEW: { ...DEFAULT_SLOT_CONFIG.typeConfig.NEW, ...(parsed.typeConfig?.NEW ?? {}) },
         FOLLOWUP: { ...DEFAULT_SLOT_CONFIG.typeConfig.FOLLOWUP, ...(parsed.typeConfig?.FOLLOWUP ?? {}) },
+        CALL_BACK: { ...DEFAULT_SLOT_CONFIG.typeConfig.CALL_BACK, ...(parsed.typeConfig?.CALL_BACK ?? {}) },
       },
     };
   } catch {
@@ -3391,6 +3401,12 @@ export interface NewDeliveryInput {
   address?: string;
   advance_amount_paid: number;
   branch?: string;
+  // Family courier consolidation (25 Sep 2026) — set when this delivery is
+  // sharing a physical parcel with a linked family member's order at the
+  // same address (see findCombinableFamilyDelivery). Purely a display/
+  // packing grouping hint for Pharmacy — each row still tracks its own
+  // advance/status independently.
+  combined_with_delivery_id?: string;
 }
 
 export async function fetchDeliveries() {
@@ -3641,6 +3657,177 @@ export async function deletePatientAddress(id: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+// ---------- Online Follow-up requests (25 Sep 2026, migration 0081) ----------
+// Payment-gated online follow-up: reception logs what the patient wants,
+// nothing reaches the doctor until a payment screenshot is uploaded and
+// confirmed — confirm_online_followup_request_atomic() creates the real
+// visits/payments/deliveries rows in one transaction at that moment, dated
+// today, so the existing (visit_date-keyed) day-summary/report counts land
+// on the right day without any changes to them. Never used for a walk-in —
+// walk-in check-in/payment stays exactly as it was (see register.tsx).
+export type OnlineFollowupDeliveryMethod = "SELF_PICKUP" | "JAIPUR_COURIER" | "COURIER";
+export type OnlineFollowupStatus = "AWAITING_PAYMENT" | "CONFIRMED" | "CANCELLED";
+
+export interface OnlineFollowupRequest {
+  id: string;
+  patient_id: string;
+  branch: string;
+  note: string;
+  days_requested: number | null;
+  delivery_method: OnlineFollowupDeliveryMethod;
+  delivery_address_id: string | null;
+  delivery_address_text: string | null;
+  amount_expected: number;
+  status: OnlineFollowupStatus;
+  payment_screenshot_doc_id: string | null;
+  amount_confirmed: number | null;
+  visit_id: string | null;
+  delivery_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  patient?: { name: string; mobile: string; patient_code: string | null } | null;
+}
+
+// Owner-editable, same settings-key pattern as appointment_slot_config —
+// "agle saal fees badhana/ghatana" should always be a settings edit, never
+// a code change. "upto 2 month medicine" per Dr. Yadav's spec — a flat
+// rate regardless of days within that window, not a per-day rate.
+export interface OnlineFollowupPricing {
+  selfPickup: number;
+  jaipurCourier: number;
+  courier: number;
+}
+export const DEFAULT_ONLINE_FOLLOWUP_PRICING: OnlineFollowupPricing = {
+  selfPickup: 2500,
+  jaipurCourier: 2600,
+  courier: 2700,
+};
+
+export async function fetchOnlineFollowupPricing(): Promise<OnlineFollowupPricing> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "online_followup_pricing").maybeSingle();
+  if (error) console.error("fetchOnlineFollowupPricing failed:", error.message);
+  if (!data?.value) return DEFAULT_ONLINE_FOLLOWUP_PRICING;
+  try {
+    return { ...DEFAULT_ONLINE_FOLLOWUP_PRICING, ...JSON.parse(data.value) };
+  } catch {
+    return DEFAULT_ONLINE_FOLLOWUP_PRICING;
+  }
+}
+
+export async function saveOnlineFollowupPricing(pricing: OnlineFollowupPricing) {
+  await upsertSetting("online_followup_pricing", JSON.stringify(pricing));
+}
+
+export function onlineFollowupAmountFor(method: OnlineFollowupDeliveryMethod, pricing: OnlineFollowupPricing, combining: boolean): number {
+  // Dr. Yadav: 2 family members combining into one parcel pay "2500 + 2500
+  // + 200" total — the courier surcharge is charged once per combined
+  // group, not once per person. Whichever request is joining an existing
+  // delivery (combining=true) is priced at the base/self-pickup rate; the
+  // surcharge already sits on the first request in the group.
+  if (combining) return pricing.selfPickup;
+  if (method === "JAIPUR_COURIER") return pricing.jaipurCourier;
+  if (method === "COURIER") return pricing.courier;
+  return pricing.selfPickup;
+}
+
+export async function fetchOnlineFollowupRequests(status?: OnlineFollowupStatus): Promise<OnlineFollowupRequest[]> {
+  let q = supabase
+    .from("online_followup_requests")
+    .select("*, patient:patients(name, mobile, patient_code)")
+    .order("created_at", { ascending: true });
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q.limit(200);
+  if (error) throw dataLoadError(error);
+  return (data ?? []) as OnlineFollowupRequest[];
+}
+
+export async function createOnlineFollowupRequest(input: {
+  patient_id: string;
+  branch: string;
+  note: string;
+  days_requested?: number;
+  delivery_method: OnlineFollowupDeliveryMethod;
+  delivery_address_id?: string;
+  delivery_address_text?: string;
+  amount_expected: number;
+  created_by?: string;
+}) {
+  const { data, error } = await supabase
+    .from("online_followup_requests")
+    .insert({
+      patient_id: input.patient_id,
+      branch: input.branch,
+      note: input.note.trim(),
+      days_requested: input.days_requested ?? null,
+      delivery_method: input.delivery_method,
+      delivery_address_id: input.delivery_address_id ?? null,
+      delivery_address_text: input.delivery_address_text ?? null,
+      amount_expected: input.amount_expected,
+      created_by: input.created_by ?? null,
+    })
+    .select()
+    .single();
+  if (error) return { success: false, error: error.message, data: null };
+  return { success: true, error: null, data: data as OnlineFollowupRequest };
+}
+
+export async function cancelOnlineFollowupRequest(id: string) {
+  const { error } = await supabase
+    .from("online_followup_requests")
+    .update({ status: "CANCELLED" })
+    .eq("id", id)
+    .eq("status", "AWAITING_PAYMENT");
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function confirmOnlineFollowupRequest(input: {
+  request_id: string;
+  amount_confirmed: number;
+  payment_mode: string;
+  doc_id: string;
+  confirmed_by?: string;
+}): Promise<{ success: boolean; error: string | null; visit_id?: string; token_number?: string; delivery_id?: string }> {
+  const { data, error } = await supabase.rpc("confirm_online_followup_request_atomic", {
+    p_request_id: input.request_id,
+    p_amount_confirmed: input.amount_confirmed,
+    p_payment_mode: input.payment_mode,
+    p_doc_id: input.doc_id,
+    p_confirmed_by: input.confirmed_by ?? null,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true, error: null, visit_id: data?.visit_id, token_number: data?.token_number, delivery_id: data?.delivery_id };
+}
+
+// Family courier combine (Part B) — given a patient and the resolved
+// address text they're shipping to, finds a linked family member's still-
+// open (non-Delivered) delivery at the same address, so staff can offer
+// "combine with [Name]'s order?" instead of creating a separate parcel.
+// Address matching is a plain trimmed/case-insensitive string compare —
+// deliberately simple, no geocoding — this is a packing hint, not a hard
+// guarantee.
+export async function findCombinableFamilyDelivery(
+  patientId: string,
+  addressText: string,
+): Promise<{ delivery_id: string; patient_name: string } | null> {
+  const normalized = addressText.trim().toLowerCase();
+  if (!normalized) return null;
+  const family = await fetchFamilyMembers(patientId);
+  if (family.length === 0) return null;
+  const { data, error } = await supabase
+    .from("deliveries")
+    .select("id, address, patient_name, status")
+    .in("patient_id", family.map((f) => f.id))
+    .neq("status", "Delivered");
+  if (error) {
+    console.error("findCombinableFamilyDelivery failed:", error.message);
+    return null;
+  }
+  const match = (data ?? []).find((d: any) => (d.address ?? "").trim().toLowerCase() === normalized);
+  return match ? { delivery_id: match.id, patient_name: match.patient_name } : null;
+}
+
 // ---------- Schema version lock (#15, 17 Sep 2026) ----------
 // The latest migration THIS deployed app code depends on. Bump this in
 // the same change that adds a new supabase/sql-manual/00XX_*.sql file
@@ -3650,7 +3837,7 @@ export async function deletePatientAddress(id: string) {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0080_patient_addresses";
+export const EXPECTED_SCHEMA_VERSION = "0081_online_followup_requests";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -5777,7 +5964,7 @@ export async function setSharedMobileDismissed(mobile: string, dismissed: boolea
 // screen just photographs the page against the right patient. Reuses the
 // same compress + scan-enhance + upload-timeout pipeline as case-taking
 // photos, so this needs no separate tuning.
-export const DOC_TYPES = ["Follow-up Notes", "New Case Notes", "Lab Report", "Other"] as const;
+export const DOC_TYPES = ["Follow-up Notes", "New Case Notes", "Lab Report", "Payment Screenshot", "Other"] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 
 export interface PatientDocument {
@@ -5815,17 +6002,25 @@ export async function uploadPatientDocument(
     // raw path, not a getPublicUrl() result the Private bucket can't
     // actually serve. resolveDocUrl() (used by every reader) already
     // handles a bare path.
-    const { error } = await supabase.from("patient_documents").insert({
-      patient_id: patientId,
-      doc_type: docType,
-      photo_url: path,
-      note: note?.trim() || null,
-      uploaded_by: uploadedBy || null,
-    });
-    if (error) return { success: false, error: error.message };
-    return { success: true, error: null };
+    const { data, error } = await supabase
+      .from("patient_documents")
+      .insert({
+        patient_id: patientId,
+        doc_type: docType,
+        photo_url: path,
+        note: note?.trim() || null,
+        uploaded_by: uploadedBy || null,
+      })
+      .select("id")
+      .single();
+    if (error) return { success: false, error: error.message, id: null };
+    // id added (25 Sep 2026) for the Call Desk's payment-screenshot flow,
+    // which needs to link the uploaded doc to an online_followup_requests
+    // row — existing callers only ever read .success/.error, so this is
+    // additive.
+    return { success: true, error: null, id: data?.id as string | null };
   } catch (e: any) {
-    return { success: false, error: e?.message ?? "Upload failed" };
+    return { success: false, error: e?.message ?? "Upload failed", id: null };
   }
 }
 
@@ -5876,7 +6071,7 @@ export async function deletePatientDocument(id: string) {
 
 export async function fetchDaySummary(branch?: string) {
   const t = today();
-  let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch").eq("visit_date", t);
+  let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch,visit_type").eq("visit_date", t);
   // Payments joined to their visit's real visit_date, not the payment
   // row's own created_at (import-insert timestamp) — same bug class as
   // owner_totals/doctor_totals/report_totals/week_revenue, found live 23
@@ -5905,6 +6100,11 @@ export async function fetchDaySummary(branch?: string) {
   const patientIds = visits.map((v: any) => v.patient_id).filter(Boolean);
   let newCount = 0;
   let followupCount = 0;
+  // Walk-in vs Online split (Part F, 25 Sep 2026, Dr. Yadav's "token count
+  // ko detail me thik karo sab include karke") — same New/Follow-up
+  // classification below, cross-referenced with each visit's own
+  // visit_type (VIDEO = online, everything else = walk-in).
+  let newWalkIn = 0, newOnline = 0, followupWalkIn = 0, followupOnline = 0;
   if (patientIds.length) {
     // "New today" = today is this patient's EARLIEST visit, not
     // patients.created_at (a bulk-imported patient's created_at is
@@ -5920,11 +6120,27 @@ export async function fetchDaySummary(branch?: string) {
       const existing = firstVisitByPatient.get(v.patient_id);
       if (!existing || v.visit_date < existing) firstVisitByPatient.set(v.patient_id, v.visit_date);
     }
-    for (const pid of patientIds) {
-      if (firstVisitByPatient.get(pid) === t) newCount++;
-      else followupCount++;
+    for (const v of visits as any[]) {
+      const isNew = firstVisitByPatient.get(v.patient_id) === t;
+      const isOnline = (v.visit_type ?? "").toUpperCase() === "VIDEO";
+      if (isNew) { newCount++; if (isOnline) newOnline++; else newWalkIn++; }
+      else { followupCount++; if (isOnline) followupOnline++; else followupWalkIn++; }
     }
   }
+  // Complaints + Online Follow-up rough/confirmed counts (Part F) — plain
+  // client-side counts, same style as everything else on this screen, no
+  // RPC needed. onlineFollowupAwaitingPayment IS the "rough list" size Dr.
+  // Yadav wants visible to both Reception and Owner.
+  const [complaintsTodayRes, openComplaints, awaitingRes, confirmedTodayRes] = await Promise.all([
+    supabase.from("patient_interactions").select("id", { count: "exact", head: true }).eq("type", "COMPLAINT").gte("created_at", `${t}T00:00:00`).lt("created_at", `${t}T23:59:59.999`),
+    fetchOpenComplaints(),
+    supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "AWAITING_PAYMENT"),
+    supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "CONFIRMED").gte("confirmed_at", `${t}T00:00:00`).lt("confirmed_at", `${t}T23:59:59.999`),
+  ]);
+  const complaintsLoggedToday = complaintsTodayRes.count ?? 0;
+  const complaintsOpenTotal = openComplaints.length;
+  const onlineFollowupAwaitingPayment = awaitingRes.count ?? 0;
+  const onlineFollowupConfirmedToday = confirmedTodayRes.count ?? 0;
   const revenue = pays.reduce((s, r: any) => s + Number(r.amount_received ?? 0), 0);
   const outstanding = pays.reduce((s, r: any) => s + Number(r.balance_due ?? 0), 0);
   // Was fixed cash/upi/card/other fields — 10 Aug 2026, replaced with a
@@ -5942,6 +6158,14 @@ export async function fetchDaySummary(branch?: string) {
     totalPatients: visits.length,
     newPatients: newCount,
     followupPatients: followupCount,
+    newWalkIn,
+    newOnline,
+    followupWalkIn,
+    followupOnline,
+    complaintsLoggedToday,
+    complaintsOpenTotal,
+    onlineFollowupAwaitingPayment,
+    onlineFollowupConfirmedToday,
     done: doneToday,
     waiting: visits.filter((v: any) => ["REGISTERED", "CASE_TAKING", "WAITING", "WAITING_DOCTOR"].includes(v.visit_status)).length,
     pendingPayments: visits.filter((v: any) => v.visit_status === "PAYMENT").length,

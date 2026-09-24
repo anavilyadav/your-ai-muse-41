@@ -105,18 +105,34 @@ export function SlotPicker({
   );
 }
 
-function NewAppointmentModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+// Exported (25 Sep 2026) so the unified Call Desk (src/routes/call.tsx)
+// can open the exact same booking modal as its own "Appointment" tile,
+// instead of duplicating this form — same reuse pattern as RescheduleModal
+// below. `initialType`/`initialPatient` let a caller that already has a
+// patient in hand (Online Follow-up/Complaint's optional "pick a call
+// time" step) skip straight to slot-picking instead of re-searching.
+export function NewAppointmentModal({
+  onClose,
+  onAdded,
+  initialType = "FOLLOWUP",
+  initialPatient,
+}: {
+  onClose: () => void;
+  onAdded: () => void;
+  initialType?: ApptType;
+  initialPatient?: { id: string; name: string; mobile?: string | null; branch?: string | null; wa_consent?: boolean | null };
+}) {
   const role = useEffectiveRole();
   const isOwner = role === "OWNER";
-  const [name, setName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [patientId, setPatientId] = useState<string | undefined>(undefined);
-  const [waConsent, setWaConsent] = useState(false);
+  const [name, setName] = useState(initialPatient?.name ?? "");
+  const [mobile, setMobile] = useState(initialPatient?.mobile ?? "");
+  const [patientId, setPatientId] = useState<string | undefined>(initialPatient?.id);
+  const [waConsent, setWaConsent] = useState(!!initialPatient?.wa_consent);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [date, setDate] = useState(today());
   const [time, setTime] = useState("");
-  const [type, setType] = useState<ApptType>("FOLLOWUP");
-  const [branch, setBranch] = useState<ApptBranch>("BAJAJ_NAGAR");
+  const [type, setType] = useState<ApptType>(initialType);
+  const [branch, setBranch] = useState<ApptBranch>((normalizeBranchKey(initialPatient?.branch) || "BAJAJ_NAGAR") as ApptBranch);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 

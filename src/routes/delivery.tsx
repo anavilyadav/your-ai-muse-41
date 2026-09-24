@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Plus, Truck, X } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, type PatientAddress } from "@/lib/db";
+import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, type PatientAddress } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -79,7 +79,7 @@ function DeliveryPage() {
       ) : (
         <ul className="mt-4 space-y-3">
           {deliveries.map((d) => (
-            <DeliveryCard key={d.id} d={d} />
+            <DeliveryCard key={d.id} d={d} allDeliveries={deliveries} />
           ))}
         </ul>
       )}
@@ -124,6 +124,17 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setAddress(a.address);
   };
 
+  // Family courier combine (25 Sep 2026, Part B) — same rule as the Call
+  // Desk's Online Follow-up Request: 2 family members shipping to the same
+  // address should be one parcel, not two separate ones.
+  const [combine, setCombine] = useState<{ delivery_id: string; patient_name: string } | null>(null);
+  useEffect(() => {
+    if (!selected || !address.trim()) { setCombine(null); return; }
+    let cancelled = false;
+    findCombinableFamilyDelivery(selected.id, address).then((c) => { if (!cancelled) setCombine(c); });
+    return () => { cancelled = true; };
+  }, [selected, address]);
+
   const submit = async () => {
     if (!selected) { toast.error("Patient chuno pehle"); return; }
     const amt = Number(advance);
@@ -140,6 +151,7 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
       partner,
       advance_amount_paid: amt,
       branch: selected.branch,
+      combined_with_delivery_id: combine?.delivery_id,
     });
     if (!res.success) {
       setSaving(false);
@@ -246,6 +258,11 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 </div>
               )}
               <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm resize-none" />
+              {combine && (
+                <p className="text-[11px] text-success mt-1">
+                  ✓ {combine.patient_name} ke order jaisa hi address hai — courier combine ho jayega.
+                </p>
+              )}
             </div>
 
             <div>
@@ -274,7 +291,14 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
-function DeliveryCard({ d }: { d: any }) {
+function DeliveryCard({ d, allDeliveries }: { d: any; allDeliveries: any[] }) {
+  // Family courier combine (Part B) — a delivery pointing at another via
+  // combined_with_delivery_id shares one physical parcel; resolve the
+  // other patient's name from the already-fetched list so Pharmacy knows
+  // to pack once, not twice.
+  const combinedWith = d.combined_with_delivery_id
+    ? allDeliveries.find((o) => o.id === d.combined_with_delivery_id)
+    : allDeliveries.find((o) => o.combined_with_delivery_id === d.id);
   const queryClient = useQueryClient();
   const [note, setNote] = useState(d.note ?? "");
   const Icon = partnerIcon[d.partner] ?? Package;
@@ -323,6 +347,9 @@ function DeliveryCard({ d }: { d: any }) {
           </span>
         )}
       </div>
+      {combinedWith && (
+        <p className="mt-1 text-[10px] text-muted-foreground">🔗 Combined parcel — {combinedWith.patient_name} ke saath</p>
+      )}
 
       <div className="mt-3 flex items-center gap-1">
         {DELIVERY_STEPS.map((step, i) => {

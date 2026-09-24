@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -448,8 +448,21 @@ function LeadSourcesPanel({ settings }: { settings: any[] }) {
 // yet (Online Booking, Home Visits, Marketing/GIOS) — those are listed
 // under "Planned", clearly separate from working links, no toggle switch.
 
+const ONLINE_FOLLOWUP_TIER_LABELS: Record<keyof OnlineFollowupPricing, string> = {
+  selfPickup: "Khud/Kisi Ko Bhej Ke Collect",
+  jaipurCourier: "Jaipur Courier",
+  courier: "Rest of India Courier",
+};
+
 // TASK 4 — Fee Master. Reception's Payment screen prefills from these, so
 // a fee change is one edit here instead of retraining staff.
+//
+// Online Follow-up tiers added (25 Sep 2026, Part E of Dr. Yadav's
+// Reception-flow rebuild) directly into this same card rather than a
+// separate settings screen — "agle saal fees badhana ghatana" should
+// always mean one coherent place to look, not pricing scattered across
+// multiple cards. These 3 feed the Call Desk's Online Follow-up Request
+// amount prefill (upto 2 months' medicine, flat per tier — not per-day).
 function FeeMasterCard() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["fee-master"], queryFn: fetchFeeMaster });
@@ -457,6 +470,12 @@ function FeeMasterCard() {
   const [draft, setDraft] = useState<FeeMaster | null>(null);
   const [saving, setSaving] = useState(false);
   const current = draft ?? fees;
+
+  const { data: ofPricingData } = useQuery({ queryKey: ["online-followup-pricing"], queryFn: fetchOnlineFollowupPricing });
+  const ofPricing = ofPricingData ?? DEFAULT_ONLINE_FOLLOWUP_PRICING;
+  const [ofDraft, setOfDraft] = useState<OnlineFollowupPricing | null>(null);
+  const [ofSaving, setOfSaving] = useState(false);
+  const ofCurrent = ofDraft ?? ofPricing;
 
   const save = async () => {
     if (!draft) return;
@@ -470,6 +489,20 @@ function FeeMasterCard() {
       toast.error(e?.message ?? "Save nahi hua");
     }
     setSaving(false);
+  };
+
+  const saveOf = async () => {
+    if (!ofDraft) return;
+    setOfSaving(true);
+    try {
+      await saveOnlineFollowupPricing(ofDraft);
+      qc.invalidateQueries({ queryKey: ["online-followup-pricing"] });
+      setOfDraft(null);
+      toast.success("Online Follow-up pricing update ho gayi");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setOfSaving(false);
   };
 
   return (
@@ -506,6 +539,39 @@ function FeeMasterCard() {
         <p className="text-[11px] text-muted-foreground">
           Reception yahi amount prefill dekhegi — concession dena ho to wahi edit kar sakti hai.
         </p>
+
+        <div className="pt-2.5 mt-1 border-t border-border space-y-2.5">
+          <p className="text-[11px] font-bold text-primary">Online Follow-up (upto 2 mahine ki dawa)</p>
+          {(Object.keys(ONLINE_FOLLOWUP_TIER_LABELS) as (keyof OnlineFollowupPricing)[]).map((k) => (
+            <div key={k} className="flex items-center justify-between gap-3">
+              <span className="text-[13px] font-semibold text-primary">{ONLINE_FOLLOWUP_TIER_LABELS[k]}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-muted-foreground">₹</span>
+                <input
+                  inputMode="numeric"
+                  value={ofCurrent[k] || ""}
+                  onChange={(e) =>
+                    setOfDraft({ ...ofCurrent, [k]: Number(e.target.value.replace(/\D/g, "")) || 0 })
+                  }
+                  className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-right"
+                />
+              </div>
+            </div>
+          ))}
+          {ofDraft && (
+            <button
+              onClick={saveOf}
+              disabled={ofSaving || Object.values(ofDraft).some((v) => !v || v <= 0)}
+              className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+            >
+              {ofSaving ? "Saving…" : "Save Online Follow-up Pricing"}
+            </button>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Call Desk ki Online Follow-up Request yahi amount prefill karegi. Family courier combine hone par
+            2nd request "Khud/Kisi Ko Bhej Ke Collect" wala rate leti hai (surcharge sirf ek baar lagta hai).
+          </p>
+        </div>
       </div>
     </div>
   );

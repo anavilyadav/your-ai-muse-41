@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, CalendarDays, ClipboardList, ListChecks, LogOut, Search, UserPlus } from "lucide-react";
+import { ArrowLeft, ClipboardList, ListChecks, LogOut, PhoneCall, Search, UserPlus } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -18,11 +18,18 @@ interface Props {
 // inside Tasks (two taps, easy to never notice) even though booking/
 // confirming/arrived is as core a daily Reception job as Register or
 // Search — found live 23 Sep 2026 (Dr. Yadav: "appointment wala system
-// sahi jagah nahi hai"). Now a first-class tab like everything else.
+// sahi jagah nahi hai"). Was a first-class tab here for one day.
+//
+// 25 Sep 2026 — replaced with "Call": Dr. Yadav's Reception-flow rebuild
+// consolidated Appointments/Online-Follow-up/Complaint/Inquiry into one
+// Call Desk ("call se hi sab start hota hai" — every one of these must
+// begin from this single screen, not four scattered entry points).
+// Appointment booking is now one tile inside /call; /appointments itself
+// is still reachable from there for managing the day's already-booked list.
 const navItems = [
   { to: "/", label: "Queue", icon: ClipboardList },
   { to: "/register", label: "Register", icon: UserPlus },
-  { to: "/appointments", label: "Appts", icon: CalendarDays },
+  { to: "/call", label: "Call", icon: PhoneCall },
   { to: "/search", label: "Search", icon: Search },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
 ] as const;
