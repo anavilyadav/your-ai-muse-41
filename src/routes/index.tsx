@@ -275,12 +275,17 @@ function QueuePage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="truncate font-semibold text-sm text-primary">{r.patient?.name ?? "Unknown"}</p>
-                      {formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number) && (
+                      {formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number) ? (
                         <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
                           {formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number)}
                         </span>
+                      ) : (
+                        // Card number is the real identifier now (Dr. Yadav:
+                        // "MERE WALE NUMBER HI CARD NUMBER HAI") — the
+                        // auto-generated YHC-code only ever shows as a
+                        // fallback for the few patients with no card yet.
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
                       )}
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{r.chief_complaint || "—"}</p>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">

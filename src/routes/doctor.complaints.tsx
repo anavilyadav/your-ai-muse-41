@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { PhoneCall } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchOpenComplaints, resolveComplaint } from "@/lib/db";
+import { fetchOpenComplaints, resolveComplaint, displayPatientCode } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/doctor/complaints")({
@@ -81,7 +81,7 @@ function ComplaintsPage() {
                 </span>
               </div>
               <div className="text-[11px] text-muted-foreground mt-0.5">
-                {r.patient?.patient_code} • {r.patient?.mobile}
+                {displayPatientCode(r.patient)} • {r.patient?.mobile}
               </div>
               <p className="text-sm mt-2 whitespace-pre-wrap">{r.note}</p>
               {r.created_by && <p className="text-[11px] text-muted-foreground mt-0.5">— {r.created_by} ne register ki</p>}

@@ -1235,13 +1235,13 @@ export interface OpenComplaint {
   note: string;
   created_by: string | null;
   created_at: string;
-  patient: { name: string; mobile: string; patient_code: string | null; branch: string } | null;
+  patient: { name: string; mobile: string; patient_code: string | null; card_series: string | null; card_register: string | null; card_number: string | null; branch: string } | null;
 }
 
 export async function fetchOpenComplaints(): Promise<OpenComplaint[]> {
   const { data, error } = await supabase
     .from("patient_interactions")
-    .select("id, patient_id, note, created_by, created_at, patient:patients(name, mobile, patient_code, branch)")
+    .select("id, patient_id, note, created_by, created_at, patient:patients(name, mobile, patient_code, card_series, card_register, card_number, branch)")
     .eq("type", "COMPLAINT")
     .eq("status", "OPEN")
     .order("created_at", { ascending: true })
@@ -2632,6 +2632,20 @@ export function formatCardNumber(series: string | null | undefined, register: st
   return [series, register, number].filter(Boolean).join("-");
 }
 
+// Dr. Yadav (25 Sep 2026): his own physical card-register numbering
+// (Series-Register-Number, e.g. "B-10-12") IS the patient identifier he
+// wants shown everywhere — not the auto-generated "YHC-XXXX" patient_code,
+// which was still surfacing as "the patient's code" across the app.
+// patient_code itself stays untouched (immutable, sequence-generated,
+// still needed as a guaranteed fallback for the ~few patients whose card
+// number isn't entered yet — see the Data Quality "Adhoora card number"
+// tool) — this only changes what staff SEE as the ID, preferring the card
+// number whenever one is set.
+export function displayPatientCode(p: { patient_code?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null } | null | undefined): string {
+  if (!p) return "—";
+  return formatCardNumber(p.card_series, p.card_register, p.card_number) ?? p.patient_code ?? "—";
+}
+
 // Sorts patients the way the PHYSICAL card register books are organized
 // (series letter, then register number, then card number, each numeric
 // where it should be, not string-lexicographic — "9" must sort before
@@ -3499,7 +3513,7 @@ export async function fetchOutstandingPatients(): Promise<{ rows: any[]; truncat
   const LIMIT = 500;
   const { data, error } = await supabase
     .from("patients")
-    .select("id, name, mobile, patient_code, current_balance, last_visit_date, branch")
+    .select("id, name, mobile, patient_code, card_series, card_register, card_number, current_balance, last_visit_date, branch")
     .gt("current_balance", 0)
     .order("current_balance", { ascending: false })
     .limit(LIMIT + 1);
@@ -3782,22 +3796,28 @@ export async function cancelOnlineFollowupRequest(id: string) {
   return { success: !error, error: error?.message ?? null };
 }
 
+// 25 Sep 2026 — amount_charged/amount_received split (advance/partial
+// payment support): Dr. Yadav found the confirm step had no way to record
+// "patient paid an advance now, rest is due" — every other payment path in
+// this app already separates the two. See migration 0082.
 export async function confirmOnlineFollowupRequest(input: {
   request_id: string;
-  amount_confirmed: number;
+  amount_charged: number;
+  amount_received: number;
   payment_mode: string;
   doc_id: string;
   confirmed_by?: string;
-}): Promise<{ success: boolean; error: string | null; visit_id?: string; token_number?: string; delivery_id?: string }> {
+}): Promise<{ success: boolean; error: string | null; visit_id?: string; token_number?: string; delivery_id?: string; balance?: number }> {
   const { data, error } = await supabase.rpc("confirm_online_followup_request_atomic", {
     p_request_id: input.request_id,
-    p_amount_confirmed: input.amount_confirmed,
+    p_amount_charged: input.amount_charged,
+    p_amount_received: input.amount_received,
     p_payment_mode: input.payment_mode,
     p_doc_id: input.doc_id,
     p_confirmed_by: input.confirmed_by ?? null,
   });
   if (error) return { success: false, error: error.message };
-  return { success: true, error: null, visit_id: data?.visit_id, token_number: data?.token_number, delivery_id: data?.delivery_id };
+  return { success: true, error: null, visit_id: data?.visit_id, token_number: data?.token_number, delivery_id: data?.delivery_id, balance: data?.balance };
 }
 
 // Family courier combine (Part B) — given a patient and the resolved
@@ -3837,7 +3857,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0081_online_followup_requests";
+export const EXPECTED_SCHEMA_VERSION = "0082_online_followup_advance_payment";
 
 export interface SchemaMigrationRow {
   filename: string;

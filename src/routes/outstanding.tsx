@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Phone, MessageCircle, IndianRupee } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchOutstandingPatients, branchLabel } from "@/lib/db";
+import { fetchOutstandingPatients, branchLabel, displayPatientCode } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/outstanding")({
@@ -48,7 +48,7 @@ function OutstandingPage() {
                 <Link to="/patient/$id" params={{ id: p.id }} className="min-w-0 flex-1">
                   <div className="font-semibold text-sm text-primary truncate">{p.name}</div>
                   <div className="text-[11px] text-muted-foreground">
-                    {p.patient_code ?? "—"} • {branchLabel(p.branch)}
+                    {displayPatientCode(p)} • {branchLabel(p.branch)}
                   </div>
                   <div className="flex items-center gap-1 text-[13px] font-bold text-destructive mt-1">
                     <IndianRupee className="h-3.5 w-3.5" /> {Number(p.current_balance).toLocaleString("en-IN")}

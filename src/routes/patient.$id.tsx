@@ -31,6 +31,7 @@ import {
   INTERACTION_TYPE_LABELS,
   DOC_TYPES,
   formatCardNumber,
+  displayPatientCode,
   mergePatients,
   fetchWhatsAppDeliveryHealth,
   fetchInteractions,
@@ -439,7 +440,7 @@ function MergePatientModal({
                       onClick={() => { setSelected(p); setQ(""); setResults([]); }}
                       className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
                     >
-                      {p.name} — {p.mobile} {p.patient_code ? `(${p.patient_code})` : ""}
+                      {p.name} — {p.mobile} ({displayPatientCode(p)})
                     </button>
                   </li>
                 ))}
@@ -1107,7 +1108,7 @@ function PatientProfilePage() {
   const branchLabel = getBranchLabel(patient.branch);
 
   return (
-    <MobileShell title={patient.name} subtitle={patient.patient_code ?? patient.id.slice(0, 8)} showBack>
+    <MobileShell title={patient.name} subtitle={displayPatientCode(patient)} showBack>
       {showLinkModal && (
         <LinkFamilyModal patientId={id} patientName={patient.name} onClose={() => setShowLinkModal(false)} onLinked={reload} />
       )}

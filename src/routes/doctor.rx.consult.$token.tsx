@@ -22,6 +22,7 @@ import {
   recaseVisitNow,
   flagRecaseNextTime,
   updatePatientContactInfo,
+  displayPatientCode,
   type RxRow,
   type RxDraft,
   type NextVisitOption,
@@ -310,7 +311,7 @@ function RxWrite() {
       patientName: visit!.patient?.name ?? "",
       age: visit!.patient?.age,
       gender: visit!.patient?.gender,
-      patientCode: visit!.patient?.patient_code,
+      patientCode: displayPatientCode(visit!.patient),
       tokenNumber: visit!.token_number,
       chiefComplaint: visit!.chief_complaint,
       doctorNotes: notes,
@@ -467,7 +468,7 @@ function RxWrite() {
               )}
             </div>
             <div className="text-xs opacity-80 mt-0.5">
-              {visit.patient?.age ? `${visit.patient.age}y` : ""} • {visit.patient?.gender ?? ""} • {visit.patient?.patient_code}
+              {visit.patient?.age ? `${visit.patient.age}y` : ""} • {visit.patient?.gender ?? ""} • {displayPatientCode(visit.patient)}
             </div>
             {visit.patient_id && visit.patient && (
               <div className="mt-2 flex gap-1.5">

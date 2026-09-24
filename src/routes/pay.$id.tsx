@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, type DBPatient } from "@/lib/db";
+import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, type DBPatient } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Plus, X } from "lucide-react";
@@ -317,7 +317,7 @@ function PayPage() {
           </div>
           <div className="text-right">
             <div className="text-sm font-bold">{visit.patient?.name}</div>
-            <div className="text-[10px] opacity-70">{visit.patient?.patient_code} • {branchLabel(visit.branch)}</div>
+            <div className="text-[10px] opacity-70">{displayPatientCode(visit.patient)} • {branchLabel(visit.branch)}</div>
           </div>
         </div>
         <div className="mt-2 text-xs opacity-80">{visit.chief_complaint || "—"}</div>

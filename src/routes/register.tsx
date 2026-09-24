@@ -6,7 +6,7 @@ import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -277,6 +277,10 @@ function RegisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hardcoded WALK_IN (25 Sep 2026) — this button no longer offers an
+  // Online Follow-up option at all (see the box above), so it must never
+  // read f.caseChannel, which the unrelated new-patient "Case Type"
+  // section further down the same form could have already set to ONLINE.
   const checkInInstead = async () => {
     if (!existingPatient) return;
     if (!f.branch) { toast.error("Branch chuno pehle"); return; }
@@ -286,16 +290,16 @@ function RegisterPage() {
         patient_id: existingPatient.id,
         branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
         chief_complaint: f.chief.trim() || undefined,
-        case_channel: f.caseChannel,
+        case_channel: "WALK_IN",
         visit_date: effectiveVisitDate,
       });
       setSaved({
         token: visit.token_number ?? "T-01",
-        code: existingPatient.patient_code ?? "YHC-—",
+        code: displayPatientCode(existingPatient),
         branch: f.branch,
         name: existingPatient.name,
         visitId: visit.id,
-        caseChannel: f.caseChannel,
+        caseChannel: "WALK_IN",
         paymentCollected: false,
         paymentAmount: 0,
       });
@@ -397,7 +401,7 @@ function RegisterPage() {
       }
       setSaved({
         token: visit.token_number ?? "T-01",
-        code: patient.patient_code ?? "YHC-—",
+        code: displayPatientCode(patient),
         branch: patient.branch,
         name: patient.name,
         visitId: visit.id,
@@ -691,12 +695,9 @@ function RegisterPage() {
           <div className="rounded-xl bg-accent/15 border border-accent p-3">
             <p className="text-xs font-semibold text-primary flex items-center gap-1.5 flex-wrap">
               {existingPatient.name} is number se already registered hai
-              {formatCardNumber(existingPatient.card_series, existingPatient.card_register, existingPatient.card_number) && (
-                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
-                  Card: {formatCardNumber(existingPatient.card_series, existingPatient.card_register, existingPatient.card_number)}
-                </span>
-              )}
-              <span className="text-[10px] font-normal text-muted-foreground">({existingPatient.patient_code ?? "—"})</span>
+              <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
+                {displayPatientCode(existingPatient)}
+              </span>
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               <b>Follow-up hai (yeh {existingPatient.name} ki hi purani visit hai)?</b> Neeche "Check-In karo" dabao —
@@ -707,45 +708,30 @@ function RegisterPage() {
               link nahi.</b>
             </p>
 
-            {/* Same f.caseChannel the new-registration "Case Type" section
-                further down sets — check-in already passes it through
-                (checkInInstead → case_channel), but that section is buried
-                below Branch/Payment, so Reception checking someone in never
-                saw it in time to mark an online follow-up. Duplicated here
-                without the new-patient bundle pricing text, which doesn't
-                apply to a returning patient's follow-up. Found live 22 Sep
-                2026. */}
-            <div className="mt-2.5 flex gap-1.5">
-              <button
-                type="button"
-                onClick={() => set("caseChannel", "WALK_IN")}
-                className={cn(
-                  "flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold border",
-                  f.caseChannel === "WALK_IN" ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
-                )}
-              >
-                Walk-in
-              </button>
-              <button
-                type="button"
-                onClick={() => set("caseChannel", "ONLINE")}
-                className={cn(
-                  "flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold border",
-                  f.caseChannel === "ONLINE" ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
-                )}
-              >
-                🎥 Online Follow-up
-              </button>
-            </div>
-
+            {/* Online Follow-up removed from here (25 Sep 2026) — this
+                WALK_IN/ONLINE toggle used to let staff check an existing
+                patient straight into a VIDEO visit with zero payment gate,
+                which is exactly the shortcut that let online follow-ups
+                bypass the new Call Desk payment-first flow (Dr. Yadav found
+                this live: "call follow up wale register hoke abhi bhi
+                direct prescribing doctor me aa rahe hai"). Walk-in
+                check-in (pay after arriving, same as always) stays here;
+                online follow-up now only has one path — Call Desk. */}
             <button
               type="button"
               onClick={checkInInstead}
               disabled={checkInBusy}
-              className="mt-2 w-full rounded-lg bg-primary text-primary-foreground py-2.5 text-xs font-bold disabled:opacity-60"
+              className="mt-2.5 w-full rounded-lg bg-primary text-primary-foreground py-2.5 text-xs font-bold disabled:opacity-60"
             >
-              {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Check-In karo (follow-up, naya number nahi)`}
+              {checkInBusy ? "Checking in…" : `${existingPatient.name} ko Walk-in Check-In karo (follow-up, naya number nahi)`}
             </button>
+            <Link
+              to="/call"
+              search={{ patientId: existingPatient.id }}
+              className="mt-1.5 block w-full text-center rounded-lg bg-accent/15 text-accent-foreground py-2 text-[11px] font-bold"
+            >
+              🎥 Online Follow-up? Call Desk se karo (payment pehle)
+            </Link>
 
             <div className="mt-3 pt-3 border-t border-accent/40">
               <p className="text-[11px] font-semibold text-primary mb-1.5">

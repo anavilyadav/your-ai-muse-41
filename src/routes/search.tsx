@@ -3,7 +3,7 @@ import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
-import { searchPatients } from "@/lib/db";
+import { searchPatients, displayPatientCode } from "@/lib/db";
 
 export const Route = createFileRoute("/search")({
   head: () => ({ meta: [{ title: "Search Patients — YHC Jaipur" }] }),
@@ -89,7 +89,7 @@ function SearchPage() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-sm text-primary">{p.name}</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {p.patient_code ?? p.id.slice(0, 8)} • {p.mobile}
+                  {displayPatientCode(p)} • {p.mobile}
                 </p>
                 <p className="truncate text-[11px] text-muted-foreground">
                   {p.primary_disease ?? ""}

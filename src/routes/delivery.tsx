@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Plus, Truck, X } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, type PatientAddress } from "@/lib/db";
+import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, displayPatientCode, type PatientAddress } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -210,7 +210,7 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <div className="rounded-xl bg-accent/15 border border-accent/40 p-3 flex items-center justify-between">
               <div>
                 <div className="text-sm font-bold text-primary">{selected.name}</div>
-                <div className="text-[11px] text-muted-foreground">{selected.mobile} • {selected.patient_code}</div>
+                <div className="text-[11px] text-muted-foreground">{selected.mobile} • {displayPatientCode(selected)}</div>
               </div>
               <button onClick={() => setSelected(null)} className="text-[11px] font-semibold text-primary underline">Badlo</button>
             </div>

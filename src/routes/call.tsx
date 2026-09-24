@@ -23,6 +23,7 @@ import {
   onlineFollowupAmountFor,
   findCombinableFamilyDelivery,
   fetchPatientAddresses,
+  addPatientAddress,
   uploadPatientDocument,
   fetchPaymentModes,
   branchLabel,
@@ -34,8 +35,11 @@ import {
   type ApptBranch,
   type DBPatient,
 } from "@/lib/db";
+import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { NewAppointmentModal } from "./appointments";
 import { AddLeadModal } from "./leads";
+
+const ADDRESS_LABEL_OPTIONS = ["Ghar", "Office", "Native/Village"] as const;
 
 // Unified "Call Desk" (25 Sep 2026, Dr. Yadav's Reception-flow rebuild) —
 // "call se hi sab start hota hai": every piece of Reception-initiated work
@@ -222,6 +226,14 @@ function OnlineFollowupRequestModal({
   const [addresses, setAddresses] = useState<PatientAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [manualAddress, setManualAddress] = useState("");
+  // Extra address, save-for-later (25 Sep 2026) — Dr. Yadav: army/transfer
+  // patients courier to a different place every time, so a NEW address
+  // typed here should be offerable as a save, not just a one-off — reuses
+  // the same patient_addresses table/pattern as the Patient Profile's own
+  // Delivery Addresses section.
+  const [showNewAddress, setShowNewAddress] = useState(false);
+  const [saveNewAddress, setSaveNewAddress] = useState(true);
+  const [newAddressLabel, setNewAddressLabel] = useState<string>(ADDRESS_LABEL_OPTIONS[0]);
   const [combine, setCombine] = useState<{ delivery_id: string; patient_name: string } | null>(null);
   const [pricing, setPricing] = useState(DEFAULT_ONLINE_FOLLOWUP_PRICING);
   const [amount, setAmount] = useState("");
@@ -239,6 +251,7 @@ function OnlineFollowupRequestModal({
     setAddresses(addrs);
     const def = addrs.find((a) => a.is_default) ?? addrs[0] ?? null;
     setSelectedAddressId(def?.id ?? null);
+    setShowNewAddress(addrs.length === 0);
   };
 
   useEffect(() => {
@@ -282,6 +295,13 @@ function OnlineFollowupRequestModal({
     const amt = Number(amount);
     if (!amt || amt <= 0) { toast.error("Amount check karo"); return; }
     setSaving(true);
+    // Save the new address for next time (25 Sep 2026) — a failure here
+    // shouldn't block the actual request, which already has the address
+    // text either way (delivery_address_text).
+    if (showNewAddress && saveNewAddress && manualAddress.trim()) {
+      const addrRes = await addPatientAddress(selected.id, { label: newAddressLabel, address: manualAddress.trim() });
+      if (!addrRes.success) toast.warning("Address save nahi hui, par request ban jayega: " + addrRes.error);
+    }
     const res = await createOnlineFollowupRequest({
       patient_id: selected.id,
       branch,
@@ -431,30 +451,49 @@ function OnlineFollowupRequestModal({
             {method !== "SELF_PICKUP" && (
               <div>
                 <label className="text-[11px] font-bold text-muted-foreground uppercase">Address</label>
-                {addresses.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 mt-1 mb-1.5">
-                    {addresses.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => setSelectedAddressId(a.id)}
-                        className={cn(
-                          "rounded-full px-2.5 py-1.5 text-[11px] font-semibold border",
-                          selectedAddressId === a.id ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
-                        )}
-                      >
-                        {a.label}
-                      </button>
-                    ))}
+                <div className="flex flex-wrap gap-1.5 mt-1 mb-1.5">
+                  {addresses.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => { setSelectedAddressId(a.id); setShowNewAddress(false); }}
+                      className={cn(
+                        "rounded-full px-2.5 py-1.5 text-[11px] font-semibold border",
+                        !showNewAddress && selectedAddressId === a.id ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                      )}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => { setShowNewAddress(true); setSelectedAddressId(null); }}
+                    className={cn(
+                      "rounded-full px-2.5 py-1.5 text-[11px] font-semibold border",
+                      showNewAddress ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                    )}
+                  >
+                    + Naya Address
+                  </button>
+                </div>
+
+                {showNewAddress && (
+                  <div className="space-y-1.5">
+                    <textarea
+                      value={manualAddress}
+                      onChange={(e) => setManualAddress(e.target.value)}
+                      rows={2}
+                      placeholder="Naya address likho"
+                      className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm resize-none"
+                    />
+                    <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <input type="checkbox" checked={saveNewAddress} onChange={(e) => setSaveNewAddress(e.target.checked)} className="h-4 w-4 rounded border-input" />
+                      Is address ko save bhi karo (agli baar ke liye — army/transfer job wale patients alag alag jagah mangwate hai)
+                    </label>
+                    {saveNewAddress && (
+                      <PillOrOtherField options={ADDRESS_LABEL_OPTIONS} value={newAddressLabel} onChange={setNewAddressLabel} otherPlaceholder="e.g. In-laws, Shop" />
+                    )}
                   </div>
-                ) : (
-                  <textarea
-                    value={manualAddress}
-                    onChange={(e) => setManualAddress(e.target.value)}
-                    rows={2}
-                    placeholder="Address likho (patient ki profile me koi saved address nahi hai)"
-                    className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm resize-none"
-                  />
                 )}
+
                 {combine && (
                   <p className="text-[11px] text-success mt-1">
                     ✓ {combine.patient_name} ke order jaisa hi address hai — courier combine ho jayega, surcharge dobara nahi lagega.
@@ -600,11 +639,21 @@ function ConfirmPaymentModal({
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [scanning, setScanning] = useState<File | null>(null);
-  const [amount, setAmount] = useState(String(request.amount_expected));
+  const [charged, setCharged] = useState(String(request.amount_expected));
+  // Advance/partial payment (25 Sep 2026, migration 0082) — Dr. Yadav found
+  // there was no way to record "patient paid an advance now, rest is due."
+  // Received defaults equal to charged (full payment, the common case) but
+  // is independently editable down for an advance.
+  const [received, setReceived] = useState(String(request.amount_expected));
+  const [receivedTouched, setReceivedTouched] = useState(false);
   const [paymentMode, setPaymentMode] = useState("UPI");
   const [saving, setSaving] = useState(false);
 
   const { data: modes } = useQuery({ queryKey: ["payment-modes"], queryFn: () => fetchPaymentModes(true) });
+
+  useEffect(() => {
+    if (!receivedTouched) setReceived(charged);
+  }, [charged, receivedTouched]);
 
   const pickFile = (f: File) => {
     if (f.size > 25 * 1024 * 1024) { toast.error("File 25MB se badi hai"); return; }
@@ -618,8 +667,11 @@ function ConfirmPaymentModal({
 
   const submit = async () => {
     if (!file) { toast.error("Payment screenshot upload karo"); return; }
-    const amt = Number(amount);
-    if (!amt || amt <= 0) { toast.error("Amount check karo"); return; }
+    const chargedAmt = Number(charged);
+    const receivedAmt = Number(received);
+    if (!chargedAmt || chargedAmt <= 0) { toast.error("Total amount check karo"); return; }
+    if (receivedAmt < 0) { toast.error("Received amount check karo"); return; }
+    if (receivedAmt > chargedAmt) { toast.error("Received amount total se zyada nahi ho sakta"); return; }
     setSaving(true);
     const uploadRes = await uploadPatientDocument(request.patient_id, "Payment Screenshot", file, `Online follow-up request ${request.id}`, staffName);
     if (!uploadRes.success || !uploadRes.id) {
@@ -629,14 +681,16 @@ function ConfirmPaymentModal({
     }
     const res = await confirmOnlineFollowupRequest({
       request_id: request.id,
-      amount_confirmed: amt,
+      amount_charged: chargedAmt,
+      amount_received: receivedAmt,
       payment_mode: paymentMode,
       doc_id: uploadRes.id,
       confirmed_by: staffName,
     });
     setSaving(false);
     if (!res.success) { toast.error("Confirm nahi hua: " + res.error); return; }
-    toast.success(`Confirm ho gaya — token ${res.token_number ?? ""} ban gaya, ab doctor ki queue me dikhega`);
+    const balanceNote = res.balance && res.balance > 0 ? ` — ₹${res.balance} baaki hai` : "";
+    toast.success(`Confirm ho gaya — token ${res.token_number ?? ""} ban gaya, ab doctor ki queue me dikhega${balanceNote}`);
     onConfirmed();
     onClose();
   };
@@ -677,11 +731,29 @@ function ConfirmPaymentModal({
           </label>
 
           <div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Amount (screenshot me jo dikhe)</label>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Total Amount</label>
             <div className="flex items-center gap-1 mt-1">
               <span className="text-sm text-muted-foreground">₹</span>
-              <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+              <input inputMode="numeric" value={charged} onChange={(e) => setCharged(e.target.value.replace(/\D/g, ""))} className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
             </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Abhi Kitna Mila (screenshot me jo dikhe)</label>
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-sm text-muted-foreground">₹</span>
+              <input
+                inputMode="numeric"
+                value={received}
+                onChange={(e) => { setReceived(e.target.value.replace(/\D/g, "")); setReceivedTouched(true); }}
+                className="flex-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+              />
+            </div>
+            {Number(received) < Number(charged) && (
+              <p className="text-[11px] text-warning mt-1">
+                Advance hai — ₹{Number(charged) - Number(received)} baaki rahega, patient ki profile me dikhega.
+              </p>
+            )}
           </div>
 
           <div>
