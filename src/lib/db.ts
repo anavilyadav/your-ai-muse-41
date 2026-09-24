@@ -3586,6 +3586,61 @@ export async function fetchStaleOpenVisits() {
   return data ?? [];
 }
 
+// ---------- Patient delivery addresses (24 Sep 2026, migration 0080) ----------
+// Separate from patients.address/city/pincode (the single general
+// profile address, still used at registration/profile display) — this
+// is a one-to-many list specifically for courier: online-bundle
+// patients often want medicine sent to a different place each time
+// (home vs office vs native village).
+export interface PatientAddress {
+  id: string;
+  patient_id: string;
+  label: string;
+  address: string;
+  city: string | null;
+  pincode: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+
+export async function fetchPatientAddresses(patientId: string): Promise<PatientAddress[]> {
+  const { data, error } = await supabase
+    .from("patient_addresses")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (error) throw dataLoadError(error);
+  return data ?? [];
+}
+
+export async function addPatientAddress(patientId: string, input: { label: string; address: string; city?: string; pincode?: string; is_default?: boolean }) {
+  const { data, error } = await supabase
+    .from("patient_addresses")
+    .insert({
+      patient_id: patientId,
+      label: input.label.trim() || "Ghar",
+      address: input.address.trim(),
+      city: input.city?.trim() || null,
+      pincode: input.pincode?.trim() || null,
+      is_default: !!input.is_default,
+    })
+    .select()
+    .single();
+  if (error) return { success: false, error: error.message, data: null };
+  return { success: true, error: null, data: data as PatientAddress };
+}
+
+export async function updatePatientAddress(id: string, patch: { label?: string; address?: string; city?: string | null; pincode?: string | null; is_default?: boolean }) {
+  const { error } = await supabase.from("patient_addresses").update(patch).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
+export async function deletePatientAddress(id: string) {
+  const { error } = await supabase.from("patient_addresses").delete().eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 // ---------- Schema version lock (#15, 17 Sep 2026) ----------
 // The latest migration THIS deployed app code depends on. Bump this in
 // the same change that adds a new supabase/sql-manual/00XX_*.sql file
@@ -3595,7 +3650,7 @@ export async function fetchStaleOpenVisits() {
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0079_patient_call_consent";
+export const EXPECTED_SCHEMA_VERSION = "0080_patient_addresses";
 
 export interface SchemaMigrationRow {
   filename: string;

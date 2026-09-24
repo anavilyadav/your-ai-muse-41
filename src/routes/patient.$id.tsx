@@ -47,6 +47,11 @@ import {
   type WhatsAppDeliveryHealth,
   branchLabel as getBranchLabel,
   RELATIONSHIPS,
+  fetchPatientAddresses,
+  addPatientAddress,
+  updatePatientAddress,
+  deletePatientAddress,
+  type PatientAddress,
 } from "@/lib/db";
 
 const countryCodes = [
@@ -177,6 +182,90 @@ function LinkFamilyModal({
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Linking…" : "Link Family Member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const addressLabelOptions = ["Ghar", "Office", "Native/Village"] as const;
+
+// Multiple delivery addresses (24 Sep 2026, Dr. Yadav) — online-bundle
+// patients often want medicine sent somewhere different each time. This
+// modal both adds a new address and edits an existing one — same form,
+// `existing` just seeds the fields and switches submit to an update.
+function AddressModal({
+  patientId,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  existing: PatientAddress | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [label, setLabel] = useState(existing?.label ?? addressLabelOptions[0]);
+  const [address, setAddress] = useState(existing?.address ?? "");
+  const [city, setCity] = useState(existing?.city ?? "");
+  const [pincode, setPincode] = useState(existing?.pincode ?? "");
+  const [isDefault, setIsDefault] = useState(existing?.is_default ?? false);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!address.trim()) { toast.error("Address likho"); return; }
+    setSaving(true);
+    const res = existing
+      ? await updatePatientAddress(existing.id, { label, address: address.trim(), city: city.trim() || null, pincode: pincode.trim() || null, is_default: isDefault })
+      : await addPatientAddress(patientId, { label, address: address.trim(), city: city.trim(), pincode: pincode.trim(), is_default: isDefault });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success(existing ? "Address update ho gaya" : "Address add ho gaya");
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-extrabold text-primary text-lg">{existing ? "Address Edit Karo" : "Naya Address"}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Kaunsa address?</label>
+            <div className="mt-1">
+              <PillOrOtherField options={addressLabelOptions} value={label} onChange={setLabel} otherPlaceholder="e.g. In-laws, Shop" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Full Address</label>
+            <textarea
+              rows={3}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="House / street / area / landmark"
+              className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm resize-none"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">City</label>
+              <input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Pincode</label>
+              <input inputMode="numeric" value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} className="mt-1 w-full rounded-lg bg-surface border border-input px-3 py-2.5 text-sm" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 rounded border-input" />
+            Default address (delivery order banate time sabse pehle yahi dikhega)
+          </label>
+          <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : existing ? "Save Changes" : "Address Add Karo"}
           </button>
         </div>
       </div>
@@ -878,6 +967,7 @@ function PatientProfilePage() {
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
   const [crmInteractions, setCrmInteractions] = useState<Interaction[]>([]);
   const [family, setFamily] = useState<any[]>([]);
+  const [addresses, setAddresses] = useState<PatientAddress[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [viewerDoc, setViewerDoc] = useState<string | null>(null);
@@ -893,13 +983,14 @@ function PatientProfilePage() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showFollowupModal, setShowFollowupModal] = useState(false);
+  const [editingAddress, setEditingAddress] = useState<PatientAddress | "new" | null>(null);
   const [waHealth, setWaHealth] = useState<WhatsAppDeliveryHealth | null>(null);
 
   const reload = async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [p, vs, fam, docs, ints, crmInts, wa] = await Promise.all([
+      const [p, vs, fam, addrs, docs, ints, crmInts, wa] = await Promise.all([
         fetchPatientById(id),
         // Was 20 — after the bulk historical import, patients with 2-3
         // years of visits genuinely have more than 20; the Doctor Rx
@@ -908,6 +999,7 @@ function PatientProfilePage() {
         // match so the profile shows the same full history.
         fetchPatientHistory(id, 200),
         fetchFamilyMembers(id),
+        fetchPatientAddresses(id),
         fetchPatientDocuments(id),
         fetchPatientInteractions(id),
         fetchInteractions({ patientId: id }),
@@ -916,13 +1008,14 @@ function PatientProfilePage() {
       setPatient(p);
       setVisits(vs);
       setFamily(fam);
+      setAddresses(addrs);
       setDocuments(docs);
       setInteractions(ints);
       setCrmInteractions(crmInts);
       setWaHealth(wa);
       setPhotoUrl(p?.photo_url ? await resolveDocUrl("patient-documents", p.photo_url) : null);
     } catch (e) {
-      // Any one of the 6 parallel fetches failing used to leave this page
+      // Any one of the 7 parallel fetches failing used to leave this page
       // stuck on "Loading patient…" forever — the whole point of this
       // screen is being unusable for that patient until a manual browser
       // reload. Now a failure shows a real retry instead.
@@ -1026,6 +1119,14 @@ function PatientProfilePage() {
       )}
       {showLogModal && (
         <LogInteractionModal patientId={id} onClose={() => setShowLogModal(false)} onLogged={reload} />
+      )}
+      {editingAddress && (
+        <AddressModal
+          patientId={id}
+          existing={editingAddress === "new" ? null : editingAddress}
+          onClose={() => setEditingAddress(null)}
+          onSaved={reload}
+        />
       )}
       {showFollowupModal && (
         <AddFollowupModal patientId={id} branch={patient.branch} onClose={() => setShowFollowupModal(false)} onAdded={reload} />
@@ -1182,6 +1283,57 @@ function PatientProfilePage() {
                     {f.last_visit_date ? new Date(f.last_visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "—"}
                   </span>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between px-1 mb-2">
+          <h2 className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <MapPin className="h-3 w-3" /> Delivery Addresses
+          </h2>
+          <button onClick={() => setEditingAddress("new")} className="text-[11px] font-bold text-primary underline">
+            + Add
+          </button>
+        </div>
+        {addresses.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-4 rounded-xl bg-surface border border-border">
+            Koi address save nahi hai. Courier ke liye yahan se ek ya zyada address add karo (Ghar, Office, etc).
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {addresses.map((a) => (
+              <li key={a.id} className="rounded-xl bg-surface border border-border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-primary">{a.label}</span>
+                      {a.is_default && <span className="rounded-full bg-accent/20 text-accent-foreground text-[9px] font-bold px-1.5 py-0.5">DEFAULT</span>}
+                    </div>
+                    <p className="text-[13px] text-foreground/90 mt-0.5">{a.address}</p>
+                    {(a.city || a.pincode) && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{[a.city, a.pincode].filter(Boolean).join(" — ")}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => setEditingAddress(a)} className="h-7 w-7 grid place-items-center rounded-full bg-accent/15 text-primary">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Yeh address delete karein?")) return;
+                        const res = await deletePatientAddress(a.id);
+                        if (res.success) { toast.success("Address hataaya"); reload(); }
+                        else toast.error("Delete nahi hua: " + res.error);
+                      }}
+                      className="h-7 w-7 grid place-items-center rounded-full bg-destructive/10 text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

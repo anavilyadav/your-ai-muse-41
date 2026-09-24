@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Plus, Truck, X } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients } from "@/lib/db";
+import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, type PatientAddress } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -103,11 +103,25 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
     enabled: !selected && debouncedQ.trim().length >= 2,
   });
 
+  // Saved addresses (24 Sep 2026) — patients often courier to a different
+  // place each time (home vs office vs native village), so offer their
+  // saved list as one-tap fills instead of retyping/remembering it.
+  const { data: savedAddresses } = useQuery({
+    queryKey: ["patient-addresses", selected?.id],
+    queryFn: () => fetchPatientAddresses(selected.id),
+    enabled: !!selected,
+  });
+
   const pick = (p: any) => {
     setSelected(p);
     setQ("");
     setArea(p.city ?? "");
     setAddress(p.address ?? "");
+  };
+
+  const pickAddress = (a: PatientAddress) => {
+    setArea(a.city || area);
+    setAddress(a.address);
   };
 
   const submit = async () => {
@@ -214,6 +228,23 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
             <div>
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Address</label>
+              {savedAddresses && savedAddresses.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1 mb-1.5">
+                  {savedAddresses.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => pickAddress(a)}
+                      className={cn(
+                        "rounded-full px-3 py-1.5 text-[11px] font-bold border",
+                        address === a.address ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground",
+                      )}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm resize-none" />
             </div>
 
