@@ -3066,11 +3066,11 @@ export async function fetchWeekRevenue() {
 
 export type ReportPeriod = "today" | "week" | "month" | "lastMonth" | "year" | "custom";
 
-export async function fetchReports(
-  period: ReportPeriod,
-  branch?: string,
-  range?: { from: string; to: string },
-) {
+// Extracted (25 Sep 2026) so the date-wise token breakdown below computes
+// the exact same start/end as the aggregate totals — a hand-rolled second
+// copy of this logic would risk the breakdown and the totals silently
+// disagreeing on what "this month"/"last month" means.
+function resolveReportPeriodRange(period: ReportPeriod, range?: { from: string; to: string }): { start: string; end: string } {
   const now = istNow();
   let start: string;
   let end: string | null = null;
@@ -3095,10 +3095,17 @@ export async function fetchReports(
   } else {
     start = now.getUTCFullYear() + "-01-01";
   }
+  // Open-ended periods (week/month/year) have no explicit end date —
+  // "no end" means "up to today".
+  return { start, end: end ?? now.toISOString().slice(0, 10) };
+}
 
-  // Open-ended periods (week/month/year) have no explicit end date; the
-  // RPC takes a closed range, so "no end" means "up to today".
-  const rpcEnd = end ?? now.toISOString().slice(0, 10);
+export async function fetchReports(
+  period: ReportPeriod,
+  branch?: string,
+  range?: { from: string; to: string },
+) {
+  const { start, end: rpcEnd } = resolveReportPeriodRange(period, range);
   const { data: agg, error: aggErr } = await supabase.rpc("report_totals", {
     p_start: start,
     p_end: rpcEnd,
@@ -3141,11 +3148,9 @@ export async function fetchReports(
     payQ = payQ.eq("branch", branch);
     visQ = visQ.eq("branch", branch);
   }
-  if (end) {
-    payQ = payQ.lte("visits.visit_date", end);
-    visQ = visQ.lte("visit_date", end);
-    leadQ = leadQ.lte("converted_at", istDayEnd(end));
-  }
+  payQ = payQ.lte("visits.visit_date", rpcEnd);
+  visQ = visQ.lte("visit_date", rpcEnd);
+  leadQ = leadQ.lte("converted_at", istDayEnd(rpcEnd));
   const [pay, vis, lead] = await Promise.all([payQ, visQ, leadQ]);
   const rows = pay.data ?? [];
   const sum = (f: (r: any) => number) => rows.reduce((s, r) => s + f(r), 0);
@@ -3181,6 +3186,74 @@ export async function fetchReports(
       ["Leads Converted", String(lead.count ?? 0)],
     ] as [string, string][],
   };
+}
+
+// Date-wise token breakdown (25 Sep 2026, Dr. Yadav: "token generation
+// date ke hisab se dikhaye kis din kitne hue hai") — Reports only ever
+// collapsed a period into ONE set of totals; this is the per-day table
+// underneath it. Shares resolveReportPeriodRange with fetchReports above
+// so the two can never silently disagree on what a period's date range
+// is. Plain client-side aggregation (same style as fetchDaySummary) —
+// no RPC needed, the row count for any reasonable report period is small
+// enough to group in JS.
+export interface DailyTokenCount {
+  date: string;
+  total: number;
+  newCount: number;
+  followupCount: number;
+  walkIn: number;
+  online: number;
+}
+
+export async function fetchDailyTokenCounts(
+  period: ReportPeriod,
+  branch?: string,
+  range?: { from: string; to: string },
+): Promise<DailyTokenCount[]> {
+  const { start, end } = resolveReportPeriodRange(period, range);
+  let q = supabase
+    .from("visits")
+    .select("patient_id, visit_date, visit_type")
+    .gte("visit_date", start)
+    .lte("visit_date", end)
+    .limit(10000);
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
+  if (error) throw dataLoadError(error);
+  const visits = data ?? [];
+
+  // "New" = this visit is the patient's EARLIEST ever, not just earliest
+  // within the selected range — same rule as fetchDaySummary/fetchReports,
+  // so a patient's first visit ever still counts as New even when the
+  // report range starts partway through their history.
+  const patientIds = Array.from(new Set(visits.map((v: any) => v.patient_id).filter(Boolean)));
+  const firstVisitByPatient = new Map<string, string>();
+  if (patientIds.length) {
+    const { data: allVisits, error: avErr } = await supabase
+      .from("visits")
+      .select("patient_id, visit_date")
+      .in("patient_id", patientIds);
+    if (avErr) throw dataLoadError(avErr);
+    for (const v of (allVisits ?? []) as any[]) {
+      const existing = firstVisitByPatient.get(v.patient_id);
+      if (!existing || v.visit_date < existing) firstVisitByPatient.set(v.patient_id, v.visit_date);
+    }
+  }
+
+  const byDate = new Map<string, DailyTokenCount>();
+  for (const v of visits as any[]) {
+    const d = v.visit_date;
+    if (!byDate.has(d)) byDate.set(d, { date: d, total: 0, newCount: 0, followupCount: 0, walkIn: 0, online: 0 });
+    const row = byDate.get(d)!;
+    row.total++;
+    if (firstVisitByPatient.get(v.patient_id) === d) row.newCount++;
+    else row.followupCount++;
+    if ((v.visit_type ?? "").toUpperCase() === "VIDEO") row.online++;
+    else row.walkIn++;
+  }
+  // Newest date first (Dr. Yadav, same convention as the Queue sort fix:
+  // "decending order me ho date naye sabse upar baaki niche").
+  return Array.from(byDate.values()).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 // ---------- Appointments ----------

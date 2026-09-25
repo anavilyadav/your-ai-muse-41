@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchReports, fetchReferralLeaderboard, BRANCH_LABELS } from "@/lib/db";
+import { fetchReports, fetchReferralLeaderboard, fetchDailyTokenCounts, BRANCH_LABELS } from "@/lib/db";
 import { OWNER_NAV } from "./owner.index";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +94,15 @@ function ReportsPage() {
     enabled: !invalidRange,
   });
   const rows = data?.rows ?? [];
+  // Date-wise token breakdown (25 Sep 2026, Dr. Yadav: "token generation
+  // date ke hisab se dikhaye kis din kitne hue hai") — skipped for
+  // "today" since that's the exact same single day the aggregate rows
+  // above already show, and /summary already covers today in more depth.
+  const { data: dailyCounts, isLoading: dailyLoading } = useQuery({
+    queryKey: ["daily-token-counts", period, range?.from, range?.to],
+    queryFn: () => fetchDailyTokenCounts(period, undefined, range),
+    enabled: !invalidRange && period !== "today",
+  });
   // Phase 1 #13 — family-linking data existed but was never surfaced as a
   // report. Independent of the period filter above (it's a lifetime
   // ranking, not a time-boxed metric).
@@ -184,6 +193,47 @@ function ReportsPage() {
           ))}
         </div>
       )}
+
+      {!invalidRange && period !== "today" && (
+        <div className="mt-4">
+          <div className="text-[11px] font-bold uppercase text-muted-foreground mb-2">
+            Date-wise Token Count (naye din sabse upar)
+          </div>
+          {dailyLoading ? (
+            <LoadingBlock />
+          ) : !dailyCounts || dailyCounts.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground py-4 rounded-xl bg-surface border border-border">
+              Is period me koi token nahi bana.
+            </p>
+          ) : (
+            <div className="rounded-2xl bg-surface border border-border overflow-hidden">
+              <div className="grid grid-cols-4 bg-primary text-primary-foreground text-[10px] font-bold px-3 py-2 uppercase">
+                <span>Date</span>
+                <span className="text-right">Total</span>
+                <span className="text-right">New</span>
+                <span className="text-right">Follow-up</span>
+              </div>
+              {dailyCounts.map((d, i) => (
+                <div
+                  key={d.date}
+                  className={cn(
+                    "grid grid-cols-4 px-3 py-2.5 text-[12px]",
+                    i < dailyCounts.length - 1 && "border-b border-border",
+                  )}
+                >
+                  <span className="text-primary font-semibold">
+                    {new Date(d.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  </span>
+                  <span className="text-right font-bold text-primary">{d.total}</span>
+                  <span className="text-right text-muted-foreground">{d.newCount}</span>
+                  <span className="text-right text-muted-foreground">{d.followupCount}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         onClick={() => {
           if (!rows.length) { toast.error("Kuch data nahi hai export karne ko"); return; }
