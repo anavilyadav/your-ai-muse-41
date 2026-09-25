@@ -239,10 +239,14 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string,
 // for them (no duplicate patient record), and since they've now actually
 // walked in, resolve any pending follow-ups for them automatically so
 // reminders don't keep going out to someone who's already here.
-export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{ id: string; name: string; patient_code: string | null; card_series: string | null; card_register: string | null; card_number: string | null } | null> {
+export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{
+  id: string; name: string; mobile: string; patient_code: string | null;
+  card_series: string | null; card_register: string | null; card_number: string | null;
+  mobile_confirmed: boolean; whatsapp_confirmed: boolean; whatsapp_number: string | null;
+} | null> {
   const { data, error } = await supabase
     .from("patients")
-    .select("id, name, patient_code, card_series, card_register, card_number")
+    .select("id, name, mobile, patient_code, card_series, card_register, card_number, mobile_confirmed, whatsapp_confirmed, whatsapp_number")
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode)
     .eq("is_deleted", false)
@@ -6091,6 +6095,86 @@ export async function setSharedMobileDismissed(mobile: string, dismissed: boolea
   const current = await fetchDismissedSharedMobiles();
   const next = dismissed ? Array.from(new Set([...current, mobile])) : current.filter((m) => m !== mobile);
   await upsertSetting(DISMISSED_SHARED_MOBILES_KEY, JSON.stringify(next));
+}
+
+// ---------- Per-patient Data Quality flags (25 Sep 2026) ----------
+// data_quality_report() above is Owner-only and returns the WHOLE
+// clinic's issues at once — useless for "does THIS patient, who's on
+// screen right now, have anything wrong with them." Dr. Yadav: manually
+// working the bulk lists one by one isn't feasible at the volume this
+// clinic has (1417 incomplete names, 5368 unconfirmed numbers) — the
+// practical fix is surfacing it the moment staff already has the
+// patient's record open (on a call, at check-in, at payment, in the
+// consult), not expecting someone to separately work a queue. Mirrors
+// data_quality_report()'s own SQL conditions exactly (read live from the
+// DB, 25 Sep 2026) so a patient flagged here is flagged there too — same
+// definitions, just scoped to one row instead of the whole table.
+export interface PatientDataQualityFlags {
+  incompleteName: boolean;
+  partialCard: boolean;
+  unconfirmedNumber: boolean;
+  // These two are only ever fixable by the Owner (family-link/dismiss,
+  // merge) — flagged here so staff know to mention it, but the banner
+  // only makes them actionable for an Owner viewer.
+  sharedMobile: boolean;
+  possibleDuplicate: boolean;
+  hasAny: boolean;
+}
+
+export async function fetchPatientDataQualityFlags(patient: {
+  id: string;
+  name?: string | null;
+  mobile?: string | null;
+  card_series?: string | null;
+  card_register?: string | null;
+  card_number?: string | null;
+  mobile_confirmed?: boolean | null;
+  whatsapp_confirmed?: boolean | null;
+  whatsapp_number?: string | null;
+}): Promise<PatientDataQualityFlags> {
+  const s = (v: string | null | undefined) => (v ?? "").trim();
+  const name = s(patient.name);
+  const mobile = s(patient.mobile);
+
+  const incompleteName = name === "" || !name.includes(" ");
+  const cardFilled = [s(patient.card_series) !== "", s(patient.card_register) !== "", s(patient.card_number) !== ""];
+  const partialCard = cardFilled[0] !== cardFilled[1] || cardFilled[1] !== cardFilled[2];
+  const unconfirmedNumber =
+    patient.mobile_confirmed === false ||
+    (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
+
+  let sharedMobile = false;
+  let possibleDuplicate = false;
+  if (mobile) {
+    const { count: mobileCount, error: mErr } = await supabase
+      .from("patients")
+      .select("id", { count: "exact", head: true })
+      .eq("mobile", mobile)
+      .eq("is_deleted", false);
+    if (!mErr && (mobileCount ?? 0) > 1) {
+      const dismissed = await fetchDismissedSharedMobiles();
+      sharedMobile = !dismissed.includes(mobile);
+    }
+    if (name) {
+      const { count: dupCount, error: dErr } = await supabase
+        .from("patients")
+        .select("id", { count: "exact", head: true })
+        .eq("mobile", mobile)
+        .eq("is_deleted", false)
+        .neq("id", patient.id)
+        .ilike("name", name);
+      if (!dErr) possibleDuplicate = (dupCount ?? 0) > 0;
+    }
+  }
+
+  return {
+    incompleteName,
+    partialCard,
+    unconfirmedNumber,
+    sharedMobile,
+    possibleDuplicate,
+    hasAny: incompleteName || partialCard || unconfirmedNumber || sharedMobile || possibleDuplicate,
+  };
 }
 
 // ---------- Patient Documents (general staff upload — follow-up notes, new case notes, reports) ----------

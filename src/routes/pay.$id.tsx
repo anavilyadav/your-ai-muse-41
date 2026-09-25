@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
+import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, fetchQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, fetchSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, type DBPatient } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -327,6 +328,8 @@ function PayPage() {
         </div>
         <div className="mt-2 text-xs opacity-80">{visit.chief_complaint || "—"}</div>
       </div>
+
+      {visit.patient && <DataQualityBanner patient={visit.patient} />}
 
       {visit.patient && (
         <ContactPrefsPanel

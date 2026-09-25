@@ -5,6 +5,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate } from "@/components/yhc/AuthGate";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
+import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -176,7 +177,11 @@ function RegisterPage() {
   });
   const effectiveVisitDate = dateMode === "manual" && manualDate ? manualDate : undefined;
 
-  const [existingPatient, setExistingPatient] = useState<{ id: string; name: string; patient_code: string | null; card_series: string | null; card_register: string | null; card_number: string | null } | null>(null);
+  const [existingPatient, setExistingPatient] = useState<{
+    id: string; name: string; mobile: string; patient_code: string | null;
+    card_series: string | null; card_register: string | null; card_number: string | null;
+    mobile_confirmed: boolean; whatsapp_confirmed: boolean; whatsapp_number: string | null;
+  } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
   // Not pre-selected (was RELATIONSHIPS[0] = "Husband") — a plain mobile
   // match used to silently link every new registration as "Husband" of
@@ -707,6 +712,8 @@ function RegisterPage() {
               karte hain) — to koi relation select mat karo, bas form bharte raho, alag patient hi banega, family
               link nahi.</b>
             </p>
+
+            <DataQualityBanner patient={existingPatient} />
 
             {/* Online Follow-up removed from here (25 Sep 2026) — this
                 WALK_IN/ONLINE toggle used to let staff check an existing

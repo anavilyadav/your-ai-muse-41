@@ -7,6 +7,7 @@ import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import { EditPatientNameModal } from "@/components/yhc/EditPatientNameModal";
+import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import {
   fetchVisit,
   fetchPatientHistory,
@@ -494,6 +495,8 @@ function RxWrite() {
             )}
             <div className="mt-2 text-sm">{visit.chief_complaint || "—"}</div>
           </div>
+
+          {visit.patient && <DataQualityBanner patient={visit.patient} />}
 
           {visit.case_notes && (
             <div className="rounded-xl bg-surface border border-border p-3">

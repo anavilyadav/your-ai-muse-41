@@ -7,6 +7,7 @@ import { Cake, Calendar, MapPin, MessageCircle, PhoneCall, Pill, Users, X, Walle
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
+import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
@@ -1199,6 +1200,10 @@ function PatientProfilePage() {
           Iski kuch details (address/city/DOB/profession) missing hain — tap karke bharo
         </button>
       )}
+
+      <div className="mt-3">
+        <DataQualityBanner patient={patient} onEdit={() => setShowEditModal(true)} />
+      </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <Stat icon={Calendar} label="Visits" value={String(patient.lifetime_visits ?? visits.length)} />
