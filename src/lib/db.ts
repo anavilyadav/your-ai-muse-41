@@ -3942,7 +3942,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0082_online_followup_advance_payment";
+export const EXPECTED_SCHEMA_VERSION = "0083_fix_possible_duplicate_card_check";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -6172,15 +6172,29 @@ export async function fetchPatientDataQualityFlags(patient: {
       const dismissed = await fetchDismissedSharedMobiles();
       sharedMobile = !dismissed.includes(mobile);
     }
+    // Card-aware now (25 Sep 2026, migration 0083) — Dr. Yadav: "card
+    // number to alag honge hi na" — same name+mobile alone isn't a real
+    // duplicate signal once card numbers already prove they're different
+    // people (the live "Sulekha" case: same name/mobile, cards A-75-20
+    // vs A-78-20). Only flag when genuinely ambiguous: someone in the
+    // group has no card yet, or two members share the same card.
     if (name) {
-      const { count: dupCount, error: dErr } = await supabase
+      const { data: matches, error: dErr } = await supabase
         .from("patients")
-        .select("id", { count: "exact", head: true })
+        .select("id, card_series, card_register, card_number")
         .eq("mobile", mobile)
         .eq("is_deleted", false)
-        .neq("id", patient.id)
         .ilike("name", name);
-      if (!dErr) possibleDuplicate = (dupCount ?? 0) > 0;
+      if (!dErr && matches && matches.length > 1) {
+        const cardKey = (r: { card_series: string | null; card_register: string | null; card_number: string | null }) => {
+          const cs = s(r.card_series), cr = s(r.card_register), cn = s(r.card_number);
+          return cs && cr && cn ? `${cs}-${cr}-${cn}` : null;
+        };
+        const keys = matches.map(cardKey);
+        const nonNullKeys = keys.filter((k): k is string => k !== null);
+        const allDistinctAndComplete = nonNullKeys.length === matches.length && new Set(nonNullKeys).size === matches.length;
+        possibleDuplicate = !allDistinctAndComplete;
+      }
     }
   }
 
