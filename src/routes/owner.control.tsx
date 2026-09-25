@@ -1143,6 +1143,13 @@ function ControlPage() {
           />
           <ReceptionPermissionsGrid
             settings={data ?? []}
+            items={RECEPTION_SCREENS.filter((s) => ["register", "leads", "followup"].includes(s.key))}
+            roles={["CALLING"]}
+            title="Calling Team Permissions — per screen ON/OFF"
+            helpText="Calling role sirf Registration/Lead CRM/Follow-up hi dekh sakta hai — baaki Reception screens (Queue, Search, Payment, etc.) allowed hi nahi hain. Default sabke liye ON hai."
+          />
+          <ReceptionPermissionsGrid
+            settings={data ?? []}
             items={CASE_DR_SCREENS}
             roles={["CASE_DR"]}
             title="Case-DR Permissions — per screen ON/OFF"

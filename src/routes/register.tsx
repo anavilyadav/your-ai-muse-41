@@ -48,7 +48,7 @@ export const Route = createFileRoute("/register")({
   }),
   head: () => ({ meta: [{ title: "Register / Check-in — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <AuthGate allow={["RECP1", "RECP2", "OWNER"]} permKey="register">
+    <AuthGate allow={["RECP1", "RECP2", "OWNER", "CALLING"]} permKey="register">
       <RegisterPage />
     </AuthGate>
   ),

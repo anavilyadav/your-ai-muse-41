@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, ClipboardList, ListChecks, LogOut, PhoneCall, Search, UserPlus } from "lucide-react";
+import { ArrowLeft, ClipboardList, ListChecks, LogOut, PhoneCall, Search, UserPlus, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -26,12 +26,23 @@ interface Props {
 // begin from this single screen, not four scattered entry points).
 // Appointment booking is now one tile inside /call; /appointments itself
 // is still reachable from there for managing the day's already-booked list.
-const navItems = [
+const RECEPTION_NAV_ITEMS = [
   { to: "/", label: "Queue", icon: ClipboardList },
   { to: "/register", label: "Register", icon: UserPlus },
   { to: "/call", label: "Call", icon: PhoneCall },
   { to: "/search", label: "Search", icon: Search },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
+] as const;
+
+// Calling Team (25 Sep 2026, Dr. Yadav's "Calling Team" role ask) — a
+// narrow role that only ever needs Leads/Follow-up/Register, so it gets
+// its own 3-tab nav instead of the full Reception set (which includes
+// Queue/Call/Search/Tasks it has no access to — showing those tabs just
+// to deny every tap on them would be confusing, not merely unauthorized).
+const CALLING_NAV_ITEMS = [
+  { to: "/leads", label: "Leads", icon: Users },
+  { to: "/follow-up", label: "Follow-up", icon: PhoneCall },
+  { to: "/register", label: "Register", icon: UserPlus },
 ] as const;
 
 // Desktop/tablet layout: was phone-width-only (max-w-[430px]) at every
@@ -60,6 +71,7 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, signOut } = useAuth();
   const t = useT();
+  const navItems = user?.role === "CALLING" ? CALLING_NAV_ITEMS : RECEPTION_NAV_ITEMS;
 
   const doLogout = async () => {
     await signOut();

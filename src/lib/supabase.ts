@@ -16,7 +16,15 @@ export const supabase = createClient(SUPABASE_URL, anon, {
   },
 });
 
-export type Role = "OWNER" | "RECP1" | "RECP2" | "DOCTOR" | "CASE_DR" | "PHARMA";
+// CALLING (25 Sep 2026, Dr. Yadav's "Calling Team" ask) — was already
+// half-wired elsewhere (owner.staff.tsx's ROLE_OPTIONS, the
+// users_role_check DB constraint, leads.tsx's assignable-staff filter)
+// but never added here, so no account could actually log in as one.
+// Scoped narrow on purpose: only Lead CRM + Follow-up Calls + Registration
+// (see roleHome below and the 3 AuthGates this role was added to) — so a
+// convinced caller can be registered/paid on the spot without needing
+// full Reception access to Queue/Search/Delivery/Payment/etc.
+export type Role = "OWNER" | "RECP1" | "RECP2" | "DOCTOR" | "CASE_DR" | "PHARMA" | "CALLING";
 
 export interface AppUser {
   id: string;
@@ -30,6 +38,7 @@ export function roleHome(role: Role): string {
   if (role === "OWNER") return "/owner";
   if (role === "DOCTOR" || role === "CASE_DR") return "/doctor";
   if (role === "PHARMA") return "/pharmacy";
+  if (role === "CALLING") return "/leads";
   return "/"; // RECP1/RECP2
 }
 

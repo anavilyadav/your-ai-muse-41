@@ -9,6 +9,7 @@ const PREVIEW_ROLES: { role: Role; label: string }[] = [
   { role: "CASE_DR", label: "Case-Taking Doctor" },
   { role: "PHARMA", label: "Pharmacy" },
   { role: "RECP1", label: "Reception" },
+  { role: "CALLING", label: "Calling Team" },
 ];
 
 /** Only renders anything for OWNER accounts. Lets Owner preview other role screens. */
