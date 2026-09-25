@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
@@ -62,10 +63,25 @@ function RxQueue() {
         <EmptyBlock label="Koi patient Rx ke liye pending nahi." />
       ) : (
         <ul className="space-y-2.5">
-          {rows.map((r) => {
+          {rows.map((r, i) => {
             const d = daysPending(r.visit_date);
+            // Date headers (25 Sep 2026) — same fix as Queue's index.tsx:
+            // "token date wise nahi hai" — list was already newest-date-
+            // first, just had no visible date label, only a relative "Xd
+            // pending" pill per token.
+            const showDateHeader = i === 0 || rows[i - 1].visit_date !== r.visit_date;
             return (
-            <li key={r.id}>
+            <Fragment key={r.id}>
+              {showDateHeader && (
+                <li className="pt-1 first:pt-0">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
+                    {r.visit_date === today()
+                      ? "Aaj"
+                      : new Date(r.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  </div>
+                </li>
+              )}
+            <li>
               <button
                 onClick={() => navigate({ to: "/doctor/rx/consult/$token", params: { token: r.id } })}
                 className="w-full text-left rounded-2xl bg-surface border border-border p-3.5 shadow-sm hover:border-primary/40 active:scale-[0.99] transition"
@@ -92,6 +108,7 @@ function RxQueue() {
                 </div>
               </button>
             </li>
+            </Fragment>
           );})}
         </ul>
       )}

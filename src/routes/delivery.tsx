@@ -195,7 +195,7 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
                       onClick={() => pick(p)}
                       className="w-full text-left px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-accent/15 border-b border-border last:border-0"
                     >
-                      {p.name} — {p.mobile}
+                      {p.name} — {p.mobile} • {displayPatientCode(p)}
                     </button>
                   </li>
                 ))}

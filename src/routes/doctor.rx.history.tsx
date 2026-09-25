@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
-import { searchPatients, fetchPatientHistory } from "@/lib/db";
+import { searchPatients, fetchPatientHistory, displayPatientCode } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export const Route = createFileRoute("/doctor/rx/history")({
@@ -56,7 +56,7 @@ function HistoryPage() {
                   onClick={() => { setSelected(p); setQ(""); }}
                   className="w-full text-left px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-accent/15 border-b border-border last:border-0"
                 >
-                  {p.name} — {p.mobile}
+                  {p.name} — {p.mobile} • {displayPatientCode(p)}
                 </button>
               </li>
             ))}

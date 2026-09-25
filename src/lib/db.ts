@@ -5531,10 +5531,27 @@ export async function searchPatients(term: string) {
   const t = sanitizeOrFilterTerm(term);
   if (!t) return [];
   const like = `%${t}%`;
+  // Card number search fix (25 Sep 2026) — Dr. Yadav found live: typing
+  // the actual printed card number ("B-34-44") never matched anything.
+  // card_series/card_register/card_number are 3 separate columns
+  // ("B"/"34"/"44") and every ilike check above tests the WHOLE typed
+  // string against just ONE of them — "B-34-44" is never a substring of
+  // "B" alone, so a full card-number search silently returned nothing.
+  // When the term splits into 2-3 hyphen/space-separated pieces (how the
+  // card is actually printed and typed), also match each piece against
+  // its own column, all three ANDed together as one more OR-branch.
+  const parts = t.split(/[-\s]+/).filter(Boolean);
+  let cardGroup = "";
+  if (parts.length >= 2 && parts.length <= 3) {
+    const [series, register, number] = parts;
+    const clauses = [`card_series.ilike.%${series}%`, `card_register.ilike.%${register}%`];
+    if (number) clauses.push(`card_number.ilike.%${number}%`);
+    cardGroup = `,and(${clauses.join(",")})`;
+  }
   const { data, error } = await supabase
     .from("patients")
     .select("*")
-    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}`)
+    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}${cardGroup}`)
     .eq("is_deleted", false)
     .limit(30);
   if (error) throw dataLoadError(error);

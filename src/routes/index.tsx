@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -88,25 +88,33 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 {apptTypeLabel((a.appointment_type ?? "FOLLOWUP") as ApptType)} • {branchLabel(a.branch)}
               </span>
             </div>
+            {/* Text labels added (25 Sep 2026) — Dr. Yadav: icon-only
+                buttons here were confusing ("symbol se nahi likh kr
+                batao"). Icon + tiny label, still compact enough for 5
+                columns on a phone. */}
             <div className="mt-2 grid grid-cols-5 gap-1.5">
-              <a href={`tel:${a.mobile}`} aria-label="Call" className="rounded-lg bg-success text-success-foreground py-1.5 grid place-items-center">
+              <a href={`tel:${a.mobile}`} className="rounded-lg bg-success text-success-foreground py-1.5 flex flex-col items-center gap-0.5">
                 <PhoneCall className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-none">Call</span>
               </a>
-              <a href={`https://wa.me/91${a.mobile}`} target="_blank" rel="noreferrer" aria-label="WhatsApp" className="rounded-lg bg-accent text-accent-foreground py-1.5 grid place-items-center">
+              <a href={`https://wa.me/91${a.mobile}`} target="_blank" rel="noreferrer" className="rounded-lg bg-accent text-accent-foreground py-1.5 flex flex-col items-center gap-0.5">
                 <MessageCircle className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-none">WA</span>
               </a>
-              <button onClick={() => markArrived(a)} aria-label="Arrived" className="rounded-lg bg-primary text-primary-foreground py-1.5 grid place-items-center">
+              <button onClick={() => markArrived(a)} className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5">
                 <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-none">Arrived</span>
               </button>
-              <button onClick={() => setRescheduling(a)} aria-label="Reschedule" className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 grid place-items-center">
+              <button onClick={() => setRescheduling(a)} className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 flex flex-col items-center gap-0.5">
                 <CalendarClock className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-none">Reschedule</span>
               </button>
               <button
                 onClick={() => { if (!window.confirm(`${a.patient_name ?? "Ye"} appointment cancel karein?`)) return; cancelAppointment(a); }}
-                aria-label="Cancel"
-                className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 grid place-items-center"
+                className="rounded-lg bg-surface border border-destructive/40 text-destructive py-1.5 flex flex-col items-center gap-0.5"
               >
                 <XCircle className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-none">Cancel</span>
               </button>
             </div>
           </li>
@@ -245,14 +253,30 @@ function QueuePage() {
         <EmptyBlock label={t("Aaj koi patient nahi mila.")} />
       ) : (
         <ul className="mt-3 space-y-2">
-          {filtered.map((r) => {
+          {filtered.map((r, i) => {
             const s = statusLabel(r.visit_status);
             const due = Number(r.patient?.current_balance ?? 0);
             const daysOld = r.visit_status !== "DONE" && r.visit_date !== todayStr()
               ? Math.max(0, Math.floor((Date.parse(todayStr()) - Date.parse(r.visit_date)) / 86_400_000))
               : 0;
+            // Date headers (25 Sep 2026) — Dr. Yadav: "token date wise
+            // nahi hai" — the list was already sorted newest-date-first,
+            // but with no visible date label, just a relative "Xd
+            // pending" pill per token, it wasn't obvious at a glance
+            // which calendar date a group belonged to.
+            const showDateHeader = i === 0 || filtered[i - 1].visit_date !== r.visit_date;
             return (
-              <li key={r.id}>
+              <Fragment key={r.id}>
+                {showDateHeader && (
+                  <li className="pt-1 first:pt-0">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
+                      {r.visit_date === todayStr()
+                        ? "Aaj"
+                        : new Date(r.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </div>
+                  </li>
+                )}
+              <li>
                 <button
                   onClick={() => {
                     // PAYMENT (Pay Due) or DONE (view receipt / no-op) → payment screen.
@@ -305,6 +329,7 @@ function QueuePage() {
                   </div>
                 </button>
               </li>
+              </Fragment>
             );
           })}
         </ul>

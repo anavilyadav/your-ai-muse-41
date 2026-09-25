@@ -28,6 +28,7 @@ import {
   fetchPaymentModes,
   branchLabel,
   normalizeBranchKey,
+  displayPatientCode,
   BRANCH_KEYS,
   type OnlineFollowupDeliveryMethod,
   type OnlineFollowupRequest,
@@ -352,7 +353,7 @@ function OnlineFollowupRequestModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
-      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+      <div className="w-full max-w-[clamp(430px,90vw,640px)] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Online Follow-up Request</h2>
           <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
@@ -376,7 +377,7 @@ function OnlineFollowupRequestModal({
                       onClick={() => pick(p)}
                       className="w-full text-left px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-accent/15 border-b border-border last:border-0"
                     >
-                      {p.name} — {p.mobile}
+                      {p.name} — {p.mobile} • {displayPatientCode(p)}
                     </button>
                   </li>
                 ))}
@@ -585,7 +586,7 @@ function ComplaintModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
-      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+      <div className="w-full max-w-[clamp(430px,90vw,640px)] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Complaint / Support Call</h2>
           <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
@@ -608,7 +609,7 @@ function ComplaintModal({ onClose }: { onClose: () => void }) {
                       onClick={() => { setSelected(p); setShowLog(true); }}
                       className="w-full text-left px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-accent/15 border-b border-border last:border-0"
                     >
-                      {p.name} — {p.mobile}
+                      {p.name} — {p.mobile} • {displayPatientCode(p)}
                     </button>
                   </li>
                 ))}
@@ -701,7 +702,7 @@ function ConfirmPaymentModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
-      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+      <div className="w-full max-w-[clamp(430px,90vw,640px)] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-extrabold text-primary text-lg">Payment Confirm Karo</h2>
           <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>

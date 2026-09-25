@@ -142,7 +142,7 @@ function LinkFamilyModal({
                       onClick={() => { setSelected(p); setQ(""); setResults([]); }}
                       className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-accent/15"
                     >
-                      {p.name} — {p.mobile}
+                      {p.name} — {p.mobile} • {displayPatientCode(p)}
                     </button>
                   </li>
                 ))}
