@@ -4614,6 +4614,31 @@ async function findExistingMobiles(table: "patients" | "leads", mobiles: string[
   return found;
 }
 
+// Same chunking as findExistingMobiles, but keeps each existing patient's
+// card key too (25 Sep 2026, master-sheet reconciliation) — a shared
+// mobile alone isn't proof of a duplicate patient (households commonly
+// share one phone across parents/kids), so previewPatientsImport needs to
+// know WHICH card(s) already own a mobile, not just whether it's taken.
+async function findExistingPatientsByMobile(mobiles: string[]): Promise<
+  Map<string, { id: string; name: string; cardKey: string }[]>
+> {
+  const result = new Map<string, { id: string; name: string; cardKey: string }[]>();
+  const CHUNK = 300;
+  const uniqueMobiles = Array.from(new Set(mobiles.filter((m) => m.length === 10)));
+  for (let i = 0; i < uniqueMobiles.length; i += CHUNK) {
+    const chunk = uniqueMobiles.slice(i, i + CHUNK);
+    const { data } = await supabase.from("patients").select("id, name, mobile, card_series, card_register, card_number").in("mobile", chunk);
+    (data ?? []).forEach((r: any) => {
+      const mobile = normalizeMobile(r.mobile);
+      const cardKey = r.card_series && r.card_register && r.card_number ? `${r.card_series}-${r.card_register}-${r.card_number}` : "";
+      const list = result.get(mobile) ?? [];
+      list.push({ id: r.id, name: r.name ?? "", cardKey });
+      result.set(mobile, list);
+    });
+  }
+  return result;
+}
+
 export async function previewLeadsImport(rows: ImportLeadRow[]) {
   const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
   const [existingLeads, existingPatients] = await Promise.all([
@@ -4678,10 +4703,20 @@ export async function commitLeadsImport(
 // format, 10 Aug 2026) into its three parts. Tolerant of 1-2 letter series
 // (A, B, K, AA, AB) and any digit count, since real historical sheets
 // won't always be perfectly zero-padded.
+//
+// Twin-card suffix (25 Sep 2026, found in a master-sheet reconciliation
+// pass) — the physical register also has cards like "B-01-07A"/"B-01-07B"
+// or "B-01-06(B)": two family members sharing one base card slot,
+// distinguished by a trailing letter, bare or in parens. The old regex
+// required the number to be pure digits, so every one of these failed to
+// parse and silently imported with card_series/register/number all NULL
+// (present in the app, but invisible to card-number search). The suffix
+// letter is now folded onto the end of `number` (e.g. "07A") — preserves
+// the physical distinction without a schema change.
 export function parseCardNumber(raw: string | undefined): { series: string; register: string; number: string } | null {
-  const m = (raw ?? "").trim().toUpperCase().match(/^([A-Z]{1,2})-(\d+)-(\d+)$/);
+  const m = (raw ?? "").trim().toUpperCase().match(/^([A-Z]{1,2})-(\d+)-(\d+)\s*\(?\s*([A-Z])?\s*\)?$/);
   if (!m) return null;
-  return { series: m[1], register: m[2], number: m[3] };
+  return { series: m[1], register: m[2], number: m[3] + (m[4] ?? "") };
 }
 
 // ----- Patients -----
@@ -4694,10 +4729,24 @@ export interface ImportPatientRow {
   foreign_patient_info?: string;
 }
 
+// Card-aware dedup (25 Sep 2026, master-sheet reconciliation pass) — was
+// pure mobile-based: ANY row whose mobile already existed (in DB, or
+// earlier in this same file) was silently skipped as a "duplicate," even
+// when it was a genuinely different family member sharing one household
+// phone with a different physical card. Found live: a master sheet with
+// 5998 real patients had 5154 import correctly and ~840 silently vanish
+// this way (Dr. Yadav: "Shubham" B-72-35, sharing a mobile with an
+// already-imported "Indra Raj" B-60-19, never made it in at all). Now
+// only genuinely ambiguous rows are skipped — same mobile AND (same card,
+// or no card at all to prove otherwise); a same-mobile row with a new,
+// distinct, non-blank card is treated as a real additional patient, the
+// same "card number proves they're different" rule already applied to
+// the possible-duplicate data-quality check (migration 0083) and
+// searchPatients.
 export async function previewPatientsImport(rows: ImportPatientRow[], defaultBranch: string) {
   const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
-  const known = await findExistingMobiles("patients", candidateMobiles);
-  const seen = new Set<string>();
+  const existingByMobile = await findExistingPatientsByMobile(candidateMobiles);
+  const seenCardsByMobile = new Map<string, Set<string>>();
   const valid: (ImportPatientRow & { mobile: string; branch: string })[] = [];
   let duplicates = 0, invalid = 0;
   const invalidSamples: string[] = [];
@@ -4708,8 +4757,19 @@ export async function previewPatientsImport(rows: ImportPatientRow[], defaultBra
       if (invalidSamples.length < 5) invalidSamples.push(`${r.name || "(no name)"} — ${r.mobile || "(no mobile)"}`);
       continue;
     }
-    if (known.has(mobile) || seen.has(mobile)) { duplicates++; continue; }
-    seen.add(mobile);
+    const card = parseCardNumber(r.card_no);
+    const cardKey = card ? `${card.series}-${card.register}-${card.number}` : "";
+    const existingCards = new Set((existingByMobile.get(mobile) ?? []).map((p) => p.cardKey));
+    const seenCards = seenCardsByMobile.get(mobile) ?? new Set<string>();
+    const knownCardsForMobile = new Set([...existingCards, ...seenCards]);
+    // No card to disambiguate + mobile already claimed by someone → assume
+    // same person (safe default, matches the old behaviour). A real,
+    // non-blank card that isn't already on record for this mobile is a
+    // genuinely new patient, even if the mobile is shared.
+    const isDuplicate = cardKey ? knownCardsForMobile.has(cardKey) : knownCardsForMobile.size > 0;
+    if (isDuplicate) { duplicates++; continue; }
+    if (!seenCardsByMobile.has(mobile)) seenCardsByMobile.set(mobile, new Set());
+    seenCardsByMobile.get(mobile)!.add(cardKey);
     const branch = (r.branch?.trim().toUpperCase().replace(/\s+/g, "_") || defaultBranch) as string;
     valid.push({ ...r, mobile, branch: branch === "BAJAJ_NAGAR" || branch === "JAGATPURA" ? branch : defaultBranch });
   }
@@ -4804,6 +4864,100 @@ export async function commitPatientsImport(
     await logImportFailureAlert("Patients import", failedRows.map((r) => ({ name: r.name, mobile: r.mobile, reason: r.reason })));
   }
   return { imported, failed: failedRows };
+}
+
+// ----- Card number backfill (25 Sep 2026, master-sheet reconciliation) -----
+// A separate, narrower repair pass for patients who already exist in the
+// app but whose card_series/register/number are all NULL — found live: the
+// old parseCardNumber (before the twin-card-suffix fix above) couldn't
+// parse formats like "B-01-07A"/"B-01-06(B)" (two family members sharing
+// one physical card slot), so those rows imported fine as patients but
+// with no card recorded at all — permanently invisible to card-number
+// search. commitPatientsImport only ever INSERTs; this is the UPDATE
+// counterpart, run against the SAME master-sheet CSV, that fills in just
+// the 3 card columns for an already-existing, still-blank-card patient.
+// Deliberately never touches a patient who already has a card (a repeat
+// run of this tool is always safe — nothing left to backfill twice).
+export interface CardBackfillCandidate {
+  patient_id: string;
+  name: string;
+  mobile: string;
+  card_series: string;
+  card_register: string;
+  card_number: string;
+}
+
+export interface CardBackfillPreview {
+  valid: CardBackfillCandidate[];
+  alreadyHasCard: number;
+  noMatch: number;
+  invalid: number;
+  ambiguous: number;
+  ambiguousSamples: string[];
+  total: number;
+}
+
+export async function previewCardBackfill(rows: ImportPatientRow[]): Promise<CardBackfillPreview> {
+  const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
+  const existingByMobile = await findExistingPatientsByMobile(candidateMobiles);
+  let alreadyHasCard = 0, noMatch = 0, invalid = 0, ambiguous = 0;
+  const ambiguousSamples: string[] = [];
+  const valid: CardBackfillCandidate[] = [];
+  const usedIds = new Set<string>();
+  for (const r of rows) {
+    const mobile = normalizeMobile(r.mobile);
+    const card = parseCardNumber(r.card_no);
+    if (!card || mobile.length !== 10) { invalid++; continue; }
+    const atThisMobile = existingByMobile.get(mobile) ?? [];
+    if (atThisMobile.length === 0) { noMatch++; continue; }
+    const blankCardCandidates = atThisMobile.filter((p) => !p.cardKey && !usedIds.has(p.id));
+    if (blankCardCandidates.length === 0) { alreadyHasCard++; continue; }
+    let target = blankCardCandidates[0];
+    if (blankCardCandidates.length > 1) {
+      // 2+ blank-card patients share this mobile — only backfill the one
+      // whose name actually matches this CSV row; otherwise we'd be
+      // guessing which sibling owns which card.
+      const nameMatch = blankCardCandidates.find((p) => p.name.trim().toLowerCase() === r.name.trim().toLowerCase());
+      if (!nameMatch) {
+        ambiguous++;
+        if (ambiguousSamples.length < 5) {
+          ambiguousSamples.push(`${r.name || "(no name)"} — ${r.mobile} (${blankCardCandidates.length} blank-card patients share this mobile, naam se match nahi mila)`);
+        }
+        continue;
+      }
+      target = nameMatch;
+    }
+    usedIds.add(target.id);
+    valid.push({ patient_id: target.id, name: target.name, mobile, card_series: card.series, card_register: card.register, card_number: card.number });
+  }
+  return { valid, alreadyHasCard, noMatch, invalid, ambiguous, ambiguousSamples, total: rows.length };
+}
+
+export async function commitCardBackfill(
+  rows: CardBackfillCandidate[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ updated: number; failed: { name: string; mobile: string; reason: string }[] }> {
+  let updated = 0;
+  const failed: { name: string; mobile: string; reason: string }[] = [];
+  for (const r of rows) {
+    // .is("card_series", null) is a last-line safety check, not just the
+    // preview's own filter — guards against this same patient's card
+    // having been filled in by someone else between preview and commit.
+    const { data, error } = await supabase
+      .from("patients")
+      .update({ card_series: r.card_series, card_register: r.card_register, card_number: r.card_number })
+      .eq("id", r.patient_id)
+      .is("card_series", null)
+      .select("id");
+    if (error) failed.push({ name: r.name, mobile: r.mobile, reason: error.message });
+    else if (!data || data.length === 0) failed.push({ name: r.name, mobile: r.mobile, reason: "Patient ka card ab blank nahi hai (kisi aur ne beech mein bhar diya)" });
+    else updated++;
+    onProgress?.(updated + failed.length, rows.length);
+  }
+  if (failed.length > 0) {
+    await logImportFailureAlert("Card backfill", failed.map((r) => ({ name: r.name, mobile: r.mobile, reason: r.reason })));
+  }
+  return { updated, failed };
 }
 
 // ----- Visit / Revenue history (run AFTER patients exist — matches by mobile) -----

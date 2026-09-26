@@ -15,6 +15,8 @@ import {
   commitLeadsImport,
   previewPatientsImport,
   commitPatientsImport,
+  previewCardBackfill,
+  commitCardBackfill,
   previewVisitHistoryImport,
   commitVisitHistoryImport,
   unmatchedVisitRowsToCSV,
@@ -702,7 +704,120 @@ function RecentBatches() {
   );
 }
 
-const TABS = ["Leads", "Patients", "Visit History"] as const;
+// Card Backfill (25 Sep 2026, master-sheet reconciliation) — for patients
+// who already exist (imported fine on name/mobile) but whose card number
+// never parsed (old twin-card-suffix format like "B-01-07A"), so their
+// card_series/register/number sit NULL and card-number search can never
+// find them. Same CSV, same column mapping as Patients import — this just
+// UPDATEs the 3 card columns on an already-existing, still-blank-card row
+// instead of inserting a new one.
+function CardBackfillTab() {
+  const fields: FieldDef[] = [
+    { key: "name", label: "Name", required: true },
+    { key: "mobile", label: "Mobile", required: true },
+    { key: "card_no", label: "Card No. (e.g. B-01-07A)", required: true },
+  ];
+  const csv = useCSVImport(fields);
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewCardBackfill>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedRows, setFailedRows] = useState<{ name: string; mobile: string; reason: string }[]>([]);
+  const [showFailedRows, setShowFailedRows] = useState(false);
+
+  const runPreview = async () => {
+    setBusy(true);
+    try {
+      const rows = csv.mappedRows as unknown as ImportPatientRow[];
+      setPreview(await previewCardBackfill(rows));
+    } catch (e: any) {
+      toast.error("Preview fail: " + (e?.message ?? "unknown error"));
+    } finally { setBusy(false); }
+  };
+
+  const doBackfill = async () => {
+    if (!preview || !preview.valid.length) return;
+    if (!window.confirm(`${preview.valid.length} existing patients ka card number bharein? Naya patient nahi banega, sirf card number update hoga.`)) return;
+    setBusy(true);
+    setProgress({ done: 0, total: preview.valid.length });
+    try {
+      const { updated, failed } = await commitCardBackfill(preview.valid, (done, total) => setProgress({ done, total }));
+      if (failed.length > 0) {
+        toast.warning(`${updated} patients ka card number bhar gaya, ${failed.length} rows fail hui (neeche list dekho)`);
+        setFailedRows(failed);
+        setShowFailedRows(true);
+      } else {
+        toast.success(`${updated} patients ka card number bhar gaya`);
+        setFailedRows([]);
+      }
+      csv.reset(); setPreview(null);
+    } catch (e: any) {
+      toast.error("Backfill fail: " + (e?.message ?? "unknown error"));
+    } finally { setBusy(false); setProgress(null); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-accent/10 text-accent-foreground p-3.5 text-[12px]">
+        Ye sirf un patients ko dhoondhta hai jo already app mein hai lekin unka card number khaali hai — koi naya patient nahi banega. Wahi master-sheet CSV re-upload karo.
+      </div>
+      <FilePicker onFile={csv.onFile} fileName={csv.fileName} />
+      {csv.headers.length > 0 && (
+        <>
+          <ColumnMapper fields={fields} headers={csv.headers} mapping={csv.mapping} setMapping={csv.setMapping} />
+          <div className="text-[11px] text-muted-foreground px-1">{csv.dataRows.length} rows detected in file</div>
+          <button disabled={busy} onClick={runPreview} className="w-full rounded-full bg-primary text-primary-foreground font-bold py-3 text-sm disabled:opacity-60">
+            {busy ? "Checking…" : "Preview"}
+          </button>
+        </>
+      )}
+      {preview && (
+        <>
+          <div className="rounded-2xl bg-surface border border-border p-3.5">
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div><div className="text-lg font-bold text-success">{preview.valid.length}</div><div className="text-[10px] uppercase text-muted-foreground">Bharega</div></div>
+              <div><div className="text-lg font-bold text-accent-foreground">{preview.alreadyHasCard}</div><div className="text-[10px] uppercase text-muted-foreground">Already hai</div></div>
+              <div><div className="text-lg font-bold text-destructive">{preview.noMatch}</div><div className="text-[10px] uppercase text-muted-foreground">Match nahi</div></div>
+              <div><div className="text-lg font-bold text-destructive">{preview.ambiguous}</div><div className="text-[10px] uppercase text-muted-foreground">Confusing</div></div>
+            </div>
+            {preview.ambiguousSamples.length > 0 && (
+              <div className="mt-2.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1 font-semibold text-destructive"><AlertTriangle className="h-3 w-3" /> Manually check karo (naam match nahi mila)</div>
+                {preview.ambiguousSamples.map((s, i) => <div key={i} className="mt-0.5">• {s}</div>)}
+              </div>
+            )}
+          </div>
+          {progress ? (
+            <ProgressBar done={progress.done} total={progress.total} label="Card number bhar rahe hai…" />
+          ) : (
+            <button disabled={busy || !preview.valid.length} onClick={doBackfill} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 className="h-4 w-4" /> {preview.valid.length} patients ka card bharo
+            </button>
+          )}
+        </>
+      )}
+      {failedRows.length > 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <button onClick={() => setShowFailedRows((v) => !v)} className="w-full flex items-center justify-between text-[12px] font-bold text-destructive">
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> {failedRows.length} rows fail hui</span>
+            <span>{showFailedRows ? "Hide" : "Show"}</span>
+          </button>
+          {showFailedRows && (
+            <ul className="mt-2 space-y-1.5">
+              {failedRows.map((r, i) => (
+                <li key={i} className="text-[12px] text-primary">
+                  <span className="font-semibold">{r.name || "(no name)"}</span> — {r.mobile || "(no mobile)"}
+                  <div className="text-[11px] text-destructive">{r.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TABS = ["Leads", "Patients", "Card Backfill", "Visit History"] as const;
 
 function ImportPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Leads");
@@ -728,6 +843,7 @@ function ImportPage() {
 
       {tab === "Leads" && <LeadsImportTab />}
       {tab === "Patients" && <PatientsImportTab />}
+      {tab === "Card Backfill" && <CardBackfillTab />}
       {tab === "Visit History" && <VisitHistoryImportTab />}
 
       <RecentBatches />
