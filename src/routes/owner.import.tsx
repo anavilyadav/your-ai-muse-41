@@ -17,6 +17,8 @@ import {
   commitPatientsImport,
   previewCardBackfill,
   commitCardBackfill,
+  previewNoMobilePatientsImport,
+  commitNoMobilePatientsImport,
   previewVisitHistoryImport,
   commitVisitHistoryImport,
   unmatchedVisitRowsToCSV,
@@ -817,7 +819,132 @@ function CardBackfillTab() {
   );
 }
 
-const TABS = ["Leads", "Patients", "Card Backfill", "Visit History"] as const;
+// No Mobile (25 Sep 2026, master-sheet reconciliation) — for the master-
+// sheet rows where no mobile could be found anywhere (not on the sheet
+// itself, not in the daily visit-history sheet's card-number cross-check
+// either). Dr. Yadav explicitly did NOT want these skipped: card number
+// becomes the identity key instead of mobile, they import as real,
+// searchable patients with mobile left blank — the existing Data Quality
+// system (Owner report + inline banner) already flags/lists any patient
+// with a missing mobile, so no separate tracking screen was needed here.
+function NoMobileImportTab() {
+  const fields: FieldDef[] = [
+    { key: "name", label: "Name", required: true },
+    { key: "card_no", label: "Card No. (e.g. B-01-06)", required: true },
+    { key: "age", label: "Age" },
+    { key: "primary_disease", label: "Disease" },
+    { key: "address", label: "Address" },
+    { key: "referred_by", label: "Referred by" },
+    { key: "category", label: "Category" },
+    { key: "patient_type", label: "Patient type" },
+    { key: "foreign_patient_info", label: "Foreign patient info" },
+    { key: "branch", label: "Branch (per-row, optional)" },
+  ];
+  const csv = useCSVImport(fields);
+  const [defaultBranch, setDefaultBranch] = useState<(typeof BRANCH_OPTIONS)[number]>("BAJAJ_NAGAR");
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewNoMobilePatientsImport>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedRows, setFailedRows] = useState<{ name: string; card_no: string; reason: string }[]>([]);
+  const [showFailedRows, setShowFailedRows] = useState(false);
+
+  const runPreview = async () => {
+    setBusy(true);
+    try {
+      const rows = csv.mappedRows as unknown as ImportPatientRow[];
+      setPreview(await previewNoMobilePatientsImport(rows, defaultBranch));
+    } catch (e: any) {
+      toast.error("Preview fail: " + (e?.message ?? "unknown error"));
+    } finally { setBusy(false); }
+  };
+
+  const doImport = async () => {
+    if (!preview || !preview.valid.length) return;
+    if (!window.confirm(`${preview.valid.length} patients bina mobile ke import karein? Card number + naam se save hoga, mobile khaali rahega jab tak bhara na jaaye.`)) return;
+    setBusy(true);
+    setProgress({ done: 0, total: preview.valid.length });
+    const batchId = newImportBatchId();
+    try {
+      const { imported, failed } = await commitNoMobilePatientsImport(preview.valid, batchId, (done, total) => setProgress({ done, total }));
+      if (failed.length > 0) {
+        toast.warning(`${imported} patients imported, ${failed.length} rows fail hui (neeche list dekho)`);
+        setFailedRows(failed);
+        setShowFailedRows(true);
+      } else {
+        toast.success(`${imported} patients imported — sab "Data Quality" mein missing-mobile ke saath dikhenge`);
+        setFailedRows([]);
+      }
+      csv.reset(); setPreview(null);
+      try {
+        await recordImportBatch({ batchId, type: "No Mobile Patients", count: imported });
+      } catch (e: any) {
+        toast.warning("Import ho gaye, lekin 'Recent Imports' mein record nahi ho paaya: " + (e?.message ?? "unknown error"));
+      }
+    } catch (e: any) {
+      toast.error("Import fail: " + (e?.message ?? "unknown error"));
+    } finally { setBusy(false); setProgress(null); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-accent/10 text-accent-foreground p-3.5 text-[12px]">
+        Sirf un rows ke liye jinka mobile kahi bhi nahi mila — card number + naam se save hoga. Mobile khaali rahega, "Data Quality" report aur patient ki apni profile pe hamesha "mobile missing" dikhega jab tak koi bhar na de.
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Default branch</div>
+        <div className="flex gap-2">
+          {BRANCH_OPTIONS.map((b) => (
+            <button key={b} onClick={() => setDefaultBranch(b)} className={cn("flex-1 rounded-full border py-2 text-[12px] font-bold", defaultBranch === b ? "bg-primary text-primary-foreground border-primary" : "bg-background text-primary border-border")}>
+              {branchLabel(b)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <FilePicker onFile={csv.onFile} fileName={csv.fileName} />
+      {csv.headers.length > 0 && (
+        <>
+          <ColumnMapper fields={fields} headers={csv.headers} mapping={csv.mapping} setMapping={csv.setMapping} />
+          <div className="text-[11px] text-muted-foreground px-1">{csv.dataRows.length} rows detected in file</div>
+          <button disabled={busy} onClick={runPreview} className="w-full rounded-full bg-primary text-primary-foreground font-bold py-3 text-sm disabled:opacity-60">
+            {busy ? "Checking…" : "Preview"}
+          </button>
+        </>
+      )}
+      {preview && (
+        <>
+          <PreviewSummary valid={preview.valid.length} duplicates={preview.duplicateCard} invalid={preview.invalid} samples={preview.invalidSamples} />
+          {progress ? (
+            <ProgressBar done={progress.done} total={progress.total} label="Importing…" />
+          ) : (
+            <button disabled={busy || !preview.valid.length} onClick={doImport} className="w-full rounded-full bg-success text-success-foreground font-bold py-3.5 text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 className="h-4 w-4" /> Import {preview.valid.length} patients (no mobile)
+            </button>
+          )}
+        </>
+      )}
+      {failedRows.length > 0 && (
+        <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+          <button onClick={() => setShowFailedRows((v) => !v)} className="w-full flex items-center justify-between text-[12px] font-bold text-destructive">
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> {failedRows.length} rows import nahi hui</span>
+            <span>{showFailedRows ? "Hide" : "Show"}</span>
+          </button>
+          {showFailedRows && (
+            <ul className="mt-2 space-y-1.5">
+              {failedRows.map((r, i) => (
+                <li key={i} className="text-[12px] text-primary">
+                  <span className="font-semibold">{r.name || "(no name)"}</span> — {r.card_no || "(no card)"}
+                  <div className="text-[11px] text-destructive">{r.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TABS = ["Leads", "Patients", "Card Backfill", "No Mobile", "Visit History"] as const;
 
 function ImportPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Leads");
@@ -844,6 +971,7 @@ function ImportPage() {
       {tab === "Leads" && <LeadsImportTab />}
       {tab === "Patients" && <PatientsImportTab />}
       {tab === "Card Backfill" && <CardBackfillTab />}
+      {tab === "No Mobile" && <NoMobileImportTab />}
       {tab === "Visit History" && <VisitHistoryImportTab />}
 
       <RecentBatches />

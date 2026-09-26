@@ -1796,29 +1796,42 @@ export async function fetchFollowups() {
   upper.setDate(upper.getDate() + 7);
   const upperStr = upper.toISOString().slice(0, 10);
   const todayStr = today();
-  const [{ data, error }, totalRes, overdueRes] = await Promise.all([
-    supabase
+  // Was capped at 200, with the stat boxes computed from that same
+  // capped array — a real "8277 due" queue (a since-corrected
+  // over-generated backfill) silently showed "200 Due" instead,
+  // understating the real backlog by 40x with no indication anything
+  // was cut off. Owner explicitly asked to see everyone actually due,
+  // not a sample.
+  //
+  // .limit(5000) (the fix at the time) never actually worked — found live
+  // 25 Sep 2026: a single .select().limit(N) does NOT override PostgREST's
+  // own server-side max-rows cap (1000 on this project), so this silently
+  // stayed truncated at 1000 the whole time regardless of the 5000
+  // written here. .range() pagination, same fix as fetchCardIndex/
+  // fetchDailyTokenCounts, actually gets all 5000 now.
+  const rows: any[] = [];
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data, error } = await supabase
       .from("followups")
       .select("*, patient:patients(*)")
       .eq("status", "PENDING")
       .lte("due_date", upperStr)
       .order("due_date", { ascending: true })
-      // Was capped at 200, with the stat boxes computed from that same
-      // capped array — a real "8277 due" queue (a since-corrected
-      // over-generated backfill) silently showed "200 Due" instead,
-      // understating the real backlog by 40x with no indication anything
-      // was cut off. Owner explicitly asked to see everyone actually due,
-      // not a sample. 5000 is a safety valve, not an expected real count.
-      .limit(5000),
+      .range(from, from + 999);
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  const [totalRes, overdueRes] = await Promise.all([
     // Decoupled from the row cap above — exact counts regardless of how
     // many rows the list itself renders.
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", upperStr),
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lt("due_date", todayStr),
   ]);
-  if (error) throw dataLoadError(error);
   return {
-    rows: data ?? [],
-    total: totalRes.count ?? (data ?? []).length,
+    rows,
+    total: totalRes.count ?? rows.length,
     overdueTotal: overdueRes.count ?? 0,
   };
 }
@@ -3215,21 +3228,30 @@ export async function fetchDailyTokenCounts(
   range?: { from: string; to: string },
 ): Promise<DailyTokenCount[]> {
   const { start, end } = resolveReportPeriodRange(period, range);
-  // Cap high enough to not truncate any real report range — total visits
-  // clinic-wide were already at 9,446 (25 Sep 2026) when this was written,
-  // so a 10,000 cap (the original value here) was already close to being
-  // silently hit by a broad "custom" range; 100,000 buys years of runway
-  // instead of quietly dropping rows out of an Owner-facing count.
-  let q = supabase
-    .from("visits")
-    .select("patient_id, visit_date, visit_type")
-    .gte("visit_date", start)
-    .lte("visit_date", end)
-    .limit(100000);
-  if (branch) q = q.eq("branch", branch);
-  const { data, error } = await q;
-  if (error) throw dataLoadError(error);
-  const visits = data ?? [];
+  // .limit(N) does NOT override PostgREST's own server-side max-rows cap —
+  // found live testing this exact function (25 Sep 2026): a "year" period
+  // with ~4,500+ real visits still came back as exactly 1,000 rows despite
+  // an explicit .limit(100000) (itself a prior same-day fix for an
+  // original, smaller .limit(10000) — neither actually worked, both sat
+  // above the real server-side cap without knowing it). fetchCardIndex()
+  // already solved this correctly with .range() pagination; same pattern
+  // here instead of a third broken "ask for more rows" attempt.
+  const PAGE = 1000;
+  const visits: { patient_id: string; visit_date: string; visit_type: string | null }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = supabase
+      .from("visits")
+      .select("patient_id, visit_date, visit_type")
+      .gte("visit_date", start)
+      .lte("visit_date", end)
+      .range(from, from + PAGE - 1);
+    if (branch) q = q.eq("branch", branch);
+    const { data, error } = await q;
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    visits.push(...(data as any[]));
+    if (data.length < PAGE) break;
+  }
 
   // "New" = this visit is the patient's EARLIEST ever, not just earliest
   // within the selected range — same rule as fetchDaySummary/fetchReports,
@@ -3237,15 +3259,26 @@ export async function fetchDailyTokenCounts(
   // report range starts partway through their history.
   const patientIds = Array.from(new Set(visits.map((v: any) => v.patient_id).filter(Boolean)));
   const firstVisitByPatient = new Map<string, string>();
-  if (patientIds.length) {
-    const { data: allVisits, error: avErr } = await supabase
-      .from("visits")
-      .select("patient_id, visit_date")
-      .in("patient_id", patientIds);
-    if (avErr) throw dataLoadError(avErr);
-    for (const v of (allVisits ?? []) as any[]) {
-      const existing = firstVisitByPatient.get(v.patient_id);
-      if (!existing || v.visit_date < existing) firstVisitByPatient.set(v.patient_id, v.visit_date);
+  // Chunked by ID list (PostgREST request-size limit, same 300 as
+  // findExistingMobiles) AND range-paginated per chunk (the same
+  // server-side row cap fixed above) — a "year" period's patient set can
+  // easily be 1,000+ people whose COMBINED lifetime visit history is
+  // several thousand rows, well past both limits at once.
+  const ID_CHUNK = 300;
+  for (let i = 0; i < patientIds.length; i += ID_CHUNK) {
+    const idChunk = patientIds.slice(i, i + ID_CHUNK);
+    for (let from = 0; ; from += 1000) {
+      const { data: allVisits, error: avErr } = await supabase
+        .from("visits")
+        .select("patient_id, visit_date")
+        .in("patient_id", idChunk)
+        .range(from, from + 999);
+      if (avErr) throw dataLoadError(avErr);
+      for (const v of (allVisits ?? []) as any[]) {
+        const existing = firstVisitByPatient.get(v.patient_id);
+        if (!existing || v.visit_date < existing) firstVisitByPatient.set(v.patient_id, v.visit_date);
+      }
+      if (!allVisits || allVisits.length < 1000) break;
     }
   }
 
@@ -4960,6 +4993,111 @@ export async function commitCardBackfill(
   return { updated, failed };
 }
 
+// ----- No-mobile patients (25 Sep 2026, master-sheet reconciliation) -----
+// A genuinely separate third path — Dr. Yadav: "skip mat karo... jab tak
+// details na bhari jaaye add kuch bhi na ho, taaki jab patient aaye clinic
+// ya call kare, atleast naam/card number se pata chale ki iski detail
+// poori nahi hai." For the master-sheet rows where NO mobile could be
+// found anywhere (not on the sheet, not in the daily visit history sheet
+// either — see the "UNKNOWN" phone-number rows), the card number becomes
+// the primary identity key instead of mobile. These insert with
+// mobile = "" (patients.mobile is NOT NULL but has no format constraint,
+// so an empty string is valid) — searchable by name/card immediately,
+// automatically caught by data_quality_report()'s existing invalid_mobile
+// category AND the per-patient DataQualityBanner (missingMobile flag,
+// above) until someone fills in a real number, at which point it's just
+// an ordinary complete patient record — no separate "graduation" step.
+// A single .select().limit(N) does NOT override PostgREST's own server-
+// side max-rows cap — found live testing this exact function: a request
+// for up to 10,000 rows against ~5,228 real card-bearing patients still
+// came back missing the newest one, silently capped well under 10,000.
+// fetchCardIndex() already solved this correctly with .range() pagination
+// (25 Sep 2026) — reusing it here instead of a second, broken "fetch
+// everything in one shot" attempt.
+async function findExistingCardKeys(): Promise<Set<string>> {
+  const found = new Set<string>();
+  const bySeries = await fetchCardIndex();
+  for (const series of Object.keys(bySeries)) {
+    for (const p of bySeries[series]) {
+      found.add(`${series}-${p.card_register}-${p.card_number}`);
+    }
+  }
+  return found;
+}
+
+export interface NoMobilePatientPreview {
+  valid: (ImportPatientRow & { branch: string })[];
+  duplicateCard: number;
+  invalid: number;
+  invalidSamples: string[];
+  total: number;
+}
+
+export async function previewNoMobilePatientsImport(rows: ImportPatientRow[], defaultBranch: string): Promise<NoMobilePatientPreview> {
+  const existingCardKeys = await findExistingCardKeys();
+  const seenCardKeys = new Set<string>();
+  const valid: (ImportPatientRow & { branch: string })[] = [];
+  let duplicateCard = 0, invalid = 0;
+  const invalidSamples: string[] = [];
+  for (const r of rows) {
+    const card = parseCardNumber(r.card_no);
+    if (!r.name.trim() || !card) {
+      invalid++;
+      if (invalidSamples.length < 5) invalidSamples.push(`${r.name || "(no name)"} — ${r.card_no || "(no card)"}`);
+      continue;
+    }
+    const cardKey = `${card.series}-${card.register}-${card.number}`;
+    if (existingCardKeys.has(cardKey) || seenCardKeys.has(cardKey)) { duplicateCard++; continue; }
+    seenCardKeys.add(cardKey);
+    const branch = (r.branch?.trim().toUpperCase().replace(/\s+/g, "_") || defaultBranch) as string;
+    valid.push({ ...r, branch: branch === "BAJAJ_NAGAR" || branch === "JAGATPURA" ? branch : defaultBranch });
+  }
+  return { valid, duplicateCard, invalid, invalidSamples, total: rows.length };
+}
+
+export async function commitNoMobilePatientsImport(
+  rows: (ImportPatientRow & { branch: string })[],
+  batchId: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ imported: number; failed: { name: string; card_no: string; reason: string }[] }> {
+  let imported = 0;
+  const failedRows: { name: string; card_no: string; reason: string }[] = [];
+  for (const r of rows) {
+    const card = parseCardNumber(r.card_no)!;
+    const row = {
+      name: r.name.trim(),
+      mobile: "",
+      mobile_confirmed: false,
+      age: r.age?.trim() && !isNaN(parseInt(r.age, 10)) ? parseInt(r.age, 10) : null,
+      city: r.city?.trim() || null,
+      address: r.address?.trim() || null,
+      primary_disease: r.primary_disease?.trim() || null,
+      card_series: card.series,
+      card_register: card.register,
+      card_number: card.number,
+      referred_by: r.referred_by?.trim() || null,
+      email: r.email?.trim() || null,
+      category: r.category?.trim() || null,
+      patient_type: r.patient_type?.trim() || null,
+      foreign_patient_info: r.foreign_patient_info?.trim() || null,
+      wa_consent: false,
+      branch: r.branch,
+      lifetime_visits: 0,
+      lifetime_revenue: 0,
+      current_balance: 0,
+      imported_batch: batchId,
+    };
+    const { error } = await supabase.from("patients").insert(row);
+    if (error) failedRows.push({ name: r.name, card_no: r.card_no ?? "", reason: error.message });
+    else imported++;
+    onProgress?.(imported + failedRows.length, rows.length);
+  }
+  if (failedRows.length > 0) {
+    await logImportFailureAlert("No-mobile patients import", failedRows.map((r) => ({ name: r.name, card_no: r.card_no, reason: r.reason })));
+  }
+  return { imported, failed: failedRows };
+}
+
 // ----- Visit / Revenue history (run AFTER patients exist — matches by mobile) -----
 export interface ImportVisitRow {
   mobile: string; visit_date: string; chief_complaint?: string;
@@ -6289,6 +6427,15 @@ export interface PatientDataQualityFlags {
   incompleteName: boolean;
   partialCard: boolean;
   unconfirmedNumber: boolean;
+  // Master-sheet reconciliation (25 Sep 2026) — a patient whose physical
+  // card had no traceable mobile anywhere (master sheet said "UNKNOWN",
+  // Daily Sheet visit history had nothing for that card either) still
+  // gets added — Dr. Yadav: "add karte hi master patient me add ho jayega,
+  // lekin jab tak details na bhari jaaye... pata chale ki iski detail
+  // poori nahi hai." Mirrors data_quality_report()'s invalid_mobile
+  // category, but per-patient so the inline banner catches it too, not
+  // just the Owner's bulk report.
+  missingMobile: boolean;
   // These two are only ever fixable by the Owner (family-link/dismiss,
   // merge) — flagged here so staff know to mention it, but the banner
   // only makes them actionable for an Owner viewer.
@@ -6313,10 +6460,11 @@ export async function fetchPatientDataQualityFlags(patient: {
   const mobile = s(patient.mobile);
 
   const incompleteName = name === "" || !name.includes(" ");
+  const missingMobile = mobile === "";
   const cardFilled = [s(patient.card_series) !== "", s(patient.card_register) !== "", s(patient.card_number) !== ""];
   const partialCard = cardFilled[0] !== cardFilled[1] || cardFilled[1] !== cardFilled[2];
   const unconfirmedNumber =
-    patient.mobile_confirmed === false ||
+    (!missingMobile && patient.mobile_confirmed === false) ||
     (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
 
   let sharedMobile = false;
@@ -6361,9 +6509,10 @@ export async function fetchPatientDataQualityFlags(patient: {
     incompleteName,
     partialCard,
     unconfirmedNumber,
+    missingMobile,
     sharedMobile,
     possibleDuplicate,
-    hasAny: incompleteName || partialCard || unconfirmedNumber || sharedMobile || possibleDuplicate,
+    hasAny: incompleteName || partialCard || unconfirmedNumber || missingMobile || sharedMobile || possibleDuplicate,
   };
 }
 
