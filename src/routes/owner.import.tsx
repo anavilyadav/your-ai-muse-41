@@ -45,7 +45,7 @@ type FieldDef = { key: string; label: string; required?: boolean };
 
 const ALIASES: Record<string, string[]> = {
   name: ["name", "patient name", "full name", "patientname"],
-  mobile: ["mobile", "phone", "contact", "mobile number", "phone number", "contact number", "mob", "phone no", "mobile number"],
+  mobile: ["mobile", "phone", "contact", "mobile number", "phone number", "contact number", "mob", "phone no", "contact no", "contact no."],
   age: ["age"],
   gender: ["gender", "sex"],
   city: ["city", "area", "location"],
@@ -53,7 +53,7 @@ const ALIASES: Record<string, string[]> = {
   // separate `category` field below (Dr. Yadav's real master sheet has
   // both a DISEASE column and its own CATEGORY column, they're not the
   // same thing).
-  primary_disease: ["disease", "primary disease", "complaint", "disease interest", "problem"],
+  primary_disease: ["disease", "primary disease", "complaint", "disease interest", "problem", "diagnosis"],
   branch: ["branch", "location", "clinic"],
   source: ["source", "lead source"],
   note: ["note", "notes", "remarks", "comments"],
@@ -838,6 +838,10 @@ function NoMobileImportTab() {
   const fields: FieldDef[] = [
     { key: "name", label: "Name", required: true },
     { key: "card_no", label: "Card No. (e.g. B-01-06)", required: true },
+    // Optional, not required — but mapped so the preview can actually see
+    // it and reject a row that turns out to have a real mobile after all
+    // (see previewNoMobilePatientsImport's hasMobileSkipped check).
+    { key: "mobile", label: "Mobile (agar column hai to map karo)" },
     { key: "age", label: "Age" },
     { key: "primary_disease", label: "Disease" },
     { key: "address", label: "Address" },
@@ -920,6 +924,13 @@ function NoMobileImportTab() {
       {preview && (
         <>
           <PreviewSummary valid={preview.valid.length} duplicates={preview.duplicateCard} invalid={preview.invalid} samples={preview.invalidSamples} />
+          {preview.hasMobileSkipped > 0 && (
+            <div className="rounded-xl bg-accent/10 border border-accent/30 p-3 text-[11px] text-accent-foreground">
+              <div className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-3.5 w-3.5" /> {preview.hasMobileSkipped} rows ka real mobile hai — yaha skip kiya</div>
+              <div className="mt-1 text-muted-foreground">Ye "Patients" tab se import karo, wahi mobile ka ghar hai.</div>
+              {preview.hasMobileSamples.map((s, i) => <div key={i} className="mt-0.5">• {s}</div>)}
+            </div>
+          )}
           {progress ? (
             <ProgressBar done={progress.done} total={progress.total} label="Importing…" />
           ) : (

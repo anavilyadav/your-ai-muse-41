@@ -4732,24 +4732,110 @@ export async function commitLeadsImport(
   return imported;
 }
 
-// Parses "B-01-01" (Series-Register-Number, per Dr. Yadav's real card
-// format, 10 Aug 2026) into its three parts. Tolerant of 1-2 letter series
-// (A, B, K, AA, AB) and any digit count, since real historical sheets
-// won't always be perfectly zero-padded.
+// Parses a physical card number into series/register/number. Started as
+// "B-01-01" (10 Aug 2026), then grew to handle every real variant found
+// across the various sheets Dr. Yadav has sent since — see the dated
+// notes below. Deliberately token-based (split on "-"/space, then
+// classify what's left) rather than one giant regex, since the sheets
+// mix several genuinely different conventions and a single regex kept
+// silently rejecting whichever one it wasn't written for.
 //
-// Twin-card suffix (25 Sep 2026, found in a master-sheet reconciliation
-// pass) — the physical register also has cards like "B-01-07A"/"B-01-07B"
-// or "B-01-06(B)": two family members sharing one base card slot,
-// distinguished by a trailing letter, bare or in parens. The old regex
-// required the number to be pure digits, so every one of these failed to
-// parse and silently imported with card_series/register/number all NULL
-// (present in the app, but invisible to card-number search). The suffix
-// letter is now folded onto the end of `number` (e.g. "07A") — preserves
-// the physical distinction without a schema change.
+// Twin-card suffix (25 Sep 2026, master-sheet reconciliation) — Dr.
+// Yadav: "human error tha jab case le rahe the, baad me A/B karke alag
+// kiya tha" — two family members were mistakenly given ONE physical card
+// slot, later disambiguated with a trailing letter: "B-01-07A"/
+// "B-01-07B", "B-01-06(B)", or (found in a later sheet) space-separated
+// as its own token, "B 30-33 B". The suffix letter folds onto the end of
+// `number` (e.g. "07A") — preserves the physical distinction without a
+// schema change.
+//
+// Register glued to series, no separator (25 Sep 2026, "master LIST
+// 1T-a99" sheet) — that sheet writes most A-series cards as "A48-12"
+// instead of "A-48-12" (letters immediately followed by the register
+// digits, one dash before the number only). Detected by the first token
+// being letters-then-digits with nothing else.
+//
+// Standalone series, no register at all (25 Sep 2026, same sheet,
+// confirmed with Dr. Yadav) — an older numbering scheme predating the
+// current one: "1T-1", "3T-37", "5T-61" are complete series names on
+// their own (like "B" or "AA" elsewhere), immediately followed by a
+// plain number — there is no register segment to find. Falls out as the
+// case where the first token is NOT letters-then-digits (so the "glued
+// register" reading above doesn't apply) but is still a short
+// alphanumeric token.
 export function parseCardNumber(raw: string | undefined): { series: string; register: string; number: string } | null {
-  const m = (raw ?? "").trim().toUpperCase().match(/^([A-Z]{1,2})-(\d+)-(\d+)\s*\(?\s*([A-Z])?\s*\)?$/);
-  if (!m) return null;
-  return { series: m[1], register: m[2], number: m[3] + (m[4] ?? "") };
+  let s = (raw ?? "").trim().toUpperCase();
+  if (!s) return null;
+
+  // A trailing bracketed annotation that ISN'T a single letter — e.g.
+  // "A82-70 (YHC 759)", a stray note referencing the internal
+  // patient_code, not part of the physical card at all — is stripped
+  // from the whole string up front (it can span more than one space-
+  // separated token, e.g. "(YHC" + "759)"). A single-letter bracket
+  // ("(B)", "{A}") is left in place; that's the real twin-card suffix,
+  // handled below.
+  const annotation = s.match(/\s*[(\{]([^)}]*)[)\}]\s*$/);
+  if (annotation && !/^[A-Z]$/.test(annotation[1].trim())) {
+    s = s.slice(0, s.length - annotation[0].length);
+  }
+
+  let parts = s.split(/[-\s]+/).filter(Boolean);
+  if (parts.length < 2) return null;
+
+  // Trailing twin-card suffix, as its own separate token ("B 30-33 B") —
+  // only when there's still a register+number (or series+number) left
+  // underneath once it's removed. Bare, in parens, or in curly braces
+  // (found across different sheets: "(B)", "{A}").
+  let suffix = "";
+  const lastRaw = parts[parts.length - 1].replace(/[(){}]/g, "");
+  if (parts.length >= 3 && /^[A-Z]$/.test(lastRaw)) {
+    suffix = lastRaw;
+    parts = parts.slice(0, -1);
+  } else {
+    // Twin-card suffix glued onto the number itself, bare or bracketed
+    // ("07A", "06(B)", "18{A}").
+    const m = parts[parts.length - 1].match(/^(\d+)[({]?([A-Z])?[)}]?$/);
+    if (m) {
+      parts[parts.length - 1] = m[1];
+      if (m[2]) suffix = m[2];
+    }
+  }
+
+  // Zero-pad register/number to a MINIMUM of 2 digits (25 Sep 2026,
+  // found before running a real import) — different sheets write the
+  // same physical card differently ("B-1-6" here, "B-01-06" there,
+  // matching real live DB rows). Without this, the exact-same card
+  // would silently compare as two different card_key strings and the
+  // dedup checks throughout this file (previewPatientsImport/
+  // previewCardBackfill/previewNoMobilePatientsImport, all keyed on this
+  // function's output) would treat an existing patient's card as brand
+  // new — importing a genuine duplicate patient instead of catching it.
+  // A number 100+ is left as-is; this only ever ADDS leading zeros, so
+  // it can't collide two genuinely different numbers into one.
+  const pad2 = (d: string) => (d.length < 2 ? d.padStart(2, "0") : d);
+
+  if (parts.length === 3) {
+    const [series, register, number] = parts;
+    if (/^[A-Z]{1,3}$/.test(series) && /^\d+$/.test(register) && /^\d+$/.test(number)) {
+      return { series, register: pad2(register), number: pad2(number) + suffix };
+    }
+    return null;
+  }
+
+  if (parts.length === 2) {
+    const [first, number] = parts;
+    if (!/^\d+$/.test(number)) return null;
+    const glued = first.match(/^([A-Z]{1,2})(\d+)$/);
+    if (glued) {
+      return { series: glued[1], register: pad2(glued[2]), number: pad2(number) + suffix };
+    }
+    if (/^[A-Z0-9]{1,4}$/.test(first)) {
+      return { series: first, register: "", number: pad2(number) + suffix };
+    }
+    return null;
+  }
+
+  return null;
 }
 
 // ----- Patients -----
@@ -5078,6 +5164,16 @@ export interface NoMobilePatientPreview {
   duplicateCard: number;
   invalid: number;
   invalidSamples: string[];
+  // Found running this for real (25 Sep 2026) — this tool only ever
+  // looked at name+card, never mobile, so uploading the SAME sheet here
+  // before running it through the Patients tab would have created a
+  // mobile="" patient for someone who actually has a perfectly good
+  // phone number in the data. Safe by luck the first time (Patients ran
+  // first, so every real-mobile row was already a card-key duplicate by
+  // the time this ran) — now safe by construction: any row with a real
+  // 10-digit mobile is rejected here outright, regardless of run order.
+  hasMobileSkipped: number;
+  hasMobileSamples: string[];
   total: number;
 }
 
@@ -5085,9 +5181,15 @@ export async function previewNoMobilePatientsImport(rows: ImportPatientRow[], de
   const existingCardKeys = await findExistingCardKeys();
   const seenCardKeys = new Set<string>();
   const valid: (ImportPatientRow & { branch: string })[] = [];
-  let duplicateCard = 0, invalid = 0;
+  let duplicateCard = 0, invalid = 0, hasMobileSkipped = 0;
   const invalidSamples: string[] = [];
+  const hasMobileSamples: string[] = [];
   for (const r of rows) {
+    if (normalizeMobile(r.mobile).length === 10) {
+      hasMobileSkipped++;
+      if (hasMobileSamples.length < 5) hasMobileSamples.push(`${r.name || "(no name)"} — ${r.mobile} (Patients tab se import karo, wahi mobile ka ghar hai)`);
+      continue;
+    }
     const card = parseCardNumber(r.card_no);
     if (!r.name.trim() || !card) {
       invalid++;
@@ -5100,7 +5202,7 @@ export async function previewNoMobilePatientsImport(rows: ImportPatientRow[], de
     const branch = (r.branch?.trim().toUpperCase().replace(/\s+/g, "_") || defaultBranch) as string;
     valid.push({ ...r, branch: branch === "BAJAJ_NAGAR" || branch === "JAGATPURA" ? branch : defaultBranch });
   }
-  return { valid, duplicateCard, invalid, invalidSamples, total: rows.length };
+  return { valid, duplicateCard, invalid, invalidSamples, hasMobileSkipped, hasMobileSamples, total: rows.length };
 }
 
 export async function commitNoMobilePatientsImport(
@@ -6534,9 +6636,16 @@ export function computeLocalDataQualityFlags(patient: {
 
   const incompleteName = name === "" || !name.includes(" ");
   const missingMobile = mobile === "";
-  const cardFilled = [s(patient.card_series) !== "", s(patient.card_register) !== "", s(patient.card_number) !== ""];
-  const missingCard = !cardFilled[0] && !cardFilled[1] && !cardFilled[2];
-  const partialCard = !missingCard && (cardFilled[0] !== cardFilled[1] || cardFilled[1] !== cardFilled[2]);
+  // Register is legitimately optional on its own now (25 Sep 2026,
+  // "master LIST 1T-a99" sheet) — an older numbering scheme ("1T-1",
+  // "3T-37") has no register segment at all, a real, complete card, not
+  // a data-entry gap. So partialCard only fires when series and number
+  // (the two parts every scheme actually has) disagree with each other —
+  // register's own presence/absence no longer factors into "complete".
+  const seriesFilled = s(patient.card_series) !== "";
+  const numberFilled = s(patient.card_number) !== "";
+  const missingCard = !seriesFilled && !numberFilled;
+  const partialCard = !missingCard && seriesFilled !== numberFilled;
   const unconfirmedNumber =
     (!missingMobile && patient.mobile_confirmed === false) ||
     (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
