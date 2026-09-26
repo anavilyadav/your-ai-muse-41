@@ -3215,12 +3215,17 @@ export async function fetchDailyTokenCounts(
   range?: { from: string; to: string },
 ): Promise<DailyTokenCount[]> {
   const { start, end } = resolveReportPeriodRange(period, range);
+  // Cap high enough to not truncate any real report range — total visits
+  // clinic-wide were already at 9,446 (25 Sep 2026) when this was written,
+  // so a 10,000 cap (the original value here) was already close to being
+  // silently hit by a broad "custom" range; 100,000 buys years of runway
+  // instead of quietly dropping rows out of an Owner-facing count.
   let q = supabase
     .from("visits")
     .select("patient_id, visit_date, visit_type")
     .gte("visit_date", start)
     .lte("visit_date", end)
-    .limit(10000);
+    .limit(100000);
   if (branch) q = q.eq("branch", branch);
   const { data, error } = await q;
   if (error) throw dataLoadError(error);
@@ -3942,7 +3947,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0083_fix_possible_duplicate_card_check";
+export const EXPECTED_SCHEMA_VERSION = "0084_online_followup_recase_fix";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -6380,11 +6385,20 @@ export async function fetchDaySummary(branch?: string) {
   // client-side counts, same style as everything else on this screen, no
   // RPC needed. onlineFollowupAwaitingPayment IS the "rough list" size Dr.
   // Yadav wants visible to both Reception and Owner.
+  // Branch-scoped like visQ/payQ above — online_followup_requests has its
+  // own branch column, so a branch-filtered call to this function must
+  // filter these two counts too, not just count every branch's requests.
+  let awaitingQ = supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "AWAITING_PAYMENT");
+  let confirmedTodayQ = supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "CONFIRMED").gte("confirmed_at", `${t}T00:00:00`).lt("confirmed_at", `${t}T23:59:59.999`);
+  if (branch) {
+    awaitingQ = awaitingQ.eq("branch", branch);
+    confirmedTodayQ = confirmedTodayQ.eq("branch", branch);
+  }
   const [complaintsTodayRes, openComplaints, awaitingRes, confirmedTodayRes] = await Promise.all([
     supabase.from("patient_interactions").select("id", { count: "exact", head: true }).eq("type", "COMPLAINT").gte("created_at", `${t}T00:00:00`).lt("created_at", `${t}T23:59:59.999`),
     fetchOpenComplaints(),
-    supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "AWAITING_PAYMENT"),
-    supabase.from("online_followup_requests").select("id", { count: "exact", head: true }).eq("status", "CONFIRMED").gte("confirmed_at", `${t}T00:00:00`).lt("confirmed_at", `${t}T23:59:59.999`),
+    awaitingQ,
+    confirmedTodayQ,
   ]);
   const complaintsLoggedToday = complaintsTodayRes.count ?? 0;
   const complaintsOpenTotal = openComplaints.length;
