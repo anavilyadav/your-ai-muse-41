@@ -47,16 +47,17 @@ export function DataQualityBanner({
   const items: string[] = [];
   if (flags.incompleteName) items.push("Naam adhoora hai");
   if (flags.missingMobile) items.push("Mobile number nahi hai — patient khud aaye ya call kare tab bhar dena");
+  if (flags.missingCard) items.push("Card number nahi hai");
   if (flags.partialCard) items.push("Card number adhoora hai");
   if (flags.unconfirmedNumber) items.push("Number confirm nahi hai");
   if (flags.sharedMobile) items.push("Ye mobile kisi aur patient ke saath bhi hai");
   if (flags.possibleDuplicate) items.push("Isi naam+mobile ka doosra record bhi hai");
 
-  // Only name/card/number-confirm/missing-mobile are self-fixable from
-  // here — shared-mobile and possible-duplicate need the Owner's
-  // family-link/merge tools, so those two stay informational for
+  // Only name/card/number-confirm/missing-mobile/missing-card are self-
+  // fixable from here — shared-mobile and possible-duplicate need the
+  // Owner's family-link/merge tools, so those two stay informational for
   // non-Owner staff.
-  const selfFixable = flags.incompleteName || flags.partialCard || flags.unconfirmedNumber || flags.missingMobile;
+  const selfFixable = flags.incompleteName || flags.partialCard || flags.unconfirmedNumber || flags.missingMobile || flags.missingCard;
 
   return (
     <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-3">

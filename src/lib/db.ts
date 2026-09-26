@@ -4769,17 +4769,36 @@ export interface ImportPatientRow {
 // phone with a different physical card. Found live: a master sheet with
 // 5998 real patients had 5154 import correctly and ~840 silently vanish
 // this way (Dr. Yadav: "Shubham" B-72-35, sharing a mobile with an
-// already-imported "Indra Raj" B-60-19, never made it in at all). Now
-// only genuinely ambiguous rows are skipped — same mobile AND (same card,
-// or no card at all to prove otherwise); a same-mobile row with a new,
-// distinct, non-blank card is treated as a real additional patient, the
-// same "card number proves they're different" rule already applied to
-// the possible-duplicate data-quality check (migration 0083) and
-// searchPatients.
+// already-imported "Indra Raj" B-60-19, never made it in at all).
+//
+// Card number is now checked GLOBALLY, not just within the matching
+// mobile (25 Sep 2026, found on a careful recheck before Dr. Yadav sends
+// more/older sheets) — the physical card is the real unique identity
+// (Dr. Yadav's own standing rule), so a row whose card already exists
+// ANYWHERE in the DB/this batch is a duplicate regardless of which
+// mobile it's typed under this time.
+//
+// A SECOND check found on that same recheck, and just as important: this
+// function only ever INSERTs (never updates — see commitPatientsImport).
+// The ~130 patients whose card came out NULL before parseCardNumber's
+// twin-card-suffix fix (above) already exist with a matching mobile but
+// a blank card — re-running THIS tool against the same sheet would see
+// their now-correctly-parsed card as "new" (it's not in existingCardKeys,
+// because the DB row's card is still null) and INSERT a genuine duplicate
+// patient instead of the intended Card Backfill UPDATE. So: a row whose
+// mobile AND name already belongs to an existing patient with a BLANK
+// card is treated as a duplicate here too, even if its own card is new —
+// that patient needs Card Backfill, not a second row from this tool.
+// Name-matched (not just mobile) so a genuinely different family member
+// sharing that mobile — with their own real card — still gets inserted.
 export async function previewPatientsImport(rows: ImportPatientRow[], defaultBranch: string) {
   const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
-  const existingByMobile = await findExistingPatientsByMobile(candidateMobiles);
-  const seenCardsByMobile = new Map<string, Set<string>>();
+  const [existingByMobile, existingCardKeys] = await Promise.all([
+    findExistingPatientsByMobile(candidateMobiles),
+    findExistingCardKeys(),
+  ]);
+  const seenCardKeys = new Set<string>();
+  const seenMobilesNoCard = new Set<string>();
   const valid: (ImportPatientRow & { mobile: string; branch: string })[] = [];
   let duplicates = 0, invalid = 0;
   const invalidSamples: string[] = [];
@@ -4792,17 +4811,26 @@ export async function previewPatientsImport(rows: ImportPatientRow[], defaultBra
     }
     const card = parseCardNumber(r.card_no);
     const cardKey = card ? `${card.series}-${card.register}-${card.number}` : "";
-    const existingCards = new Set((existingByMobile.get(mobile) ?? []).map((p) => p.cardKey));
-    const seenCards = seenCardsByMobile.get(mobile) ?? new Set<string>();
-    const knownCardsForMobile = new Set([...existingCards, ...seenCards]);
-    // No card to disambiguate + mobile already claimed by someone → assume
-    // same person (safe default, matches the old behaviour). A real,
-    // non-blank card that isn't already on record for this mobile is a
-    // genuinely new patient, even if the mobile is shared.
-    const isDuplicate = cardKey ? knownCardsForMobile.has(cardKey) : knownCardsForMobile.size > 0;
+    const existingForMobile = existingByMobile.get(mobile) ?? [];
+    // Name-matched, not just mobile-matched — two DIFFERENT family
+    // members can share a mobile where one already exists with a blank
+    // card; only skip THIS row as a backfill-candidate-in-disguise when
+    // it's actually the same person (same name too), so a genuinely new
+    // sibling with their own real card still gets inserted.
+    const blankCardSamePerson = existingForMobile.some(
+      (p) => !p.cardKey && p.name.trim().toLowerCase() === r.name.trim().toLowerCase(),
+    );
+    let isDuplicate: boolean;
+    if (cardKey) {
+      isDuplicate = existingCardKeys.has(cardKey) || seenCardKeys.has(cardKey) || blankCardSamePerson;
+    } else {
+      // No card to disambiguate + mobile already claimed by someone
+      // (in DB, or earlier in this batch) → assume same person, the
+      // safe default.
+      isDuplicate = existingForMobile.length > 0 || seenMobilesNoCard.has(mobile);
+    }
     if (isDuplicate) { duplicates++; continue; }
-    if (!seenCardsByMobile.has(mobile)) seenCardsByMobile.set(mobile, new Set());
-    seenCardsByMobile.get(mobile)!.add(cardKey);
+    if (cardKey) seenCardKeys.add(cardKey); else seenMobilesNoCard.add(mobile);
     const branch = (r.branch?.trim().toUpperCase().replace(/\s+/g, "_") || defaultBranch) as string;
     valid.push({ ...r, mobile, branch: branch === "BAJAJ_NAGAR" || branch === "JAGATPURA" ? branch : defaultBranch });
   }
@@ -4926,21 +4954,40 @@ export interface CardBackfillPreview {
   noMatch: number;
   invalid: number;
   ambiguous: number;
+  // Found on a careful recheck (25 Sep 2026) before Dr. Yadav sends more
+  // sheets — the original version only checked the target patient's OWN
+  // card was blank, never that the CSV's card number wasn't already
+  // sitting on some completely different patient. Without this, a typo'd
+  // card in the sheet could silently create a duplicate-card situation
+  // (two patients, same physical card) via the backfill path.
+  cardConflict: number;
   ambiguousSamples: string[];
+  cardConflictSamples: string[];
   total: number;
 }
 
 export async function previewCardBackfill(rows: ImportPatientRow[]): Promise<CardBackfillPreview> {
   const candidateMobiles = rows.map((r) => normalizeMobile(r.mobile));
-  const existingByMobile = await findExistingPatientsByMobile(candidateMobiles);
-  let alreadyHasCard = 0, noMatch = 0, invalid = 0, ambiguous = 0;
+  const [existingByMobile, existingCardKeys] = await Promise.all([
+    findExistingPatientsByMobile(candidateMobiles),
+    findExistingCardKeys(),
+  ]);
+  let alreadyHasCard = 0, noMatch = 0, invalid = 0, ambiguous = 0, cardConflict = 0;
   const ambiguousSamples: string[] = [];
+  const cardConflictSamples: string[] = [];
   const valid: CardBackfillCandidate[] = [];
   const usedIds = new Set<string>();
+  const usedCardKeys = new Set<string>();
   for (const r of rows) {
     const mobile = normalizeMobile(r.mobile);
     const card = parseCardNumber(r.card_no);
     if (!card || mobile.length !== 10) { invalid++; continue; }
+    const cardKey = `${card.series}-${card.register}-${card.number}`;
+    if (existingCardKeys.has(cardKey) || usedCardKeys.has(cardKey)) {
+      cardConflict++;
+      if (cardConflictSamples.length < 5) cardConflictSamples.push(`${r.name || "(no name)"} — card ${r.card_no} kisi aur patient ke paas already hai`);
+      continue;
+    }
     const atThisMobile = existingByMobile.get(mobile) ?? [];
     if (atThisMobile.length === 0) { noMatch++; continue; }
     const blankCardCandidates = atThisMobile.filter((p) => !p.cardKey && !usedIds.has(p.id));
@@ -4961,9 +5008,10 @@ export async function previewCardBackfill(rows: ImportPatientRow[]): Promise<Car
       target = nameMatch;
     }
     usedIds.add(target.id);
+    usedCardKeys.add(cardKey);
     valid.push({ patient_id: target.id, name: target.name, mobile, card_series: card.series, card_register: card.register, card_number: card.number });
   }
-  return { valid, alreadyHasCard, noMatch, invalid, ambiguous, ambiguousSamples, total: rows.length };
+  return { valid, alreadyHasCard, noMatch, invalid, ambiguous, cardConflict, ambiguousSamples, cardConflictSamples, total: rows.length };
 }
 
 export async function commitCardBackfill(
@@ -5864,6 +5912,18 @@ export interface PatientListPage {
   hasMore: boolean;
 }
 
+// Always-visible grand total (25 Sep 2026, Dr. Yadav: "total patients
+// hamesha dikhne chahiye top pe") — deliberately its own tiny query,
+// independent of the current search filter/page size, so the top-of-
+// screen number never changes just because the Owner typed into the
+// filter box. {count:"exact", head:true} returns only the count, no row
+// data, so no server-side row-cap risk here either.
+export async function fetchPatientsTotalCount(): Promise<number> {
+  const { count, error } = await supabase.from("patients").select("id", { count: "exact", head: true }).eq("is_deleted", false);
+  if (error) throw dataLoadError(error);
+  return count ?? 0;
+}
+
 export async function fetchPatientsPage(limit: number, search?: string): Promise<PatientListPage> {
   let q = supabase.from("patients").select("*").eq("is_deleted", false);
   const t = search ? sanitizeOrFilterTerm(search) : "";
@@ -6436,12 +6496,59 @@ export interface PatientDataQualityFlags {
   // category, but per-patient so the inline banner catches it too, not
   // just the Owner's bulk report.
   missingMobile: boolean;
+  // A fully blank card (all 3 fields empty) was never flagged anywhere —
+  // partialCard only catches an INCONSISTENT fill (1 or 2 of 3 filled),
+  // not "no card at all." Found on the same recheck as missingMobile:
+  // exactly the ~130 patients the new Card Backfill tool exists for
+  // (pre-fix imports whose card format couldn't be parsed) had zero
+  // visible indication anywhere that their card was still outstanding.
+  missingCard: boolean;
   // These two are only ever fixable by the Owner (family-link/dismiss,
   // merge) — flagged here so staff know to mention it, but the banner
   // only makes them actionable for an Owner viewer.
   sharedMobile: boolean;
   possibleDuplicate: boolean;
   hasAny: boolean;
+}
+
+// Pure, synchronous subset of fetchPatientDataQualityFlags below — no DB
+// round trip, safe to call per-row in a list of dozens (25 Sep 2026, so
+// the Master Patient List can show every visible patient's own flags
+// inline without a query-per-row). sharedMobile/possibleDuplicate need an
+// actual query against other patients, so they're not part of this —
+// only fetchPatientDataQualityFlags (the per-patient banner, one patient
+// at a time) computes those.
+export function computeLocalDataQualityFlags(patient: {
+  name?: string | null;
+  mobile?: string | null;
+  card_series?: string | null;
+  card_register?: string | null;
+  card_number?: string | null;
+  mobile_confirmed?: boolean | null;
+  whatsapp_confirmed?: boolean | null;
+  whatsapp_number?: string | null;
+}): { incompleteName: boolean; missingMobile: boolean; missingCard: boolean; partialCard: boolean; unconfirmedNumber: boolean; hasAny: boolean } {
+  const s = (v: string | null | undefined) => (v ?? "").trim();
+  const name = s(patient.name);
+  const mobile = s(patient.mobile);
+
+  const incompleteName = name === "" || !name.includes(" ");
+  const missingMobile = mobile === "";
+  const cardFilled = [s(patient.card_series) !== "", s(patient.card_register) !== "", s(patient.card_number) !== ""];
+  const missingCard = !cardFilled[0] && !cardFilled[1] && !cardFilled[2];
+  const partialCard = !missingCard && (cardFilled[0] !== cardFilled[1] || cardFilled[1] !== cardFilled[2]);
+  const unconfirmedNumber =
+    (!missingMobile && patient.mobile_confirmed === false) ||
+    (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
+
+  return {
+    incompleteName,
+    missingMobile,
+    missingCard,
+    partialCard,
+    unconfirmedNumber,
+    hasAny: incompleteName || missingMobile || missingCard || partialCard || unconfirmedNumber,
+  };
 }
 
 export async function fetchPatientDataQualityFlags(patient: {
@@ -6458,14 +6565,8 @@ export async function fetchPatientDataQualityFlags(patient: {
   const s = (v: string | null | undefined) => (v ?? "").trim();
   const name = s(patient.name);
   const mobile = s(patient.mobile);
-
-  const incompleteName = name === "" || !name.includes(" ");
-  const missingMobile = mobile === "";
-  const cardFilled = [s(patient.card_series) !== "", s(patient.card_register) !== "", s(patient.card_number) !== ""];
-  const partialCard = cardFilled[0] !== cardFilled[1] || cardFilled[1] !== cardFilled[2];
-  const unconfirmedNumber =
-    (!missingMobile && patient.mobile_confirmed === false) ||
-    (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
+  const local = computeLocalDataQualityFlags(patient);
+  const { incompleteName, missingMobile, missingCard, partialCard, unconfirmedNumber } = local;
 
   let sharedMobile = false;
   let possibleDuplicate = false;
@@ -6510,9 +6611,10 @@ export async function fetchPatientDataQualityFlags(patient: {
     partialCard,
     unconfirmedNumber,
     missingMobile,
+    missingCard,
     sharedMobile,
     possibleDuplicate,
-    hasAny: incompleteName || partialCard || unconfirmedNumber || missingMobile || sharedMobile || possibleDuplicate,
+    hasAny: incompleteName || partialCard || unconfirmedNumber || missingMobile || missingCard || sharedMobile || possibleDuplicate,
   };
 }
 

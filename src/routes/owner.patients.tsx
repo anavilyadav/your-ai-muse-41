@@ -1,10 +1,21 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, AlertTriangle } from "lucide-react";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { fetchPatientsPage, formatCardNumber } from "@/lib/db";
+import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags } from "@/lib/db";
+
+// Compact inline labels for the list — same underlying flags as
+// DataQualityBanner's fuller Hinglish sentences, shortened to fit one
+// line per patient row without wrapping the whole card.
+const FLAG_LABELS: Record<string, string> = {
+  incompleteName: "Naam adhoora",
+  missingMobile: "Mobile nahi hai",
+  missingCard: "Card nahi hai",
+  partialCard: "Card adhoora",
+  unconfirmedNumber: "Number unconfirmed",
+};
 
 export const Route = createFileRoute("/owner/patients")({
   head: () => ({ meta: [{ title: "Master Patient List — Owner" }, { name: "robots", content: "noindex" }] }),
@@ -35,6 +46,15 @@ function PatientsPage() {
     queryFn: () => fetchPatientsPage(visibleCount, debouncedQ || undefined),
   });
 
+  // Deliberately its own query, independent of search/page state (Dr.
+  // Yadav: "total patients hamesha dikhne chahiye top pe") — the number
+  // at the top must stay the true grand total even while filtering.
+  const totalQ = useQuery({
+    queryKey: ["owner-patients-total"],
+    queryFn: fetchPatientsTotalCount,
+    staleTime: 60_000,
+  });
+
   const rows = list.data?.rows ?? [];
   const hasMore = list.data?.hasMore ?? false;
 
@@ -53,6 +73,13 @@ function PatientsPage() {
         </Link>
       }
     >
+      <div className="rounded-2xl bg-primary text-primary-foreground p-3.5 mb-3">
+        <div className="text-[11px] uppercase tracking-wider opacity-70">Total Patients</div>
+        <div className="text-2xl font-bold mt-0.5">
+          {totalQ.isLoading ? "…" : totalQ.isError ? "—" : (totalQ.data ?? 0).toLocaleString("en-IN")}
+        </div>
+      </div>
+
       <div className="relative">
         <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
@@ -76,7 +103,17 @@ function PatientsPage() {
           {rows.length === 0 && (
             <li className="text-center text-sm text-muted-foreground py-8">Koi patient nahi mila.</li>
           )}
-          {rows.map((p) => (
+          {rows.map((p) => {
+            // Clear per-patient flag (25 Sep 2026, Dr. Yadav: "clearly
+            // flag bhi karna chaiye ki patient ki poori profile me kya
+            // kaam hai... wahi se change kar saku") — same local checks
+            // DataQualityBanner uses on a patient's own record, computed
+            // straight off this already-fetched row (no per-row query),
+            // so every visible patient's gaps are legible while just
+            // scanning/searching this list. Tapping the row already opens
+            // the profile, where the fix actually happens.
+            const flags = computeLocalDataQualityFlags(p);
+            return (
             <li key={p.id}>
               <Link
                 to="/patient/$id"
@@ -101,16 +138,23 @@ function PatientsPage() {
                     {(() => {
                       const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
                       return card ? `Card: ${card}` : "Card nahi hai";
-                    })()} • {p.mobile}
+                    })()} • {p.mobile || "Mobile nahi hai"}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {p.lifetime_visits} visit{p.lifetime_visits === 1 ? "" : "s"}
                     {p.last_visit_date ? ` • Last: ${p.last_visit_date}` : ""}
                   </p>
+                  {flags.hasAny && (
+                    <p className="truncate text-[11px] font-semibold text-destructive mt-0.5 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      {Object.entries(FLAG_LABELS).filter(([k]) => (flags as any)[k]).map(([, label]) => label).join(" • ")}
+                    </p>
+                  )}
                 </div>
               </Link>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

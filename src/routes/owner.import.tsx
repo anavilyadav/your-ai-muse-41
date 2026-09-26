@@ -775,16 +775,23 @@ function CardBackfillTab() {
       {preview && (
         <>
           <div className="rounded-2xl bg-surface border border-border p-3.5">
-            <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="grid grid-cols-5 gap-2 text-center">
               <div><div className="text-lg font-bold text-success">{preview.valid.length}</div><div className="text-[10px] uppercase text-muted-foreground">Bharega</div></div>
               <div><div className="text-lg font-bold text-accent-foreground">{preview.alreadyHasCard}</div><div className="text-[10px] uppercase text-muted-foreground">Already hai</div></div>
               <div><div className="text-lg font-bold text-destructive">{preview.noMatch}</div><div className="text-[10px] uppercase text-muted-foreground">Match nahi</div></div>
               <div><div className="text-lg font-bold text-destructive">{preview.ambiguous}</div><div className="text-[10px] uppercase text-muted-foreground">Confusing</div></div>
+              <div><div className="text-lg font-bold text-destructive">{preview.cardConflict}</div><div className="text-[10px] uppercase text-muted-foreground">Card clash</div></div>
             </div>
             {preview.ambiguousSamples.length > 0 && (
               <div className="mt-2.5 text-[11px] text-muted-foreground">
                 <div className="flex items-center gap-1 font-semibold text-destructive"><AlertTriangle className="h-3 w-3" /> Manually check karo (naam match nahi mila)</div>
                 {preview.ambiguousSamples.map((s, i) => <div key={i} className="mt-0.5">• {s}</div>)}
+              </div>
+            )}
+            {preview.cardConflictSamples.length > 0 && (
+              <div className="mt-2.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1 font-semibold text-destructive"><AlertTriangle className="h-3 w-3" /> Card kisi aur patient ke paas already hai</div>
+                {preview.cardConflictSamples.map((s, i) => <div key={i} className="mt-0.5">• {s}</div>)}
               </div>
             )}
           </div>
