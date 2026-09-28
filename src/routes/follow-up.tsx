@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone, MessageCircle, CheckCircle2, History } from "lucide-react";
+import { Phone, MessageCircle, CheckCircle2, History, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
-import { fetchFollowups, markFollowupDone, reopenFollowup, logWhatsAppInteraction } from "@/lib/db";
+import { fetchFollowups, fetchFollowupRevenueForecast, markFollowupDone, reopenFollowup, logWhatsAppInteraction } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/follow-up")({
@@ -25,6 +25,14 @@ function FollowUpPage() {
   const total = data?.total ?? rows.length;
   const overdueTotal = data?.overdueTotal ?? 0;
   const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
+
+  // Expected revenue forecast (25 Sep 2026, Dr. Yadav: "agar ye follow-ups
+  // aaye to itna revenue, agar nahi aaye to itna loss") — its own query
+  // (the RPC's exact totals, not derived from `rows` above, which is
+  // capped) so the two numbers stay trustworthy even past 5,000 pending
+  // follow-ups.
+  const forecastQ = useQuery({ queryKey: ["followup-revenue-forecast"], queryFn: fetchFollowupRevenueForecast });
+  const forecast = forecastQ.data;
 
   const today = new Date().toISOString().slice(0, 10);
   const daysDiff = (d: string) => Math.floor((Date.parse(today) - Date.parse(d)) / 86_400_000);
@@ -67,6 +75,32 @@ function FollowUpPage() {
         <Stat label="Overdue" value={overdueTotal} tone="destructive" />
         <Stat label="Due Soon" value={dueSoonTotal} tone="accent" />
       </div>
+
+      {/* Expected revenue forecast (25 Sep 2026) — "Rohit 30 din ki dawai
+          lekar gaya, 2500 diye, ek mahine baad aayega to 2500 honge... agar
+          nahi aaya to itna loss." Same amount basis for both cards — each
+          pending follow-up's own originating-visit payment total. */}
+      {forecast && (forecast.dueSoonAmount > 0 || forecast.overdueAmount > 0) && (
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="rounded-xl bg-success/10 border border-success/30 p-3">
+            <div className="flex items-center gap-1 text-success">
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span className="text-[10px] uppercase tracking-wide font-bold">Expected Revenue</span>
+            </div>
+            <div className="text-lg font-bold text-success mt-0.5">₹{forecast.dueSoonAmount.toLocaleString("en-IN")}</div>
+            <div className="text-[10px] text-muted-foreground">{forecast.dueSoonCount} follow-ups aane baaki</div>
+          </div>
+          <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3">
+            <div className="flex items-center gap-1 text-destructive">
+              <TrendingDown className="h-3.5 w-3.5" />
+              <span className="text-[10px] uppercase tracking-wide font-bold">Miss Ho Gaya (Loss)</span>
+            </div>
+            <div className="text-lg font-bold text-destructive mt-0.5">₹{forecast.overdueAmount.toLocaleString("en-IN")}</div>
+            <div className="text-[10px] text-muted-foreground">{forecast.overdueCount} follow-ups wapas nahi aaye</div>
+          </div>
+        </div>
+      )}
+
       {total > rows.length && (
         <div className="mt-2 rounded-lg bg-accent/15 text-accent-foreground text-[11px] px-3 py-2">
           {rows.length} sabse purani/jaldi wali dikh rahi hain (list mein) — baaki {total - rows.length} bhi pending hain, list neeche karte jao ya ek-ek "Done" karte jaao taaki agli batch dikhe.
@@ -102,11 +136,16 @@ function FollowUpPage() {
                       )}
                     </div>
                     <div className="text-[11px] text-muted-foreground">{r.patient?.primary_disease ?? r.followup_type ?? "—"}</div>
-                    <div className={cn("text-[11px] font-semibold mt-1",
-                      tone === "destructive" && "text-destructive",
-                      tone === "accent" && "text-accent-foreground",
-                      tone === "success" && "text-success")}>
-                      {d > 0 ? `${d} din overdue` : d === 0 ? "Aaj due" : `${-d} din baaki`}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <div className={cn("text-[11px] font-semibold",
+                        tone === "destructive" && "text-destructive",
+                        tone === "accent" && "text-accent-foreground",
+                        tone === "success" && "text-success")}>
+                        {d > 0 ? `${d} din overdue` : d === 0 ? "Aaj due" : `${-d} din baaki`}
+                      </div>
+                      {r.expectedAmount > 0 && (
+                        <span className="text-[11px] font-semibold text-muted-foreground">• ₹{Number(r.expectedAmount).toLocaleString("en-IN")}</span>
+                      )}
                     </div>
                     {r.patient_id && (
                       <button

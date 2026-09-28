@@ -1829,10 +1829,53 @@ export async function fetchFollowups() {
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lte("due_date", upperStr),
     supabase.from("followups").select("id", { count: "exact", head: true }).eq("status", "PENDING").lt("due_date", todayStr),
   ]);
+
+  // Expected revenue per row (25 Sep 2026, Dr. Yadav: "Rohit 30 din ki
+  // dawai lekar gaya, 2500 diye... ek mahine baad aayega to 2500 honge")
+  // — followups isn't directly related to payments via a foreign key
+  // PostgREST can join (both point at visits, not each other), so this
+  // is a second query: every payment on each row's originating visit,
+  // summed client-side. followup_revenue_forecast() (the RPC) covers the
+  // true totals across ALL pending follow-ups; this only needs to cover
+  // the same rows already fetched above.
+  const visitIds = Array.from(new Set(rows.map((r) => r.visit_id).filter(Boolean)));
+  const amountByVisit = new Map<string, number>();
+  const CHUNK = 300;
+  for (let i = 0; i < visitIds.length; i += CHUNK) {
+    const chunk = visitIds.slice(i, i + CHUNK);
+    const { data, error } = await supabase.from("payments").select("visit_id, amount_charged").in("visit_id", chunk);
+    if (error) throw dataLoadError(error);
+    for (const p of (data ?? []) as any[]) {
+      amountByVisit.set(p.visit_id, (amountByVisit.get(p.visit_id) ?? 0) + Number(p.amount_charged ?? 0));
+    }
+  }
+  for (const r of rows) {
+    r.expectedAmount = r.visit_id ? (amountByVisit.get(r.visit_id) ?? 0) : 0;
+  }
+
   return {
     rows,
     total: totalRes.count ?? rows.length,
     overdueTotal: overdueRes.count ?? 0,
+  };
+}
+
+export interface FollowupRevenueForecast {
+  dueSoonCount: number;
+  dueSoonAmount: number;
+  overdueCount: number;
+  overdueAmount: number;
+}
+
+export async function fetchFollowupRevenueForecast(): Promise<FollowupRevenueForecast> {
+  const { data, error } = await supabase.rpc("followup_revenue_forecast");
+  if (error) throw dataLoadError(error);
+  const d = (data ?? {}) as any;
+  return {
+    dueSoonCount: Number(d.due_soon_count ?? 0),
+    dueSoonAmount: Number(d.due_soon_amount ?? 0),
+    overdueCount: Number(d.overdue_count ?? 0),
+    overdueAmount: Number(d.overdue_amount ?? 0),
   };
 }
 
@@ -3980,7 +4023,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0084_online_followup_recase_fix";
+export const EXPECTED_SCHEMA_VERSION = "0085_followup_revenue_forecast";
 
 export interface SchemaMigrationRow {
   filename: string;
