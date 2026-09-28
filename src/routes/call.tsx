@@ -717,7 +717,10 @@ function ConfirmPaymentModal({
             <input
               type="file"
               accept="image/*"
-              capture="environment"
+              // No capture="environment" here (25 Sep 2026, Dr. Yadav) — a
+              // payment screenshot already exists in the phone's gallery;
+              // capture forced mobile browsers straight into the live
+              // camera with no way to pick an existing photo.
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) pickFile(f); e.target.value = ""; }}
             />
