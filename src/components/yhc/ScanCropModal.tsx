@@ -21,10 +21,15 @@ export function ScanCropModal({
   file,
   onCancel,
   onConfirm,
+  title,
 }: {
   file: File;
   onCancel: () => void;
   onConfirm: (cropped: File) => void;
+  // Optional override for the header (25 Sep 2026) — a multi-photo batch
+  // upload shows "Photo 2/5" here so staff know how many are left,
+  // instead of this always reading the same generic instruction.
+  title?: string;
 }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -110,7 +115,7 @@ export function ScanCropModal({
   return (
     <div className="fixed inset-0 z-[60] bg-black flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 text-white">
-        <h2 className="font-bold text-sm">Kinaare adjust karo</h2>
+        <h2 className="font-bold text-sm">{title ?? "Kinaare adjust karo"}</h2>
         <button onClick={onCancel} aria-label="Cancel" className="h-8 w-8 grid place-items-center rounded-full bg-white/15">
           <X className="h-4 w-4" />
         </button>
