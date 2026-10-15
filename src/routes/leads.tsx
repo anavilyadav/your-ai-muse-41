@@ -12,7 +12,8 @@ import {
   maskMobile, logWhatsAppInteraction, createLead, fetchStaff, searchPatients, fetchLeadSources,
   LEAD_SOURCES, LEAD_SOURCE_LABELS, LEAD_SOURCE_CRITERIA, LEAD_STAGES, LEAD_STAGE_LABELS,
   LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
-  type LeadStage, type LeadQuality, type LeadSource,
+  fetchLeadRepeatInfo, fetchLeadWhatsAppTemplates, buildLeadWhatsAppDraft, DISEASE_CATEGORY_LABELS,
+  type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo,
 } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
@@ -66,6 +67,24 @@ function daysSince(iso: string | null | undefined): number {
   if (!iso) return 0;
   const ms = Date.now() - new Date(iso).getTime();
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+}
+
+// Mirrors lead-touch-sequencer's TOUCH_SCHEDULE (edge function) — display
+// only, so staff can see where a lead sits in the auto-sequence without
+// needing to open Owner > WhatsApp. Kept in sync manually if the schedule
+// ever changes (same inline-duplication convention the edge functions use).
+const TOUCH_OFFSET_DAYS: Record<number, number> = { 1: 2, 2: 5, 3: 10, 4: 18 };
+function autoSequenceStatus(l: { auto_touch_count?: number; call_count?: number; dnd?: boolean; status?: string; created_at: string; last_inbound_at?: string | null }): string | null {
+  if (l.dnd) return "Auto-sequence stopped (DND)";
+  if (l.status === "CONVERTED" || l.status === "LOST") return null;
+  const touchCount = l.auto_touch_count ?? 0;
+  if (touchCount === 0) return null; // not yet picked up by any lead-creation path
+  if (l.last_inbound_at) return `Auto-sequence stopped (touch ${touchCount}/5 sent, lead replied)`;
+  if ((l.call_count ?? 0) > 0) return `Auto-sequence paused (touch ${touchCount}/5 sent, staff ne call kar diya)`;
+  if (touchCount >= 5) return "Auto-sequence complete (5/5 touches sent)";
+  const offsetDays = TOUCH_OFFSET_DAYS[touchCount];
+  const nextDate = new Date(new Date(l.created_at).getTime() + offsetDays * 24 * 60 * 60 * 1000);
+  return `Auto-sequence: touch ${touchCount}/5 sent • next ~${nextDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
 }
 
 function LeadsPage() {
@@ -180,6 +199,24 @@ function LeadsPage() {
   const displayLoading = isSearching ? searchQ.isLoading : isLoading;
   const [manageId, setManageId] = useState<string | null>(null);
   const [convertingId, setConvertingId] = useState<string | null>(null);
+
+  // Repeat-enquiry flag — same mobile appearing more than once in the leads
+  // table, whether for the same complaint re-asked or a different one each
+  // time. Scoped to whatever's currently on screen (see fetchLeadRepeatInfo).
+  const visibleMobiles = useMemo(() => displayList.map((l: any) => l.mobile).filter(Boolean), [displayList]);
+  const repeatQ = useQuery({
+    queryKey: ["lead-repeat-info", visibleMobiles.slice().sort().join(",")],
+    queryFn: () => fetchLeadRepeatInfo(visibleMobiles),
+    enabled: visibleMobiles.length > 0,
+  });
+  const repeatByMobile: Map<string, LeadRepeatInfo> = repeatQ.data ?? new Map();
+
+  // WhatsApp message drafts — disease-category templates, Owner-editable
+  // (Owner Control → Lead Messages). These only ever open a prefilled
+  // WhatsApp chat for staff to review and send themselves — nothing here
+  // sends automatically.
+  const waTemplatesQ = useQuery({ queryKey: ["lead-wa-templates"], queryFn: fetchLeadWhatsAppTemplates });
+  const [waDraftLead, setWaDraftLead] = useState<any | null>(null);
 
   return (
     <MobileShell
@@ -309,6 +346,7 @@ function LeadsPage() {
             const assignedStaff = assignableStaff.find((u: any) => u.id === l.assigned_to);
             const isOpen = manageId === l.id;
             const closed = stage === "CONVERTED" || stage === "LOST";
+            const repeat = repeatByMobile.get(l.mobile);
             return (
               <li
                 key={l.id}
@@ -326,6 +364,27 @@ function LeadsPage() {
                     </div>
                     {l.notes && (
                       <div className="text-[11px] text-foreground/70 mt-1 truncate">"{l.notes}"</div>
+                    )}
+                    {l.last_inbound_text && (
+                      <div className={cn(
+                        "mt-1.5 rounded-lg border px-2 py-1.5 text-[11px]",
+                        l.inbound_flag === "BOOKING_INTENT" ? "bg-success/10 border-success/30 text-success"
+                          : l.inbound_flag === "NEEDS_HUMAN" ? "bg-destructive/10 border-destructive/30 text-destructive"
+                          : "bg-accent/10 border-accent/30 text-accent-foreground",
+                      )}>
+                        <span className="font-bold">
+                          {l.inbound_flag === "BOOKING_INTENT" ? "💬 Booking chahta hai — " : l.inbound_flag === "NEEDS_HUMAN" ? "💬 Reply aaya, human chahiye — " : "💬 Reply aaya — "}
+                        </span>
+                        "{l.last_inbound_text.slice(0, 120)}"
+                      </div>
+                    )}
+                    {repeat && repeat.count > 1 && (
+                      <div className="text-[10px] text-destructive font-semibold mt-1">
+                        🔁 {repeat.count}x enquiry{repeat.diseases.length > 1 ? ` — ${repeat.diseases.join(", ")}` : ""}
+                      </div>
+                    )}
+                    {mounted && autoSequenceStatus(l) && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{autoSequenceStatus(l)}</div>
                     )}
                     {assignedStaff && (
                       <div className="text-[10px] text-primary mt-0.5">→ {assignedStaff.name}</div>
@@ -439,15 +498,12 @@ function LeadsPage() {
                     >
                       <PhoneCall className="h-3.5 w-3.5" /> Call
                     </a>
-                    <a
-                      href={`https://wa.me/91${l.mobile}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => logWhatsAppInteraction({ leadId: l.id }, "WhatsApp opened from Lead CRM")}
+                    <button
+                      onClick={() => setWaDraftLead(l)}
                       className="flex items-center justify-center gap-1 rounded-lg bg-accent text-accent-foreground py-2 text-xs font-semibold"
                     >
                       <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
-                    </a>
+                    </button>
                     <button
                       disabled={convertingId !== null}
                       aria-label={`${l.name} ko patient mein convert karo`}
@@ -481,7 +537,71 @@ function LeadsPage() {
           onClose={() => setHistoryLead(null)}
         />
       )}
+      {waDraftLead && waTemplatesQ.data && (
+        <WhatsAppDraftModal
+          lead={waDraftLead}
+          templates={waTemplatesQ.data.templates}
+          disclosure={waTemplatesQ.data.disclosure}
+          onClose={() => setWaDraftLead(null)}
+        />
+      )}
     </MobileShell>
+  );
+}
+
+// Disease-category draft, staff-reviewed before send — see the NCH/NMC note
+// above buildLeadWhatsAppDraft in db.ts for why this is a prefilled-and-
+// editable manual send, not an automated one. Opening wa.me with `text=`
+// prefills the message in WhatsApp itself; staff still taps Send there.
+function WhatsAppDraftModal({
+  lead,
+  templates,
+  disclosure,
+  onClose,
+}: {
+  lead: any;
+  templates: Parameters<typeof buildLeadWhatsAppDraft>[1];
+  disclosure: string;
+  onClose: () => void;
+}) {
+  const draft = useMemo(() => buildLeadWhatsAppDraft(lead, templates, disclosure), [lead, templates, disclosure]);
+  const [text, setText] = useState(draft.text);
+
+  const openWhatsApp = () => {
+    logWhatsAppInteraction({ leadId: lead.id }, `WhatsApp draft opened (${DISEASE_CATEGORY_LABELS[draft.category]}) from Lead CRM`);
+    window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(text)}`, "_blank");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-extrabold text-primary text-lg">WhatsApp Draft — {lead.name}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div className="text-[11px] text-muted-foreground">
+            Category: <span className="font-semibold text-primary">{DISEASE_CATEGORY_LABELS[draft.category]}</span> (disease interest se auto-pick hui)
+          </div>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={6}
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Ye WhatsApp mein khul jayega, message already bhara hoga — aap edit kar sakte ho, bhejna khud WhatsApp mein tap karna hoga. Kuch yahan se automatically nahi jaata.
+          </p>
+          <button
+            onClick={openWhatsApp}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm inline-flex items-center justify-center gap-2"
+          >
+            <MessageCircle className="h-4 w-4" /> WhatsApp Mein Kholo
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

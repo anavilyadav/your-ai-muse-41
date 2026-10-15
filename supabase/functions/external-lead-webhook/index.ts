@@ -181,6 +181,10 @@ Deno.serve(async (req) => {
           notes: body.note ?? null,
           disease_interest: body.disease_interest ?? null,
           source_ref: body.source_ref ?? null,
+          // auto_touch_count: 1 — LEAD_WELCOME below is touch 1 of the
+          // 5-touch sequence (migration 0086 / lead-touch-sequencer); set
+          // regardless of whether the send itself succeeds.
+          auto_touch_count: 1,
         })
         .select("id")
         .maybeSingle();
@@ -209,6 +213,19 @@ Deno.serve(async (req) => {
             source: "YHC-OS",
             templateParams: [name],
           }),
+        });
+        const data = await res.json().catch(() => ({}));
+        // whatsapp_log write (12 Oct 2026) — see justdial-lead-webhook's
+        // matching note; this is what aisensy-whatsapp-status matches
+        // delivered/read callbacks against.
+        await supabaseAdmin.from("whatsapp_log").insert({
+          patient_id: null,
+          campaign_name: "LEAD_WELCOME",
+          destination: mobile,
+          status: res.ok ? "sent" : "failed",
+          error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
+          message_id: res.ok ? (data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null) : null,
+          provider_response: data,
         });
         if (res.ok) {
           await supabaseAdmin.from("interactions").insert({

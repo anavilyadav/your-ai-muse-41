@@ -50,6 +50,14 @@ const CAMPAIGN_LABEL: Record<string, string> = {
   HOLIDAY_GREETING: "Holiday Greeting",
   WINBACK: "Win-back",
   delivery_update: "Delivery Update",
+  LEAD_WELCOME: "Lead Welcome (touch 1)",
+  LEAD_TOUCH_2: "Lead Touch 2 (day 2)",
+  LEAD_TOUCH_3: "Lead Touch 3 (day 5)",
+  LEAD_TOUCH_4: "Lead Touch 4 (day 10)",
+  LEAD_TOUCH_5: "Lead Touch 5 (day 18, final)",
+  LEAD_INFO_REPLY: "Lead Reply — Info (auto)",
+  LEAD_BOOKING_ACK: "Lead Reply — Booking Intent (auto)",
+  LEAD_GENERIC_ACK: "Lead Reply — General Ack (auto)",
 };
 
 // Master + per-campaign on/off + daily cap (10 Aug 2026, Dr. Yadav's

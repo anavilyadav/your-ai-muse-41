@@ -1,12 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Phone, MessageCircle, CheckCircle2, History, TrendingUp, TrendingDown } from "lucide-react";
+import { Phone, MessageCircle, CheckCircle2, History, TrendingUp, TrendingDown, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
-import { fetchFollowups, fetchFollowupRevenueForecast, markFollowupDone, reopenFollowup, logWhatsAppInteraction } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
+import {
+  fetchFollowups, fetchFollowupRevenueForecast, markFollowupDone, reopenFollowup, logWhatsAppInteraction,
+  fetchStaff, FOLLOWUP_CALL_OUTCOMES, logFollowupCall,
+  fetchFollowupWhatsAppTemplates, buildFollowupWhatsAppDraft,
+} from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/follow-up")({
@@ -20,11 +25,24 @@ export const Route = createFileRoute("/follow-up")({
 
 function FollowUpPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["followups"], queryFn: fetchFollowups });
   const rows = (data?.rows ?? []) as any[];
   const total = data?.total ?? rows.length;
   const overdueTotal = data?.overdueTotal ?? 0;
   const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
+  const [manageId, setManageId] = useState<string | null>(null);
+  const [waDraftRow, setWaDraftRow] = useState<any | null>(null);
+  const staffQ = useQuery({ queryKey: ["staff-for-followup"], queryFn: fetchStaff });
+  const staffById = new Map((staffQ.data ?? []).map((u: any) => [u.id, u.name]));
+  const waTemplatesQ = useQuery({ queryKey: ["followup-wa-templates"], queryFn: fetchFollowupWhatsAppTemplates });
+
+  const logOutcome = async (row: any, outcome: (typeof FOLLOWUP_CALL_OUTCOMES)[number]) => {
+    const res = await logFollowupCall(row.id, outcome, user?.id ?? null);
+    if (!res.success) { toast.error("Outcome save nahi hua: " + res.error); return; }
+    toast.success(`Outcome logged: ${outcome}`);
+    qc.invalidateQueries({ queryKey: ["followups"] });
+  };
 
   // Expected revenue forecast (25 Sep 2026, Dr. Yadav: "agar ye follow-ups
   // aaye to itna revenue, agar nahi aaye to itna loss") — its own query
@@ -118,6 +136,8 @@ function FollowUpPage() {
           {rows.map((r) => {
             const d = daysDiff(r.due_date);
             const tone = d > 7 ? "destructive" : d > 0 ? "accent" : "success";
+            const isOpen = manageId === r.id;
+            const calledByName = r.called_by ? staffById.get(r.called_by) : null;
             return (
               <li key={r.id} className="rounded-xl bg-surface border border-border p-3">
                 <div className="flex items-center justify-between">
@@ -147,30 +167,40 @@ function FollowUpPage() {
                         <span className="text-[11px] font-semibold text-muted-foreground">• ₹{Number(r.expectedAmount).toLocaleString("en-IN")}</span>
                       )}
                     </div>
-                    {r.patient_id && (
-                      <button
-                        onClick={() => setHistoryPatient({ id: r.patient_id, name: r.patient?.name ?? "—" })}
-                        className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
-                      >
-                        <History className="h-3 w-3" /> History
-                      </button>
+                    {r.outcome && (
+                      <div className="text-[10px] text-accent-foreground mt-1">
+                        Last outcome: <span className="font-semibold">{r.outcome}</span>{calledByName ? ` — ${calledByName}` : ""}
+                      </div>
                     )}
+                    <div className="flex items-center gap-3 mt-1">
+                      {r.patient_id && (
+                        <button
+                          onClick={() => setHistoryPatient({ id: r.patient_id, name: r.patient?.name ?? "—" })}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary underline"
+                        >
+                          <History className="h-3 w-3" /> History
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setManageId(isOpen ? null : r.id)}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground underline"
+                      >
+                        {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} Outcome log karo
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 shrink-0">
                     {r.patient?.mobile && (
                       <>
                         <a href={`tel:${r.patient.mobile}`} className="h-8 w-8 grid place-items-center rounded-full bg-primary text-primary-foreground">
                           <Phone className="h-4 w-4" />
                         </a>
-                        <a
-                          target="_blank"
-                          rel="noreferrer"
-                          href={`https://wa.me/91${r.patient.mobile}?text=${encodeURIComponent(`Namaste ${r.patient.name} ji! Aapki follow-up due hai. Kripya clinic mein aaiye. — YHC Jaipur`)}`}
-                          onClick={() => logWhatsAppInteraction({ patientId: r.patient_id }, "WhatsApp opened from Follow-up CRM")}
+                        <button
+                          onClick={() => setWaDraftRow(r)}
                           className="h-8 w-8 grid place-items-center rounded-full bg-success text-success-foreground"
                         >
                           <MessageCircle className="h-4 w-4" />
-                        </a>
+                        </button>
                       </>
                     )}
                     <button onClick={() => done(r)} className="h-8 w-8 grid place-items-center rounded-full bg-accent text-accent-foreground">
@@ -178,6 +208,19 @@ function FollowUpPage() {
                     </button>
                   </div>
                 </div>
+                {isOpen && (
+                  <div className="mt-2.5 rounded-lg bg-muted/40 border border-border p-2.5">
+                    <label className="text-[9px] font-bold text-muted-foreground uppercase">Call/WhatsApp ka outcome</label>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => { if (e.target.value) { logOutcome(r, e.target.value as any); setManageId(null); e.target.value = ""; } }}
+                      className="w-full mt-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+                    >
+                      <option value="">Kaisa raha?</option>
+                      {FOLLOWUP_CALL_OUTCOMES.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -190,7 +233,68 @@ function FollowUpPage() {
           onClose={() => setHistoryPatient(null)}
         />
       )}
+      {waDraftRow && waTemplatesQ.data && (
+        <FollowupWhatsAppDraftModal
+          row={waDraftRow}
+          templates={waTemplatesQ.data.templates}
+          disclosure={waTemplatesQ.data.disclosure}
+          onClose={() => setWaDraftRow(null)}
+        />
+      )}
     </MobileShell>
+  );
+}
+
+// Disease-specific draft, staff-reviewed before send — same pattern as
+// Lead CRM's WhatsAppDraftModal (leads.tsx), same reasoning: prefilled
+// into WhatsApp itself, staff taps Send there, nothing auto-sends.
+function FollowupWhatsAppDraftModal({
+  row,
+  templates,
+  disclosure,
+  onClose,
+}: {
+  row: any;
+  templates: Parameters<typeof buildFollowupWhatsAppDraft>[1];
+  disclosure: string;
+  onClose: () => void;
+}) {
+  const patient = { name: row.patient?.name ?? "", primary_disease: row.patient?.primary_disease };
+  const draft = useMemo(() => buildFollowupWhatsAppDraft(patient, templates, disclosure), [row.id, templates, disclosure]);
+  const [text, setText] = useState(draft.text);
+
+  const openWhatsApp = () => {
+    logWhatsAppInteraction({ patientId: row.patient_id }, `WhatsApp draft opened (${draft.category}) from Follow-up CRM`);
+    window.open(`https://wa.me/91${row.patient.mobile}?text=${encodeURIComponent(text)}`, "_blank");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-extrabold text-primary text-lg">WhatsApp Draft — {patient.name}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={6}
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Ye WhatsApp mein khul jayega, message already bhara hoga — aap edit kar sakte ho, bhejna khud WhatsApp mein tap karna hoga.
+          </p>
+          <button
+            onClick={openWhatsApp}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm inline-flex items-center justify-center gap-2"
+          >
+            <MessageCircle className="h-4 w-4" /> WhatsApp Mein Kholo
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -166,7 +166,12 @@ Deno.serve(async (req) => {
       // failing on this before the fix — confirmed 0 rows in the live table.
       const { data: newLead, error: leadErr } = await supabaseAdmin
         .from("leads")
-        .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "HOT", notes: body.note ?? null })
+        // auto_touch_count: 1 — this LEAD_WELCOME send below is touch 1 of
+        // the 5-touch sequence (see migration 0086 / lead-touch-sequencer),
+        // set here regardless of whether the send itself succeeds — the
+        // sequence clock starts at lead-creation time, not at first-
+        // successful-send time.
+        .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "HOT", notes: body.note ?? null, auto_touch_count: 1 })
         .select("id")
         .maybeSingle();
       if (leadErr || !newLead) {
@@ -194,6 +199,21 @@ Deno.serve(async (req) => {
             source: "YHC-OS",
             templateParams: [name],
           }),
+        });
+        const data = await res.json().catch(() => ({}));
+        // whatsapp_log write (12 Oct 2026) — this send used to only write to
+        // `interactions` on success, invisible to Owner > WhatsApp and to
+        // aisensy-whatsapp-status's delivered/read matching (it matches by
+        // message_id, falling back to destination+recency, both of which
+        // need a whatsapp_log row to exist in the first place).
+        await supabaseAdmin.from("whatsapp_log").insert({
+          patient_id: null,
+          campaign_name: "LEAD_WELCOME",
+          destination: mobile,
+          status: res.ok ? "sent" : "failed",
+          error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
+          message_id: res.ok ? (data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null) : null,
+          provider_response: data,
         });
         if (res.ok) {
           await supabaseAdmin.from("interactions").insert({

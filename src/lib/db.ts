@@ -1879,6 +1879,35 @@ export async function fetchFollowupRevenueForecast(): Promise<FollowupRevenueFor
   };
 }
 
+// Call-outcome + staff attribution for follow-ups (14 Oct 2026) — mirrors
+// logLeadCall's pattern. Until now, followups.called_by/outcome existed in
+// the schema but nothing ever wrote to them — markFollowupDone only ever
+// flipped status, with no record of WHO worked a follow-up or how it went.
+// This is the piece the planned "Sales Agent — Follow-up Calling" role's
+// incentive needs to be measurable from the app itself, same way
+// logLeadCall already makes the New-Case Sales Agent's work countable.
+export const FOLLOWUP_CALL_OUTCOMES = ["No Answer", "Confirmed Coming", "Rescheduled", "Not Coming", "Already Visited"] as const;
+export async function logFollowupCall(
+  id: string,
+  outcome: (typeof FOLLOWUP_CALL_OUTCOMES)[number],
+  staffId: string | null,
+) {
+  const update: Record<string, unknown> = {
+    outcome,
+    called_by: staffId,
+    modified_at: new Date().toISOString(),
+    modified_by: staffId,
+  };
+  // "Not Coming" / "Already Visited" are terminal — no reason to keep
+  // nudging a patient who's already said no or already came in some other
+  // way the schedule didn't know about. The other 3 outcomes leave it
+  // PENDING so it keeps showing up (re-call later / wait for the
+  // rescheduled date / try again).
+  if (outcome === "Not Coming" || outcome === "Already Visited") update.status = "DONE";
+  const { error } = await supabase.from("followups").update(update).eq("id", id);
+  return { success: !error, error: error?.message ?? null };
+}
+
 export async function markFollowupDone(id: string) {
   const { error } = await supabase.from("followups").update({ status: "DONE" }).eq("id", id);
   if (error) throw error;
@@ -2030,6 +2059,212 @@ export async function fetchLeadStats() {
     converted: converted.count ?? 0,
     newToday: newToday.count ?? 0,
   };
+}
+
+// ---------- Repeat-enquiry detection (same mobile, multiple lead rows) ----------
+// A patient who enquires more than once — same complaint re-asked, or a
+// different symptom/disease each time — is worth flagging to staff: either
+// they're genuinely persistent (higher-priority follow-up) or they're
+// confused about what they already asked. Computed only for whichever
+// mobiles are currently on screen (the visible 500-row list or a search
+// result), not the whole table, same bounded-scope pattern as the rest of
+// this file's lead queries — a full-table GROUP BY isn't needed for a
+// per-screen badge and would cost far more than it's worth at 30k+ rows.
+export interface LeadRepeatInfo {
+  count: number;
+  diseases: string[]; // distinct disease_interest values across their enquiries, most recent first
+}
+export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string, LeadRepeatInfo>> {
+  const uniqueMobiles = Array.from(new Set(mobiles.filter((m) => m && m.length === 10)));
+  const result = new Map<string, LeadRepeatInfo>();
+  if (uniqueMobiles.length === 0) return result;
+  const CHUNK = 300;
+  const rows: { mobile: string; disease_interest: string | null; created_at: string }[] = [];
+  for (let i = 0; i < uniqueMobiles.length; i += CHUNK) {
+    const slice = uniqueMobiles.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("leads")
+      .select("mobile, disease_interest, created_at")
+      .in("mobile", slice)
+      .order("created_at", { ascending: false });
+    if (error) throw dataLoadError(error);
+    rows.push(...(data ?? []));
+  }
+  const byMobile = new Map<string, { disease_interest: string | null; created_at: string }[]>();
+  for (const r of rows) {
+    if (!byMobile.has(r.mobile)) byMobile.set(r.mobile, []);
+    byMobile.get(r.mobile)!.push(r);
+  }
+  for (const [mobile, entries] of byMobile) {
+    if (entries.length < 2) continue; // not a repeat
+    const diseases: string[] = [];
+    for (const e of entries) {
+      const d = (e.disease_interest ?? "").trim();
+      if (d && !diseases.includes(d)) diseases.push(d);
+    }
+    result.set(mobile, { count: entries.length, diseases });
+  }
+  return result;
+}
+
+// ---------- Lead WhatsApp templates — disease-category drafts (staff-reviewed, manual send) ----------
+// IMPORTANT, read before changing wording: NCH's 29 Jan 2026 (BERH) circular
+// already bans misleading advertisements and false affiliation/approval
+// claims over social/electronic media for homoeopathy practitioners, and
+// NMC's 6 Oct 2026 "Ethical Advertising" guidelines (not directly binding on
+// NCH-registered doctors, but an explicit signal of where NCH is likely
+// headed next) additionally ban: guaranteed-outcome language, patient
+// testimonials/success-stories used for promotion, and require qualification
+// + registration-number disclosure on promotional communication. These
+// defaults are written as factual/informational replies to a person who
+// already enquired — not promotional pitches — on purpose. Keep edits in
+// that lane: no "best/guaranteed/100% cure" language, no testimonials.
+// Owner-editable (Owner Control) so wording can be refined without a code
+// change — and so Dr. Yadav, not this file, owns the final text.
+export const DISEASE_CATEGORIES = [
+  "SKIN", "AUTOIMMUNE", "CANCER", "RENAL", "GENETIC", "AUTISM", "NERVOUS",
+  "CHILDREN", "WOMEN", "MEN", "RESPIRATORY", "DIGESTIVE", "HORMONAL",
+  "MENTAL", "JOINT_BONE", "CARDIAC", "SEXUAL", "GENERAL",
+] as const;
+export type DiseaseCategory = (typeof DISEASE_CATEGORIES)[number];
+
+export const DISEASE_CATEGORY_LABELS: Record<DiseaseCategory, string> = {
+  SKIN: "Skin Diseases", AUTOIMMUNE: "Autoimmune Diseases", CANCER: "Cancer Support",
+  RENAL: "Kidney & Renal Diseases", GENETIC: "Genetic & Rare Diseases",
+  AUTISM: "Autism & Child Development", NERVOUS: "Nervous System Disorders",
+  CHILDREN: "Children's Health", WOMEN: "Women's Health", MEN: "Men's Health",
+  RESPIRATORY: "Respiratory Diseases", DIGESTIVE: "Digestive Diseases",
+  HORMONAL: "Hormonal & Endocrine", MENTAL: "Mental Health",
+  JOINT_BONE: "Joint & Bone Diseases", CARDIAC: "Cardiac & Heart Support",
+  SEXUAL: "Sexual Health", GENERAL: "General / Not Matched",
+};
+
+// Keyword match, most-specific categories checked first (AUTISM before the
+// broader GENETIC, for example) — approximate on purpose, a free-text field
+// staff typed ("Hair fall", "PCOD" etc.) will never map perfectly. Extend
+// this list as real disease_interest values show up that land in GENERAL
+// when they shouldn't.
+const DISEASE_KEYWORDS: [DiseaseCategory, string[]][] = [
+  ["AUTISM", ["autism", "add", "adhd", "speech delay", "developmental delay"]],
+  ["CANCER", ["cancer", "tumou", "tumor", "oncology", "chemo"]],
+  ["RENAL", ["kidney", "renal", "creatinine", "dialysis"]],
+  ["GENETIC", ["genetic", "rare disease", "down syndrome", "muscular dystrophy"]],
+  ["NERVOUS", ["nerve", "neuro", "paralysis", "migraine", "epilepsy", "seizure", "parkinson", "sciatica", "numbness", "headache"]],
+  ["WOMEN", ["pcod", "pcos", "menstrual", "period", "infertility", "menopause", "uterus", "breast", "pregnan", "leucorrhea"]],
+  ["MEN", ["prostate", "erectile", "male infertility", "sperm"]],
+  ["SEXUAL", ["sexual", "std", "hiv"]],
+  ["RESPIRATORY", ["asthma", "breathing", "cough", "sinus", "bronchitis", "allerg"]],
+  ["DIGESTIVE", ["stomach", "acidity", "gas", "constipation", "ibs", "colitis", "piles", "digestion", "liver"]],
+  ["HORMONAL", ["thyroid", "hormone", "diabetes", "obesity", "weight"]],
+  ["MENTAL", ["anxiety", "depression", "stress", "insomnia", "sleep", "ocd"]],
+  ["JOINT_BONE", ["joint", "arthritis", "knee", "back pain", "spondylitis", "osteoporosis", "bone"]],
+  ["CARDIAC", ["heart", "cardiac", "blood pressure", " bp", "cholesterol"]],
+  ["AUTOIMMUNE", ["autoimmune", "lupus", "rheumatoid", "sjogren", "scleroderma"]],
+  ["CHILDREN", ["child", "kids", "bedwetting", "bed wetting"]],
+  ["SKIN", ["skin", "psoriasis", "eczema", "vitiligo", "acne", "pimple", "rash", "dermat", "hair fall", "baldness", "alopecia", "wart", "fungal"]],
+];
+
+export function classifyDiseaseCategory(diseaseInterest: string | null | undefined): DiseaseCategory {
+  const text = (diseaseInterest ?? "").toLowerCase();
+  if (!text.trim()) return "GENERAL";
+  for (const [category, keywords] of DISEASE_KEYWORDS) {
+    if (keywords.some((k) => text.includes(k))) return category;
+  }
+  return "GENERAL";
+}
+
+export type LeadWhatsAppTemplates = Record<DiseaseCategory, string>;
+
+// {name} is substituted with the lead's name; {disclosure} with the
+// clinic's disclosure line below (qualification + registration number —
+// set this in Owner Control before actually sending anything, the
+// placeholder below is deliberately obvious/incomplete so it can't go out
+// unnoticed).
+const GENERIC_TEMPLATE_BODY =
+  "Namaste {name} ji, Yadav Homeo Clinic se baat kar rahe hain. Aapne humse enquiry ki thi — homeopathy mein treatment poori case-history lene ke baad hi decide hoti hai. Agar aap apne symptoms detail mein share karna chahein ya consultation ka time fix karna chahein, bataiye, hum madad karte hain.\n\n{disclosure}";
+
+export const DEFAULT_LEAD_WHATSAPP_TEMPLATES: LeadWhatsAppTemplates = DISEASE_CATEGORIES.reduce((acc, cat) => {
+  acc[cat] = GENERIC_TEMPLATE_BODY;
+  return acc;
+}, {} as LeadWhatsAppTemplates);
+
+export const DEFAULT_LEAD_WHATSAPP_DISCLOSURE =
+  "— [Doctor ka naam], BHMS, Regd. No. [yahan daalo] (Owner Control → Lead Messages se set karo)";
+
+export async function fetchLeadWhatsAppTemplates(): Promise<{ templates: LeadWhatsAppTemplates; disclosure: string }> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "lead_whatsapp_templates").maybeSingle();
+  if (error) throw error;
+  let parsed: { templates?: Partial<LeadWhatsAppTemplates>; disclosure?: string } = {};
+  if (data?.value) {
+    try { parsed = JSON.parse(data.value); } catch { /* keep defaults */ }
+  }
+  return {
+    templates: { ...DEFAULT_LEAD_WHATSAPP_TEMPLATES, ...(parsed.templates ?? {}) },
+    disclosure: parsed.disclosure ?? DEFAULT_LEAD_WHATSAPP_DISCLOSURE,
+  };
+}
+
+export async function saveLeadWhatsAppTemplates(templates: LeadWhatsAppTemplates, disclosure: string) {
+  await upsertSetting("lead_whatsapp_templates", JSON.stringify({ templates, disclosure }));
+}
+
+// Builds the ready-to-review draft for one lead — still a manual send (opens
+// WhatsApp with this text prefilled; staff reviews/edits, then taps send
+// themselves). No automated/API send is wired to this on purpose.
+export function buildLeadWhatsAppDraft(
+  lead: { name: string; disease_interest?: string | null },
+  templates: LeadWhatsAppTemplates,
+  disclosure: string,
+): { category: DiseaseCategory; text: string } {
+  const category = classifyDiseaseCategory(lead.disease_interest);
+  const body = templates[category] ?? DEFAULT_LEAD_WHATSAPP_TEMPLATES[category];
+  const text = body.replace(/\{name\}/g, lead.name || "").replace(/\{disclosure\}/g, disclosure);
+  return { category, text };
+}
+
+// ---------- Follow-up CRM WhatsApp drafts (14 Oct 2026) ----------
+// Same disease-category machinery as the Lead CRM drafts above (same
+// DISEASE_CATEGORIES/classifyDiseaseCategory — a follow-up patient's
+// primary_disease classifies exactly like a lead's disease_interest did),
+// different default wording: this is a "your follow-up is due" nudge to
+// someone who's ALREADY a patient, not a reply to a fresh enquiry. Same
+// NCH-safe, factual, staff-reviewed-before-send design as the lead
+// version — see DEFAULT_LEAD_WHATSAPP_TEMPLATES's comment above for the
+// compliance reasoning, it applies identically here.
+const FOLLOWUP_TEMPLATE_BODY =
+  "Namaste {name} ji, Yadav Homeo Clinic se. Aapki follow-up due hai — dawai continue rakhne aur progress check karne ke liye ek baar clinic visit ya call zaroor karein. Koi dikkat ho rahi ho to bataiye, hum madad karte hain.\n\n{disclosure}";
+
+export const DEFAULT_FOLLOWUP_WHATSAPP_TEMPLATES: LeadWhatsAppTemplates = DISEASE_CATEGORIES.reduce((acc, cat) => {
+  acc[cat] = FOLLOWUP_TEMPLATE_BODY;
+  return acc;
+}, {} as LeadWhatsAppTemplates);
+
+export async function fetchFollowupWhatsAppTemplates(): Promise<{ templates: LeadWhatsAppTemplates; disclosure: string }> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "followup_whatsapp_templates").maybeSingle();
+  if (error) throw error;
+  let parsed: { templates?: Partial<LeadWhatsAppTemplates>; disclosure?: string } = {};
+  if (data?.value) {
+    try { parsed = JSON.parse(data.value); } catch { /* keep defaults */ }
+  }
+  return {
+    templates: { ...DEFAULT_FOLLOWUP_WHATSAPP_TEMPLATES, ...(parsed.templates ?? {}) },
+    disclosure: parsed.disclosure ?? DEFAULT_LEAD_WHATSAPP_DISCLOSURE,
+  };
+}
+
+export async function saveFollowupWhatsAppTemplates(templates: LeadWhatsAppTemplates, disclosure: string) {
+  await upsertSetting("followup_whatsapp_templates", JSON.stringify({ templates, disclosure }));
+}
+
+export function buildFollowupWhatsAppDraft(
+  patient: { name: string; primary_disease?: string | null },
+  templates: LeadWhatsAppTemplates,
+  disclosure: string,
+): { category: DiseaseCategory; text: string } {
+  const category = classifyDiseaseCategory(patient.primary_disease);
+  const body = templates[category] ?? DEFAULT_FOLLOWUP_WHATSAPP_TEMPLATES[category];
+  const text = body.replace(/\{name\}/g, patient.name || "").replace(/\{disclosure\}/g, disclosure);
+  return { category, text };
 }
 
 // ---------- Lead source tracking (TASK 5, fixed 05 Aug — see migration 0030) ----------
@@ -4023,7 +4258,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0085_followup_revenue_forecast";
+export const EXPECTED_SCHEMA_VERSION = "0087_lead_inbound_reply_handling";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7104,6 +7339,22 @@ export const WHATSAPP_CAMPAIGNS = [
   "HOLIDAY_GREETING",
   "WINBACK",
   "delivery_update",
+  // Lead-gen (12 Oct 2026) — LEAD_WELCOME fires on lead creation (JustDial/
+  // external webhooks/Meta Lead Ads); LEAD_TOUCH_2..5 are the automated
+  // follow-up sequence (lead-touch-sequencer, every 30 min). All 5
+  // registered DISABLED by default (migration 0086) — Owner turns each on
+  // here once its AiSensy template is approved and reviewed.
+  "LEAD_WELCOME",
+  "LEAD_TOUCH_2",
+  "LEAD_TOUCH_3",
+  "LEAD_TOUCH_4",
+  "LEAD_TOUCH_5",
+  // Inbound-reply auto-answers (13 Oct 2026, Option B) — aisensy-whatsapp-
+  // status classifies a lead's reply and sends one of these three, gated
+  // the same disabled-by-default way (migration 0087).
+  "LEAD_INFO_REPLY",
+  "LEAD_BOOKING_ACK",
+  "LEAD_GENERIC_ACK",
 ] as const;
 export type WhatsAppCampaign = (typeof WHATSAPP_CAMPAIGNS)[number];
 

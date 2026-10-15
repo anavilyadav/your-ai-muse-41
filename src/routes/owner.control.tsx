@@ -2,10 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Activity, X } from "lucide-react";
+import { Activity, X, ChevronDown, ChevronUp } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing, fetchQuickFillAmounts, saveQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, type QuickFillAmount } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing, fetchQuickFillAmounts, saveQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, type QuickFillAmount, fetchLeadWhatsAppTemplates, saveLeadWhatsAppTemplates, DISEASE_CATEGORIES, DISEASE_CATEGORY_LABELS, DEFAULT_LEAD_WHATSAPP_DISCLOSURE, type LeadWhatsAppTemplates, type DiseaseCategory, fetchFollowupWhatsAppTemplates, saveFollowupWhatsAppTemplates } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -1039,6 +1039,196 @@ function ReferenceRubricsCard() {
   );
 }
 
+// Lead CRM's "WhatsApp" button drafts one of these (picked by the lead's
+// disease_interest) into an editable, staff-reviewed message — nothing
+// sends automatically. Keep wording factual/informational: NCH's 29 Jan
+// 2026 circular already bans misleading ads/false-affiliation claims over
+// social/electronic media for homoeopathy practitioners, and NMC's 6 Oct
+// 2026 guidelines (not directly binding here, but a clear signal of where
+// NCH is likely headed) additionally flag guaranteed-outcome claims and
+// testimonials, and require qualification + registration-number disclosure
+// on promotional communication — hence the separate Disclosure line below,
+// applied to every template rather than retyped into each one.
+function LeadWhatsAppTemplatesCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["lead-wa-templates"], queryFn: fetchLeadWhatsAppTemplates });
+  const [draftTemplates, setDraftTemplates] = useState<LeadWhatsAppTemplates | null>(null);
+  const [draftDisclosure, setDraftDisclosure] = useState<string | null>(null);
+  const [openCat, setOpenCat] = useState<DiseaseCategory | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const templates = draftTemplates ?? data?.templates;
+  const disclosure = draftDisclosure ?? data?.disclosure ?? DEFAULT_LEAD_WHATSAPP_DISCLOSURE;
+  const dirty = draftTemplates !== null || draftDisclosure !== null;
+
+  const save = async () => {
+    if (!templates) return;
+    setSaving(true);
+    try {
+      await saveLeadWhatsAppTemplates(templates, disclosure);
+      qc.invalidateQueries({ queryKey: ["lead-wa-templates"] });
+      setDraftTemplates(null);
+      setDraftDisclosure(null);
+      toast.success("Lead WhatsApp templates update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  if (!templates) return null;
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Lead Messages — disease-wise WhatsApp drafts (Lead CRM)
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2.5">
+        <p className="text-[11px] text-muted-foreground">
+          Lead CRM mein "WhatsApp" button dabane par lead ki disease-interest se match hone wala draft yahan se aata hai — staff review/edit karke khud WhatsApp mein bhejta hai, kuch automatically nahi jaata.
+        </p>
+        <div>
+          <label className="text-[10px] font-bold text-muted-foreground uppercase">Disclosure line (har draft ke neeche judti hai)</label>
+          <textarea
+            value={disclosure}
+            onChange={(e) => setDraftDisclosure(e.target.value)}
+            rows={2}
+            className="w-full mt-1 rounded-lg border border-border bg-background px-2.5 py-2 text-xs"
+          />
+        </div>
+        <div className="space-y-1.5">
+          {DISEASE_CATEGORIES.map((cat) => {
+            const isOpen = openCat === cat;
+            return (
+              <div key={cat} className="rounded-xl border border-border overflow-hidden">
+                <button
+                  onClick={() => setOpenCat(isOpen ? null : cat)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold text-primary"
+                >
+                  {DISEASE_CATEGORY_LABELS[cat]}
+                  {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+                {isOpen && (
+                  <div className="px-3 pb-3">
+                    <textarea
+                      value={templates[cat]}
+                      onChange={(e) => setDraftTemplates({ ...templates, [cat]: e.target.value })}
+                      rows={4}
+                      className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-xs"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">{"{name} = lead ka naam, {disclosure} = upar wali line"}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {dirty && (
+          <button
+            onClick={save}
+            disabled={saving}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Templates"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Same shape as LeadWhatsAppTemplatesCard above, separate settings key
+// (followup_whatsapp_templates) and default wording — a follow-up message
+// is a "come back for your next dose" nudge to an existing patient, not a
+// reply to a fresh enquiry, so the two shouldn't share one template set.
+function FollowupWhatsAppTemplatesCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["followup-wa-templates"], queryFn: fetchFollowupWhatsAppTemplates });
+  const [draftTemplates, setDraftTemplates] = useState<LeadWhatsAppTemplates | null>(null);
+  const [draftDisclosure, setDraftDisclosure] = useState<string | null>(null);
+  const [openCat, setOpenCat] = useState<DiseaseCategory | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const templates = draftTemplates ?? data?.templates;
+  const disclosure = draftDisclosure ?? data?.disclosure ?? DEFAULT_LEAD_WHATSAPP_DISCLOSURE;
+  const dirty = draftTemplates !== null || draftDisclosure !== null;
+
+  const save = async () => {
+    if (!templates) return;
+    setSaving(true);
+    try {
+      await saveFollowupWhatsAppTemplates(templates, disclosure);
+      qc.invalidateQueries({ queryKey: ["followup-wa-templates"] });
+      setDraftTemplates(null);
+      setDraftDisclosure(null);
+      toast.success("Follow-up WhatsApp templates update ho gaye");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save nahi hua");
+    }
+    setSaving(false);
+  };
+
+  if (!templates) return null;
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Follow-up Messages — disease-wise WhatsApp drafts (Follow-up CRM)
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-2.5">
+        <p className="text-[11px] text-muted-foreground">
+          Follow-up CRM mein "WhatsApp" button dabane par patient ki primary_disease se match hone wala draft yahan se aata hai — staff review/edit karke khud WhatsApp mein bhejta hai.
+        </p>
+        <div>
+          <label className="text-[10px] font-bold text-muted-foreground uppercase">Disclosure line (har draft ke neeche judti hai)</label>
+          <textarea
+            value={disclosure}
+            onChange={(e) => setDraftDisclosure(e.target.value)}
+            rows={2}
+            className="w-full mt-1 rounded-lg border border-border bg-background px-2.5 py-2 text-xs"
+          />
+        </div>
+        <div className="space-y-1.5">
+          {DISEASE_CATEGORIES.map((cat) => {
+            const isOpen = openCat === cat;
+            return (
+              <div key={cat} className="rounded-xl border border-border overflow-hidden">
+                <button
+                  onClick={() => setOpenCat(isOpen ? null : cat)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold text-primary"
+                >
+                  {DISEASE_CATEGORY_LABELS[cat]}
+                  {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+                {isOpen && (
+                  <div className="px-3 pb-3">
+                    <textarea
+                      value={templates[cat]}
+                      onChange={(e) => setDraftTemplates({ ...templates, [cat]: e.target.value })}
+                      rows={4}
+                      className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-xs"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">{"{name} = patient ka naam, {disclosure} = upar wali line"}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {dirty && (
+          <button
+            onClick={save}
+            disabled={saving}
+            className="w-full rounded-full bg-accent text-accent-foreground font-bold py-2.5 text-sm disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Templates"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OtherModules() {
   const links: { label: string; to: string; note: string }[] = [
     { label: "Medicine Master", to: "/pharmacy/master", note: "180+ remedies preloaded — add, rename, deactivate" },
@@ -1204,6 +1394,8 @@ function ControlPage() {
           <NextVisitOptionsCard />
           <SlxInstructionsCard />
           <ReferenceRubricsCard />
+          <LeadWhatsAppTemplatesCard />
+          <FollowupWhatsAppTemplatesCard />
           <OtherModules />
           <PlannedModules />
         </div>
