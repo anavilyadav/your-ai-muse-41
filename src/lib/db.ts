@@ -4900,6 +4900,15 @@ export async function createLead(input: {
     referred_by_patient_id: input.referredByPatientId || null,
     assigned_to: input.assignedTo || null,
     branch: input.branch || undefined, // omit → DB default (BAJAJ_NAGAR)
+    // auto_touch_count: 1 — found live 15 Oct 2026 while Dr. Yadav was
+    // testing: this manual path (Add Lead button / Call Desk's Inquiry
+    // tile) was the one lead-creation route NOT updated when the 5-touch
+    // sequence (migration 0086) was wired into the 4 automated webhooks —
+    // a lead added here never entered the sequence at all. LEAD_WELCOME
+    // itself isn't sent from here (no AiSensy call in this function, this
+    // is a plain insert) but the clock should still start now, same as
+    // every other creation path, not later from whenever someone notices.
+    auto_touch_count: 1,
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
