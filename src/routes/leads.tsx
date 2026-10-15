@@ -13,7 +13,8 @@ import {
   LEAD_SOURCES, LEAD_SOURCE_LABELS, LEAD_SOURCE_CRITERIA, LEAD_STAGES, LEAD_STAGE_LABELS,
   LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
   fetchLeadRepeatInfo, fetchLeadWhatsAppTemplates, buildLeadWhatsAppDraft, DISEASE_CATEGORY_LABELS,
-  type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo,
+  fetchWhatsAppControls, DEFAULT_WHATSAPP_CONTROLS,
+  type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo, type WhatsAppControls,
 } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
@@ -74,17 +75,41 @@ function daysSince(iso: string | null | undefined): number {
 // needing to open Owner > WhatsApp. Kept in sync manually if the schedule
 // ever changes (same inline-duplication convention the edge functions use).
 const TOUCH_OFFSET_DAYS: Record<number, number> = { 1: 2, 2: 5, 3: 10, 4: 18 };
-function autoSequenceStatus(l: { auto_touch_count?: number; call_count?: number; dnd?: boolean; status?: string; created_at: string; last_inbound_at?: string | null }): string | null {
+// touchCount -> the campaign that touch corresponds to (1 = LEAD_WELCOME,
+// sent at creation time; 2-5 = lead-touch-sequencer's campaigns).
+const TOUCH_CAMPAIGN: Record<number, string> = { 1: "LEAD_WELCOME", 2: "LEAD_TOUCH_2", 3: "LEAD_TOUCH_3", 4: "LEAD_TOUCH_4", 5: "LEAD_TOUCH_5" };
+
+// Found live 15 Oct 2026 (Dr. Yadav testing): this used to always say
+// "touch N/5 SENT" regardless of whether anything actually went out —
+// auto_touch_count advances the moment a touch is ATTEMPTED (see
+// lead-touch-sequencer/the lead-creation webhooks), which includes being
+// gated off by the WhatsApp master switch or a disabled campaign module.
+// With WhatsApp still OFF globally, every lead showed "sent" when
+// genuinely nothing had been sent at all — confirmed against whatsapp_log
+// (zero LEAD_WELCOME rows ever). Now checks the CURRENT campaign-gate
+// state (global master switch + per-campaign module) and says "ho chuka"
+// (happened/processed, no delivery claim) instead of "sent" whenever that
+// specific touch's campaign isn't actually live right now. This can't
+// reconstruct what the gate state was AT THE TIME each past touch was
+// attempted, only the current state — accurate for "is this currently
+// really sending," which is what the confusion was about.
+function autoSequenceStatus(
+  l: { auto_touch_count?: number; call_count?: number; dnd?: boolean; status?: string; created_at: string; last_inbound_at?: string | null },
+  controls: WhatsAppControls,
+): string | null {
   if (l.dnd) return "Auto-sequence stopped (DND)";
   if (l.status === "CONVERTED" || l.status === "LOST") return null;
   const touchCount = l.auto_touch_count ?? 0;
   if (touchCount === 0) return null; // not yet picked up by any lead-creation path
-  if (l.last_inbound_at) return `Auto-sequence stopped (touch ${touchCount}/5 sent, lead replied)`;
-  if ((l.call_count ?? 0) > 0) return `Auto-sequence paused (touch ${touchCount}/5 sent, staff ne call kar diya)`;
-  if (touchCount >= 5) return "Auto-sequence complete (5/5 touches sent)";
+  const campaign = TOUCH_CAMPAIGN[touchCount];
+  const campaignLive = controls.masterEnabled && (controls.modules[campaign as keyof typeof controls.modules]?.enabled ?? true);
+  const verb = campaignLive ? "sent" : "ho chuka (WhatsApp abhi OFF hai, kuch gaya nahi)";
+  if (l.last_inbound_at) return `Auto-sequence stopped (touch ${touchCount}/5 ${verb}, lead replied)`;
+  if ((l.call_count ?? 0) > 0) return `Auto-sequence paused (touch ${touchCount}/5 ${verb}, staff ne call kar diya)`;
+  if (touchCount >= 5) return `Auto-sequence complete (5/5 touches ${verb})`;
   const offsetDays = TOUCH_OFFSET_DAYS[touchCount];
   const nextDate = new Date(new Date(l.created_at).getTime() + offsetDays * 24 * 60 * 60 * 1000);
-  return `Auto-sequence: touch ${touchCount}/5 sent • next ~${nextDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
+  return `Auto-sequence: touch ${touchCount}/5 ${verb} • next ~${nextDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
 }
 
 function LeadsPage() {
@@ -216,6 +241,8 @@ function LeadsPage() {
   // WhatsApp chat for staff to review and send themselves — nothing here
   // sends automatically.
   const waTemplatesQ = useQuery({ queryKey: ["lead-wa-templates"], queryFn: fetchLeadWhatsAppTemplates });
+  const waControlsQ = useQuery({ queryKey: ["whatsapp-controls"], queryFn: fetchWhatsAppControls });
+  const waControls = waControlsQ.data ?? DEFAULT_WHATSAPP_CONTROLS;
   const [waDraftLead, setWaDraftLead] = useState<any | null>(null);
 
   return (
@@ -243,7 +270,12 @@ function LeadsPage() {
           }}
         />
       )}
-      <div className="grid grid-cols-3 gap-2">
+      {!waControls.masterEnabled && (
+        <div className="mt-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-[11px] px-3 py-2.5 font-semibold">
+          ⚠️ WhatsApp abhi OFF hai (Owner → WhatsApp se) — "Auto-sequence" waali lines sirf track kar rahi hain ki kaunsa touch due hai, koi message actually nahi ja raha.
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2 mt-2">
         <StatCard label="Total Leads" value={stats.total} />
         <StatCard label="HOT" value={stats.hot} tone="destructive" />
         <StatCard label="Converted" value={stats.converted} tone="success" />
@@ -383,8 +415,8 @@ function LeadsPage() {
                         🔁 {repeat.count}x enquiry{repeat.diseases.length > 1 ? ` — ${repeat.diseases.join(", ")}` : ""}
                       </div>
                     )}
-                    {mounted && autoSequenceStatus(l) && (
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{autoSequenceStatus(l)}</div>
+                    {mounted && autoSequenceStatus(l, waControls) && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{autoSequenceStatus(l, waControls)}</div>
                     )}
                     {assignedStaff && (
                       <div className="text-[10px] text-primary mt-0.5">→ {assignedStaff.name}</div>
