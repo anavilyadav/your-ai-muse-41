@@ -14,7 +14,8 @@ import {
   LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
   fetchLeadRepeatInfo, fetchLeadWhatsAppTemplates, buildLeadWhatsAppDraft, DISEASE_CATEGORY_LABELS,
   fetchWhatsAppControls, DEFAULT_WHATSAPP_CONTROLS,
-  type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo, type WhatsAppControls,
+  fetchLeadCategoryStats, fetchLeadsByCategory,
+  type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo, type WhatsAppControls, type DiseaseCategory,
 } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
@@ -184,6 +185,20 @@ function LeadsPage() {
   const sourceRows = sourceQ.data ?? [];
   const [showSources, setShowSources] = useState(false);
 
+  // Category (disease) breakdown — "kaunsi category humare liye sabse
+  // jyada kaam kar rahi hai" (16 Oct 2026). Same shape as source-stats,
+  // but also doubles as the filter: tapping a category row below sets
+  // activeCategory, which switches the main list to fetchLeadsByCategory.
+  const categoryQ = useQuery({ queryKey: ["lead-category-stats"], queryFn: fetchLeadCategoryStats });
+  const categoryRows = categoryQ.data ?? [];
+  const [showCategories, setShowCategories] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<DiseaseCategory | null>(null);
+  const categoryLeadsQ = useQuery({
+    queryKey: ["leads-by-category", activeCategory],
+    queryFn: () => fetchLeadsByCategory(activeCategory!),
+    enabled: activeCategory !== null,
+  });
+
   const invalidateLeads = () => {
     qc.invalidateQueries({ queryKey: ["leads"] });
     qc.invalidateQueries({ queryKey: ["leads-search"] });
@@ -238,8 +253,8 @@ function LeadsPage() {
   const staffQ = useQuery({ queryKey: ["staff-for-leads"], queryFn: fetchStaff });
   const assignableStaff = (staffQ.data ?? []).filter((u: any) => ["RECP1", "RECP2", "CALLING", "OWNER"].includes(u.role));
 
-  const displayList = isSearching ? (searchQ.data ?? []) : filtered;
-  const displayLoading = isSearching ? searchQ.isLoading : isLoading;
+  const displayList = activeCategory ? (categoryLeadsQ.data?.rows ?? []) : isSearching ? (searchQ.data ?? []) : filtered;
+  const displayLoading = activeCategory ? categoryLeadsQ.isLoading : isSearching ? searchQ.isLoading : isLoading;
   const [manageId, setManageId] = useState<string | null>(null);
   const [convertingId, setConvertingId] = useState<string | null>(null);
 
@@ -340,11 +355,67 @@ function LeadsPage() {
         </div>
       )}
 
+      <button
+        type="button"
+        onClick={() => setShowCategories((v) => !v)}
+        className="mt-2 w-full rounded-xl border border-border bg-surface px-3 py-2 text-[11px] font-semibold text-primary text-left"
+      >
+        {showCategories ? "▾" : "▸"} Category-wise performance (kis disease ke liye sabse zyada leads)
+      </button>
+      {showCategories && (
+        <div className="mt-2 rounded-xl border border-border bg-surface p-3">
+          {categoryQ.isLoading ? (
+            <div className="text-[11px] text-muted-foreground">Loading…</div>
+          ) : categoryRows.length === 0 ? (
+            <div className="text-[11px] text-muted-foreground">Abhi koi category data nahi hai.</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span>Category</span>
+                <span className="text-right">Leads</span>
+                <span className="text-right">Converted</span>
+                <span className="text-right">Conv %</span>
+              </div>
+              <ul className="mt-1.5 space-y-1.5">
+                {categoryRows.map((r) => (
+                  <li key={r.category}>
+                    <button
+                      onClick={() => { setActiveCategory(r.category); setShowCategories(false); setSearchTerm(""); }}
+                      className="w-full grid grid-cols-4 gap-2 text-xs items-center text-left hover:bg-muted/50 rounded-lg px-1 py-0.5"
+                    >
+                      <span className="font-semibold truncate">{r.label}</span>
+                      <span className="text-right tabular-nums">{r.leads}</span>
+                      <span className="text-right tabular-nums text-success font-semibold">{r.converted}</span>
+                      <span className="text-right tabular-nums">
+                        {r.leads > 0 ? `${Math.round((r.converted / r.leads) * 100)}%` : "—"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[10px] text-muted-foreground">Kisi category pe tap karke sirf wahi leads dekh sakte ho.</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeCategory && (
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-accent/15 border border-accent/30 px-3 py-2">
+          <span className="text-[12px] font-semibold text-accent-foreground">
+            Filter: {DISEASE_CATEGORY_LABELS[activeCategory]}
+            {categoryLeadsQ.data?.truncated ? " (sirf latest 500)" : ""}
+          </span>
+          <button onClick={() => setActiveCategory(null)} className="text-[11px] font-semibold text-destructive underline">
+            Hatao
+          </button>
+        </div>
+      )}
+
       <div className="relative mt-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => { setSearchTerm(e.target.value); if (e.target.value) setActiveCategory(null); }}
           placeholder="Naam, mobile, ya source se search karo (poore 30k+ leads mein)"
           className="w-full rounded-xl border border-border bg-surface pl-9 pr-9 py-2.5 text-sm"
         />

@@ -2419,6 +2419,68 @@ export async function fetchLeadSourceStats(): Promise<
     .sort((a, b) => b.leads + b.patients - (a.leads + a.patients));
 }
 
+// Disease-category breakdown (16 Oct 2026, Dr. Yadav: "kaunsi category
+// humare liye sabse jyada kaam kar rahi hai") — same idea as
+// fetchLeadSourceStats above, but category isn't a real column (it's
+// derived from disease_interest via classifyDiseaseCategory, same
+// classifier the WhatsApp drafts use), so this can't just .eq() + count()
+// per category. Scans disease_interest + status for every lead
+// (paginated, narrow columns only) and classifies client-side — the same
+// classifier everywhere means this breakdown, the WhatsApp draft picked
+// for a lead, and the category filter below are always talking about the
+// same thing.
+export async function fetchLeadCategoryStats(): Promise<
+  { category: DiseaseCategory; label: string; leads: number; converted: number }[]
+> {
+  const counts = new Map<DiseaseCategory, { leads: number; converted: number }>();
+  for (const cat of DISEASE_CATEGORIES) counts.set(cat, { leads: 0, converted: 0 });
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("disease_interest, status")
+      .range(from, from + 999);
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    for (const row of data as { disease_interest: string | null; status: string | null }[]) {
+      const cat = classifyDiseaseCategory(row.disease_interest);
+      const entry = counts.get(cat)!;
+      entry.leads++;
+      if (row.status === "CONVERTED") entry.converted++;
+    }
+    if (data.length < 1000) break;
+  }
+  return DISEASE_CATEGORIES
+    .map((cat) => ({ category: cat, label: DISEASE_CATEGORY_LABELS[cat], ...counts.get(cat)! }))
+    .filter((r) => r.leads > 0)
+    .sort((a, b) => b.leads - a.leads);
+}
+
+// Actual lead rows for one category — used by the category filter (not
+// just the stats total above). Same classify-while-scanning approach;
+// capped at MAX so a huge category on a 31k+ table can't return
+// everything — same spirit as fetchLeads' own 500-row display cap.
+export async function fetchLeadsByCategory(category: DiseaseCategory): Promise<{ rows: any[]; truncated: boolean }> {
+  const MAX = 500;
+  const rows: any[] = [];
+  let truncated = false;
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(from, from + 999);
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    for (const row of data) {
+      if (classifyDiseaseCategory(row.disease_interest) !== category) continue;
+      if (rows.length >= MAX) { truncated = true; break; }
+      rows.push(row);
+    }
+    if (truncated || data.length < 1000) break;
+  }
+  return { rows, truncated };
+}
+
 
 // Phase 1 #8: fetches LIMIT+1 rows so it can tell whether the real table
 // has more than LIMIT rows without a separate count() query. If it does,
