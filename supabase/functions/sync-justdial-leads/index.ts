@@ -200,15 +200,18 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, imported: 0, upToDate: true, totalRowsInSheet: dataRows.length }), { status: 200 });
     }
 
-    // Build candidate rows, deduped within this batch (the sheet itself has
-    // repeat mobiles — same person searching JustDial more than once).
-    const seen = new Set<string>();
-    const candidates: { name: string; mobile: string; category: string; area: string; pincode: string; createdAt: string | null }[] = [];
+    // Build candidate rows — every valid occurrence in this batch, NOT
+    // deduped yet (16 Oct 2026 fix: the sheet's repeat mobiles used to be
+    // silently dropped here, which is why total leads (~31k) never
+    // matched the sheet's total row count (~33k) — Dr. Yadav caught this
+    // live. A repeat mobile still only gets ONE lead row (below), but
+    // every occurrence is now kept so the repeat-enquiry badge can show
+    // what was searched and when, each time.
+    const allOccurrences: { name: string; mobile: string; category: string; area: string; pincode: string; createdAt: string | null }[] = [];
     for (const r of newRows) {
       const mobile = normalizeMobile(r[colMobile]);
       const name = (r[colName] ?? "").trim();
-      if (!name || mobile.length !== 10 || seen.has(mobile)) continue;
-      seen.add(mobile);
+      if (!name || mobile.length !== 10) continue;
       const dateStr = colDate >= 0 ? (r[colDate] ?? "").trim() : "";
       const timeStr = colTime >= 0 ? (r[colTime] ?? "").trim() : "";
       let createdAt: string | null = null;
@@ -216,7 +219,7 @@ Deno.serve(async (req) => {
         const d = new Date(`${dateStr}T${/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeStr) ? timeStr : "00:00:00"}+05:30`);
         if (!Number.isNaN(d.getTime())) createdAt = d.toISOString();
       }
-      candidates.push({
+      allOccurrences.push({
         name,
         mobile,
         category: colCategory >= 0 ? (r[colCategory] ?? "").trim() : "",
@@ -226,13 +229,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Dedupe against existing leads AND patients (same rule the manual
-    // Leads import already uses) — a JustDial lead who already registered
-    // as a patient, or is already sitting in the lead list, shouldn't be
-    // re-added.
+    // Mobiles already a lead or a patient (same rule the manual Leads
+    // import already uses) — a JustDial search by someone already in the
+    // system shouldn't create a second lead card, but IS a repeat enquiry.
     const known = new Set<string>();
     for (const table of ["leads", "patients"] as const) {
-      const mobiles = Array.from(new Set(candidates.map((c) => c.mobile)));
+      const mobiles = Array.from(new Set(allOccurrences.map((c) => c.mobile)));
       for (let i = 0; i < mobiles.length; i += MOBILE_CHECK_CHUNK) {
         const chunk = mobiles.slice(i, i + MOBILE_CHECK_CHUNK);
         const { data } = await supabaseAdmin.from(table).select("mobile").in("mobile", chunk);
@@ -240,7 +242,33 @@ Deno.serve(async (req) => {
       }
     }
 
-    const toInsert = candidates.filter((c) => !known.has(c.mobile));
+    // First occurrence per mobile (that isn't already known) becomes the
+    // lead row; every other occurrence — same mobile searching again
+    // within this batch, or a mobile already known — is a repeat enquiry.
+    const claimedThisBatch = new Set<string>();
+    const toInsert: typeof allOccurrences = [];
+    const repeatLog: typeof allOccurrences = [];
+    for (const occ of allOccurrences) {
+      if (known.has(occ.mobile) || claimedThisBatch.has(occ.mobile)) {
+        repeatLog.push(occ);
+      } else {
+        claimedThisBatch.add(occ.mobile);
+        toInsert.push(occ);
+      }
+    }
+
+    if (repeatLog.length > 0) {
+      for (let i = 0; i < repeatLog.length; i += INSERT_BATCH) {
+        const chunk = repeatLog.slice(i, i + INSERT_BATCH).map((c) => ({
+          mobile: c.mobile,
+          disease_interest: c.category || null,
+          source: "JUSTDIAL",
+          occurred_at: c.createdAt ?? new Date().toISOString(),
+        }));
+        await supabaseAdmin.from("lead_repeat_enquiries").insert(chunk);
+      }
+    }
+
     let imported = 0;
     for (let i = 0; i < toInsert.length; i += INSERT_BATCH) {
       const chunk = toInsert.slice(i, i + INSERT_BATCH).map((c) => ({
@@ -342,9 +370,9 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       processedRows: newRows.length,
-      candidates: candidates.length,
+      candidates: allOccurrences.length,
       imported,
-      duplicatesSkipped: candidates.length - toInsert.length,
+      repeatEnquiriesLogged: repeatLog.length,
       newLastRowCount,
       totalRowsInSheet: dataRows.length,
       remaining: Math.max(0, dataRows.length - newLastRowCount),

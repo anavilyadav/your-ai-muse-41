@@ -2098,10 +2098,26 @@ export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string
       .from("leads")
       .select("mobile, disease_interest, created_at")
       .in("mobile", slice)
-      .order("created_at", { ascending: true }) // oldest first — occurrences[0] = "1st time"
+      .order("created_at", { ascending: true }) // oldest first — occurrences[0] is "1st time"
       .limit(1000);
     if (error) throw dataLoadError(error);
     rows.push(...(data ?? []));
+  }
+  // Repeat JustDial searches that sync-justdial-leads logged instead of
+  // creating a second lead row (migration 0088, 16 Oct 2026) — without
+  // these, a mobile that re-searched JustDial 3 times after already being
+  // a lead would show as "not a repeat" (only 1 row in `leads`), hiding
+  // exactly the history Dr. Yadav wants staff to see.
+  for (let i = 0; i < uniqueMobiles.length; i += CHUNK) {
+    const slice = uniqueMobiles.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("lead_repeat_enquiries")
+      .select("mobile, disease_interest, occurred_at")
+      .in("mobile", slice)
+      .order("occurred_at", { ascending: true })
+      .limit(5000);
+    if (error) throw dataLoadError(error);
+    for (const r of data ?? []) rows.push({ mobile: r.mobile, disease_interest: r.disease_interest, created_at: r.occurred_at });
   }
   const byMobile = new Map<string, { disease_interest: string | null; created_at: string }[]>();
   for (const r of rows) {
@@ -2109,6 +2125,7 @@ export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string
     byMobile.get(r.mobile)!.push(r);
   }
   for (const [mobile, entries] of byMobile) {
+    entries.sort((a, b) => a.created_at.localeCompare(b.created_at)); // merge leads + repeat-log, oldest first
     if (entries.length < 2) continue; // not a repeat
     result.set(mobile, {
       count: entries.length,
@@ -4335,7 +4352,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0087_lead_inbound_reply_handling";
+export const EXPECTED_SCHEMA_VERSION = "0088_lead_repeat_enquiries";
 
 export interface SchemaMigrationRow {
   filename: string;
