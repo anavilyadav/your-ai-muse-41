@@ -32,6 +32,11 @@ function FollowUpPage() {
   const overdueTotal = data?.overdueTotal ?? 0;
   const [historyPatient, setHistoryPatient] = useState<{ id: string; name: string } | null>(null);
   const [manageId, setManageId] = useState<string | null>(null);
+  // Due/Overdue/Due Soon stat cards (16 Oct 2026, Dr. Yadav: "upar jo
+  // buttons hai kaam nahi kar rahe hai") — they were plain display cards,
+  // not actually clickable. Now a real filter, same tap-to-filter pattern
+  // as Lead CRM's stat cards.
+  const [dueFilter, setDueFilter] = useState<"ALL" | "OVERDUE" | "DUE_SOON">("ALL");
   const [waDraftRow, setWaDraftRow] = useState<any | null>(null);
   const staffQ = useQuery({ queryKey: ["staff-for-followup"], queryFn: fetchStaff });
   const staffById = new Map((staffQ.data ?? []).map((u: any) => [u.id, u.name]));
@@ -54,6 +59,24 @@ function FollowUpPage() {
 
   const today = new Date().toISOString().slice(0, 10);
   const daysDiff = (d: string) => Math.floor((Date.parse(today) - Date.parse(d)) / 86_400_000);
+
+  // Honest "what's actually scheduled" line (16 Oct 2026, Dr. Yadav:
+  // "kitne time call jayega message jayega ye sab clearly mention ho").
+  // The real system: a WHATSAPP-channel follow-up gets exactly ONE
+  // automated reminder, ever, the first time whatsapp-daily-reminders
+  // sees it due/overdue (reminder_sent_at then permanently blocks a
+  // second send — it is NOT a repeating sequence like the Lead CRM one).
+  // A CALL-channel follow-up has no automation at all — purely staff-
+  // driven via the Call button + Outcome log above. Showing the real
+  // behaviour here rather than implying more automation exists than does.
+  const reminderStatus = (r: any): string => {
+    if (r.channel === "WHATSAPP") {
+      return r.reminder_sent_at
+        ? `WhatsApp reminder bhej diya gaya (${new Date(r.reminder_sent_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}) — dobara automatically nahi jayega`
+        : "WhatsApp reminder abhi nahi gaya — due/overdue hote hi ek baar (sirf ek baar) automatically jayega";
+    }
+    return "Koi automated call/message nahi hai is par — sirf staff manually call karega";
+  };
 
   const done = async (row: any) => {
     try {
@@ -86,12 +109,22 @@ function FollowUpPage() {
   // capped. Found live 22 Sep 2026.
   const dueSoonTotal = total - overdueTotal;
 
+  // Applies to the visible `rows` (already capped — see the truncation
+  // note below), same scoping as the rest of this capped list. "Overdue"
+  // = due_date already passed; "Due Soon" = due today or within the next
+  // 7 days (fetchFollowups' own window).
+  const filteredRows = rows.filter((r) => {
+    if (dueFilter === "ALL") return true;
+    const d = daysDiff(r.due_date);
+    return dueFilter === "OVERDUE" ? d > 0 : d <= 0;
+  });
+
   return (
     <MobileShell title="Follow-up Calls" subtitle="Today" showBack>
       <div className="grid grid-cols-3 gap-2">
-        <Stat label="Due" value={total} tone="primary" />
-        <Stat label="Overdue" value={overdueTotal} tone="destructive" />
-        <Stat label="Due Soon" value={dueSoonTotal} tone="accent" />
+        <Stat label="Due" value={total} tone="primary" onClick={() => setDueFilter("ALL")} active={dueFilter === "ALL"} />
+        <Stat label="Overdue" value={overdueTotal} tone="destructive" onClick={() => setDueFilter("OVERDUE")} active={dueFilter === "OVERDUE"} />
+        <Stat label="Due Soon" value={dueSoonTotal} tone="accent" onClick={() => setDueFilter("DUE_SOON")} active={dueFilter === "DUE_SOON"} />
       </div>
 
       {/* Expected revenue forecast (25 Sep 2026) — "Rohit 30 din ki dawai
@@ -129,11 +162,11 @@ function FollowUpPage() {
         <LoadingBlock />
       ) : isError ? (
         <ErrorBlock error={error} onRetry={() => void refetch()} />
-      ) : rows.length === 0 ? (
-        <EmptyBlock label="Koi pending follow-up nahi." />
+      ) : filteredRows.length === 0 ? (
+        <EmptyBlock label={dueFilter === "ALL" ? "Koi pending follow-up nahi." : "Is filter mein koi follow-up nahi — 'Due' pe tap karke sab dekho."} />
       ) : (
         <ul className="mt-4 space-y-2.5">
-          {rows.map((r) => {
+          {filteredRows.map((r) => {
             const d = daysDiff(r.due_date);
             const tone = d > 7 ? "destructive" : d > 0 ? "accent" : "success";
             const isOpen = manageId === r.id;
@@ -167,6 +200,7 @@ function FollowUpPage() {
                         <span className="text-[11px] font-semibold text-muted-foreground">• ₹{Number(r.expectedAmount).toLocaleString("en-IN")}</span>
                       )}
                     </div>
+                    <div className="text-[10px] text-muted-foreground mt-1">{reminderStatus(r)}</div>
                     {r.outcome && (
                       <div className="text-[10px] text-accent-foreground mt-1">
                         Last outcome: <span className="font-semibold">{r.outcome}</span>{calledByName ? ` — ${calledByName}` : ""}
@@ -298,14 +332,28 @@ function FollowupWhatsAppDraftModal({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: "primary" | "destructive" | "accent" }) {
+function Stat({
+  label, value, tone, onClick, active,
+}: {
+  label: string; value: number; tone: "primary" | "destructive" | "accent";
+  onClick?: () => void; active?: boolean;
+}) {
   return (
-    <div className="rounded-xl bg-surface border border-border px-2 py-2.5 text-center">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "rounded-xl border px-2 py-2.5 text-center transition-colors",
+        active ? "bg-primary/10 border-primary" : "bg-surface border-border",
+        onClick && "cursor-pointer",
+      )}
+    >
       <div className={cn("text-base font-bold",
         tone === "destructive" && "text-destructive",
         tone === "accent" && "text-accent-foreground",
         tone === "primary" && "text-primary")}>{value}</div>
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">{label}</div>
-    </div>
+    </button>
   );
 }
