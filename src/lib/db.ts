@@ -2440,6 +2440,7 @@ export async function fetchLeadCategoryStats(): Promise<
     const { data, error } = await supabase
       .from("leads")
       .select("disease_interest, status")
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) throw dataLoadError(error);
     if (!data || data.length === 0) break;
@@ -2470,6 +2471,7 @@ export async function fetchLeadsByCategory(category: DiseaseCategory): Promise<{
       .from("leads")
       .select("*")
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + 999);
     if (error) throw dataLoadError(error);
     if (!data || data.length === 0) break;
