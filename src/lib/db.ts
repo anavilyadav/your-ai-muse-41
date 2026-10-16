@@ -2157,22 +2157,22 @@ export const DISEASE_CATEGORY_LABELS: Record<DiseaseCategory, string> = {
 // when they shouldn't.
 const DISEASE_KEYWORDS: [DiseaseCategory, string[]][] = [
   ["AUTISM", ["autism", "add", "adhd", "speech delay", "developmental delay"]],
-  ["CANCER", ["cancer", "tumou", "tumor", "oncology", "chemo"]],
-  ["RENAL", ["kidney", "renal", "creatinine", "dialysis"]],
+  ["CANCER", ["cancer", "tumou", "tumor", "oncolog", "chemo"]],
+  ["RENAL", ["kidney", "renal", "creatinine", "dialysis", "nephro"]],
   ["GENETIC", ["genetic", "rare disease", "down syndrome", "muscular dystrophy"]],
   ["NERVOUS", ["nerve", "neuro", "paralysis", "migraine", "epilepsy", "seizure", "parkinson", "sciatica", "numbness", "headache"]],
   ["WOMEN", ["pcod", "pcos", "menstrual", "period", "infertility", "menopause", "uterus", "breast", "pregnan", "leucorrhea"]],
-  ["MEN", ["prostate", "erectile", "male infertility", "sperm"]],
-  ["SEXUAL", ["sexual", "std", "hiv"]],
-  ["RESPIRATORY", ["asthma", "breathing", "cough", "sinus", "bronchitis", "allerg"]],
-  ["DIGESTIVE", ["stomach", "acidity", "gas", "constipation", "ibs", "colitis", "piles", "digestion", "liver"]],
+  ["MEN", ["prostate", "erectile", "male infertility", "sperm", "urolog"]],
+  ["SEXUAL", ["sexual", "std", "hiv", "genital", "herpes"]],
+  ["RESPIRATORY", ["asthma", "breathing", "cough", "sinus", "bronchitis", "allerg", "pulmo"]],
+  ["DIGESTIVE", ["stomach", "acidity", "gas", "constipation", "ibs", "colitis", "piles", "digestion", "liver", "fissure"]],
   ["HORMONAL", ["thyroid", "hormone", "diabetes", "obesity", "weight"]],
   ["MENTAL", ["anxiety", "depression", "stress", "insomnia", "sleep", "ocd"]],
-  ["JOINT_BONE", ["joint", "arthritis", "knee", "back pain", "spondylitis", "osteoporosis", "bone"]],
+  ["JOINT_BONE", ["joint", "arthritis", "knee", "back pain", "spondylitis", "osteoporosis", "bone", "rheumat"]],
   ["CARDIAC", ["heart", "cardiac", "blood pressure", " bp", "cholesterol"]],
-  ["AUTOIMMUNE", ["autoimmune", "lupus", "rheumatoid", "sjogren", "scleroderma"]],
-  ["CHILDREN", ["child", "kids", "bedwetting", "bed wetting"]],
-  ["SKIN", ["skin", "psoriasis", "eczema", "vitiligo", "acne", "pimple", "rash", "dermat", "hair fall", "baldness", "alopecia", "wart", "fungal"]],
+  ["AUTOIMMUNE", ["autoimmune", "lupus", "sjogren", "scleroderma"]],
+  ["CHILDREN", ["child", "kids", "bedwetting", "bed wetting", "paediat", "pediatric"]],
+  ["SKIN", ["skin", "psoriasis", "eczema", "vitiligo", "acne", "pimple", "rash", "dermat", "hair fall", "hair loss", "baldness", "alopecia", "wart", "fungal"]],
 ];
 
 export function classifyDiseaseCategory(diseaseInterest: string | null | undefined): DiseaseCategory {
