@@ -2210,11 +2210,52 @@ export type LeadWhatsAppTemplates = Record<DiseaseCategory, string>;
 // set this in Owner Control before actually sending anything, the
 // placeholder below is deliberately obvious/incomplete so it can't go out
 // unnoticed).
-const GENERIC_TEMPLATE_BODY =
-  "Namaste {name} ji, Yadav Homeo Clinic se baat kar rahe hain. Aapne humse enquiry ki thi — homeopathy mein treatment poori case-history lene ke baad hi decide hoti hai. Agar aap apne symptoms detail mein share karna chahein ya consultation ka time fix karna chahein, bataiye, hum madad karte hain.\n\n{disclosure}";
+//
+// Category-specific opening lines (16 Oct 2026, Dr. Yadav: "questions
+// puchna ya symptoms ke baare me batana general whatsapp message se
+// better rahega kyuki ye leads alag alag doctor search kr rahe the lakin
+// top ranking lene ke vajah se sab humare pass bhi aati hai — patient ko
+// apna sa lagna chahiye"). The lead searched JustDial for a SPECIFIC
+// specialty (Neurologist, Dermatologist, Urologist...) and landed here
+// purely because of search ranking, not because they knew this was a
+// homeopathy clinic — a one-size-fits-all "aapne humse enquiry ki thi"
+// opener doesn't match what they actually searched for and reads as a
+// broadcast blast. Naming their specialty back to them (without
+// presuming an exact diagnosis — we only know the category, not their
+// actual symptoms) makes the first line feel like it was written for
+// them specifically, not copy-pasted to 31,000 people.
+const LEAD_TEMPLATE_OPENERS: Record<DiseaseCategory, string> = {
+  SKIN: "Aapne skin se judi problem (jaise psoriasis, eczema, hair fall, ya daag-dhabbe) ke liye doctor search kiya tha",
+  AUTOIMMUNE: "Aapne autoimmune condition (jaise rheumatoid arthritis, lupus) ke liye doctor search kiya tha",
+  CANCER: "Aapne cancer se judi query ke liye doctor search kiya tha — hum regular (allopathic) treatment ke saath homeopathic supportive care dete hain",
+  RENAL: "Aapne kidney se judi problem (jaise kidney stone) ke liye doctor search kiya tha",
+  GENETIC: "Aapne genetic ya rare condition ke liye doctor search kiya tha",
+  AUTISM: "Aapne bachche ke development/autism se judi concern ke liye doctor search kiya tha",
+  NERVOUS: "Aapne neurological problem (jaise sar dard, chakkar, ya nerve se juda dard) ke liye doctor search kiya tha",
+  CHILDREN: "Aapne bachche ki health concern ke liye doctor search kiya tha",
+  WOMEN: "Aapne women's health se judi problem (jaise PCOD, menstrual issues) ke liye doctor search kiya tha",
+  MEN: "Aapne men's health/urology se judi problem ke liye doctor search kiya tha",
+  RESPIRATORY: "Aapne saans, asthma ya allergy se judi problem ke liye doctor search kiya tha",
+  DIGESTIVE: "Aapne pet/digestion se judi problem (jaise gas, acidity, piles) ke liye doctor search kiya tha",
+  HORMONAL: "Aapne thyroid ya hormonal problem ke liye doctor search kiya tha",
+  MENTAL: "Aapne stress, anxiety ya neend se judi problem ke liye doctor search kiya tha",
+  JOINT_BONE: "Aapne joint ya haddi se judi problem (jaise arthritis, back pain) ke liye doctor search kiya tha",
+  CARDIAC: "Aapne heart health se judi query ke liye doctor search kiya tha — hum regular treatment ke saath homeopathic supportive care dete hain",
+  SEXUAL: "Aapne ek private health concern ke liye doctor search kiya tha — hum poori confidentiality rakhte hain",
+  HOMEOPATHY_DIRECT: "Aapne humein directly homeopathy treatment ke liye search kiya tha",
+  GENERAL: "Aapne humse enquiry ki thi",
+};
+
+// Same closing on every category — homeopathy treatment needs a full
+// case-history regardless of specialty, so the options are generic by
+// design; only the opener (above) is category-specific. Numbered so a
+// bare "1"/"2"/"3" reply is easy for the patient to send and easy for
+// classifyInbound (aisensy-whatsapp-status) to route.
+const LEAD_TEMPLATE_OPTIONS_FOOTER =
+  "\n\nReply karke bataiye:\n1️⃣ Apni problem/symptoms detail mein batani hai\n2️⃣ Fees aur timing jaanni hai\n3️⃣ Seedha appointment/consultation chahiye\n\n{disclosure}";
 
 export const DEFAULT_LEAD_WHATSAPP_TEMPLATES: LeadWhatsAppTemplates = DISEASE_CATEGORIES.reduce((acc, cat) => {
-  acc[cat] = GENERIC_TEMPLATE_BODY;
+  acc[cat] = `Namaste {name} ji, Yadav Homeo Clinic se. ${LEAD_TEMPLATE_OPENERS[cat]} — homeopathy mein iske liye poori case-history lekar treatment plan banaya jaata hai.${LEAD_TEMPLATE_OPTIONS_FOOTER}`;
   return acc;
 }, {} as LeadWhatsAppTemplates);
 

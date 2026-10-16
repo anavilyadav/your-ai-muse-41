@@ -124,8 +124,26 @@ type InboundFlag = "BOOKING_INTENT" | "INFO_ANSWERED" | "NEEDS_HUMAN";
 const STRONG_BOOKING_KEYWORDS = ["book", "call me", "call kar", "slot", "time de", "milna hai", "available ho"];
 const INFO_KEYWORDS = ["time", "timing", "address", "location", "kaha", "fee", "fees", "price", "cost", "kitna", "kitni", "kitne", "charges"];
 const SOFT_BOOKING_KEYWORDS = ["appointment", "consult"];
+// Numbered-options reply (16 Oct 2026) — LEAD_WELCOME and the per-category
+// drafts (DEFAULT_LEAD_WHATSAPP_TEMPLATES in db.ts) now close with "1️⃣
+// symptoms / 2️⃣ fees+timing / 3️⃣ appointment", so a patient can just tap
+// a number instead of typing a sentence. Checked before the keyword lists
+// below so "2" alone (or the 2️⃣ emoji, which is "2"+combining chars that
+// strip out) routes correctly — length<=3 keeps this from firing on a
+// longer message that happens to contain a digit (e.g. "2 baje milna hai"
+// still falls through to STRONG_BOOKING_KEYWORDS below).
+function classifyBareOption(t: string): { flag: InboundFlag; campaign: string } | null {
+  if (t.trim().length > 3) return null;
+  const digits = t.replace(/[^0-9]/g, "");
+  if (digits === "3") return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
+  if (digits === "2") return { flag: "INFO_ANSWERED", campaign: "LEAD_INFO_REPLY" };
+  if (digits === "1") return { flag: "NEEDS_HUMAN", campaign: "LEAD_GENERIC_ACK" };
+  return null;
+}
 function classifyInbound(text: string): { flag: InboundFlag; campaign: string } {
   const t = text.toLowerCase();
+  const bare = classifyBareOption(t);
+  if (bare) return bare;
   if (STRONG_BOOKING_KEYWORDS.some((k) => t.includes(k))) return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
   if (INFO_KEYWORDS.some((k) => t.includes(k))) return { flag: "INFO_ANSWERED", campaign: "LEAD_INFO_REPLY" };
   if (SOFT_BOOKING_KEYWORDS.some((k) => t.includes(k))) return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
