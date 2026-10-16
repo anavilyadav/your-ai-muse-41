@@ -2135,7 +2135,7 @@ export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string
 export const DISEASE_CATEGORIES = [
   "SKIN", "AUTOIMMUNE", "CANCER", "RENAL", "GENETIC", "AUTISM", "NERVOUS",
   "CHILDREN", "WOMEN", "MEN", "RESPIRATORY", "DIGESTIVE", "HORMONAL",
-  "MENTAL", "JOINT_BONE", "CARDIAC", "SEXUAL", "GENERAL",
+  "MENTAL", "JOINT_BONE", "CARDIAC", "SEXUAL", "HOMEOPATHY_DIRECT", "GENERAL",
 ] as const;
 export type DiseaseCategory = (typeof DISEASE_CATEGORIES)[number];
 
@@ -2147,7 +2147,8 @@ export const DISEASE_CATEGORY_LABELS: Record<DiseaseCategory, string> = {
   RESPIRATORY: "Respiratory Diseases", DIGESTIVE: "Digestive Diseases",
   HORMONAL: "Hormonal & Endocrine", MENTAL: "Mental Health",
   JOINT_BONE: "Joint & Bone Diseases", CARDIAC: "Cardiac & Heart Support",
-  SEXUAL: "Sexual Health", GENERAL: "General / Not Matched",
+  SEXUAL: "Sexual Health", HOMEOPATHY_DIRECT: "Direct Homeopathy Enquiry",
+  GENERAL: "Unclassified",
 };
 
 // Keyword match, most-specific categories checked first (AUTISM before the
@@ -2173,6 +2174,7 @@ const DISEASE_KEYWORDS: [DiseaseCategory, string[]][] = [
   ["AUTOIMMUNE", ["autoimmune", "lupus", "sjogren", "scleroderma"]],
   ["CHILDREN", ["child", "kids", "bedwetting", "bed wetting", "paediat", "pediatric"]],
   ["SKIN", ["skin", "psoriasis", "eczema", "vitiligo", "acne", "pimple", "rash", "dermat", "hair fall", "hair loss", "baldness", "alopecia", "wart", "fungal"]],
+  ["HOMEOPATHY_DIRECT", ["homeopath", "homeo clinic", "homeo hospital", "homeo doctor"]],
 ];
 
 export function classifyDiseaseCategory(diseaseInterest: string | null | undefined): DiseaseCategory {
