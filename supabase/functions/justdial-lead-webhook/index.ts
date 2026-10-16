@@ -171,7 +171,9 @@ Deno.serve(async (req) => {
         // set here regardless of whether the send itself succeeds — the
         // sequence clock starts at lead-creation time, not at first-
         // successful-send time.
-        .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "HOT", notes: body.note ?? null, auto_touch_count: 1 })
+        // WARM, not HOT (16 Oct 2026) — see sync-justdial-leads' matching
+        // note; a reply (genuinely hot signal) sets HOT itself instead.
+        .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "WARM", notes: body.note ?? null, auto_touch_count: 1 })
         .select("id")
         .maybeSingle();
       if (leadErr || !newLead) {

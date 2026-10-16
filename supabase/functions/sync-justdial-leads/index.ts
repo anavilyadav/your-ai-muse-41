@@ -248,7 +248,14 @@ Deno.serve(async (req) => {
         mobile: c.mobile,
         lead_source: "JUSTDIAL",
         status: "NEW",
-        lead_quality: "HOT",
+        // WARM, not HOT (16 Oct 2026) — found live: with ~100% of leads
+        // being JustDial and every one hardcoded HOT, the "HOT" stat/
+        // filter in Lead CRM had become meaningless (Total === HOT,
+        // always). Matches external-lead-webhook's existing "conservative
+        // default — Owner can bump to HOT from the Manage panel" pattern.
+        // A genuinely hot signal (the lead replying) now sets HOT itself —
+        // see aisensy-whatsapp-status's inbound-reply handling.
+        lead_quality: "WARM",
         disease_interest: c.category || null,
         notes: c.area || c.pincode ? `${c.area}${c.area && c.pincode ? " " : ""}${c.pincode ? `(PIN ${c.pincode})` : ""}`.trim() : null,
         source_ref: "justdial_sheet_sync",

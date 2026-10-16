@@ -246,6 +246,12 @@ Deno.serve(async (req) => {
         last_inbound_at: new Date().toISOString(),
         last_inbound_text: bodyText,
         inbound_flag: flag,
+        // HOT (16 Oct 2026, Dr. Yadav) — a lead that actually replies is a
+        // real signal regardless of what they said; unconditional, not
+        // just for BOOKING_INTENT. Pairs with sync-justdial-leads/
+        // justdial-lead-webhook now defaulting new leads to WARM instead
+        // of HOT, so "HOT" in Lead CRM means something again.
+        lead_quality: "HOT",
       }).eq("id", lead.id);
 
       await supabaseAdmin.from("interactions").insert({
