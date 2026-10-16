@@ -70,6 +70,15 @@ function daysSince(iso: string | null | undefined): number {
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
 }
 
+// Exact date+time the enquiry came in (16 Oct 2026, Dr. Yadav: "agar
+// samne wala puche to clear bata sake ki is time is date ko is bimari ke
+// liye search kiya tha") — "3d ago" alone can't answer that, staff needs
+// the real timestamp to read back to the patient.
+function exactDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 // Mirrors lead-touch-sequencer's TOUCH_SCHEDULE (edge function) — display
 // only, so staff can see where a lead sits in the auto-sequence without
 // needing to open Owner > WhatsApp. Kept in sync manually if the schedule
@@ -393,6 +402,10 @@ function LeadsPage() {
                     <div className="text-[11px] text-muted-foreground mt-0.5">
                       {maskMobile(l.mobile)} • {sourceLabel}
                       {l.disease_interest ? ` • ${l.disease_interest}` : ""}
+                    </div>
+                    <div className="text-[10px] text-primary font-semibold mt-0.5">
+                      {mounted ? exactDateTime(l.created_at) : "—"} ko enquiry aayi
+                      {l.disease_interest ? ` — "${l.disease_interest}" ke liye` : ""}
                     </div>
                     {l.notes && (
                       <div className="text-[11px] text-foreground/70 mt-1 truncate">"{l.notes}"</div>
