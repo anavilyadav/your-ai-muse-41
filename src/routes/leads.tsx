@@ -79,6 +79,15 @@ function exactDateTime(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+function ordinal(n: number): string {
+  const label = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"][n - 1];
+  return label ?? `${n}th`;
+}
+
 // Mirrors lead-touch-sequencer's TOUCH_SCHEDULE (edge function) — display
 // only, so staff can see where a lead sits in the auto-sequence without
 // needing to open Owner > WhatsApp. Kept in sync manually if the schedule
@@ -424,8 +433,20 @@ function LeadsPage() {
                       </div>
                     )}
                     {repeat && repeat.count > 1 && (
-                      <div className="text-[10px] text-destructive font-semibold mt-1">
-                        🔁 {repeat.count}x enquiry{repeat.diseases.length > 1 ? ` — ${repeat.diseases.join(", ")}` : ""}
+                      <div className="mt-1.5 rounded-lg bg-destructive/10 border border-destructive/30 px-2 py-1.5">
+                        <div className="text-[10px] text-destructive font-bold">
+                          🔁 Ye {ordinal(repeat.count)} baar search hui hai isi number se
+                        </div>
+                        <div className="text-[10px] text-destructive/90 mt-0.5 space-y-0.5">
+                          {repeat.occurrences.map((o, i) => {
+                            const isLast = i === repeat.occurrences.length - 1;
+                            return (
+                              <div key={i}>
+                                {isLast ? "Ab" : ordinal(i + 1)} ({shortDate(o.date)}): {o.disease || "—"}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                     {mounted && autoSequenceStatus(l, waControls) && (

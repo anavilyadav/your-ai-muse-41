@@ -2070,9 +2070,21 @@ export async function fetchLeadStats() {
 // result), not the whole table, same bounded-scope pattern as the rest of
 // this file's lead queries — a full-table GROUP BY isn't needed for a
 // per-screen badge and would cost far more than it's worth at 30k+ rows.
+// Full chronological history, not just a count+dedup'd disease list (16
+// Oct 2026, Dr. Yadav: "clear mention ho pehle kis cheez ke liye search
+// hui thi, ab kiske liye hai, aur kaunsi baar search kiya hai") — staff
+// needs to read back the actual sequence (1st time X, 2nd time Y, ...),
+// not just an unordered disease list, especially when the SAME disease
+// was searched more than once (the old dedup'd-diseases version would
+// have silently collapsed that into one entry, hiding that it was a
+// repeat of the same complaint).
+export interface LeadRepeatOccurrence {
+  date: string; // created_at, ISO
+  disease: string; // "" if disease_interest was blank on that row
+}
 export interface LeadRepeatInfo {
   count: number;
-  diseases: string[]; // distinct disease_interest values across their enquiries, most recent first
+  occurrences: LeadRepeatOccurrence[]; // oldest first, so occurrences[0] is "1st time"
 }
 export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string, LeadRepeatInfo>> {
   const uniqueMobiles = Array.from(new Set(mobiles.filter((m) => m && m.length === 10)));
@@ -2086,7 +2098,8 @@ export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string
       .from("leads")
       .select("mobile, disease_interest, created_at")
       .in("mobile", slice)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true }) // oldest first — occurrences[0] = "1st time"
+      .limit(1000);
     if (error) throw dataLoadError(error);
     rows.push(...(data ?? []));
   }
@@ -2097,12 +2110,10 @@ export async function fetchLeadRepeatInfo(mobiles: string[]): Promise<Map<string
   }
   for (const [mobile, entries] of byMobile) {
     if (entries.length < 2) continue; // not a repeat
-    const diseases: string[] = [];
-    for (const e of entries) {
-      const d = (e.disease_interest ?? "").trim();
-      if (d && !diseases.includes(d)) diseases.push(d);
-    }
-    result.set(mobile, { count: entries.length, diseases });
+    result.set(mobile, {
+      count: entries.length,
+      occurrences: entries.map((e) => ({ date: e.created_at, disease: (e.disease_interest ?? "").trim() })),
+    });
   }
   return result;
 }
