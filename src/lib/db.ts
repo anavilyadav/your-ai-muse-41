@@ -2211,51 +2211,161 @@ export type LeadWhatsAppTemplates = Record<DiseaseCategory, string>;
 // placeholder below is deliberately obvious/incomplete so it can't go out
 // unnoticed).
 //
-// Category-specific opening lines (16 Oct 2026, Dr. Yadav: "questions
-// puchna ya symptoms ke baare me batana general whatsapp message se
-// better rahega kyuki ye leads alag alag doctor search kr rahe the lakin
-// top ranking lene ke vajah se sab humare pass bhi aati hai — patient ko
-// apna sa lagna chahiye"). The lead searched JustDial for a SPECIFIC
-// specialty (Neurologist, Dermatologist, Urologist...) and landed here
-// purely because of search ranking, not because they knew this was a
-// homeopathy clinic — a one-size-fits-all "aapne humse enquiry ki thi"
-// opener doesn't match what they actually searched for and reads as a
-// broadcast blast. Naming their specialty back to them (without
-// presuming an exact diagnosis — we only know the category, not their
-// actual symptoms) makes the first line feel like it was written for
-// them specifically, not copy-pasted to 31,000 people.
-const LEAD_TEMPLATE_OPENERS: Record<DiseaseCategory, string> = {
-  SKIN: "Aapne skin se judi problem (jaise psoriasis, eczema, hair fall, ya daag-dhabbe) ke liye doctor search kiya tha",
-  AUTOIMMUNE: "Aapne autoimmune condition (jaise rheumatoid arthritis, lupus) ke liye doctor search kiya tha",
-  CANCER: "Aapne cancer se judi query ke liye doctor search kiya tha — hum regular (allopathic) treatment ke saath homeopathic supportive care dete hain",
-  RENAL: "Aapne kidney se judi problem (jaise kidney stone) ke liye doctor search kiya tha",
-  GENETIC: "Aapne genetic ya rare condition ke liye doctor search kiya tha",
-  AUTISM: "Aapne bachche ke development/autism se judi concern ke liye doctor search kiya tha",
-  NERVOUS: "Aapne neurological problem (jaise sar dard, chakkar, ya nerve se juda dard) ke liye doctor search kiya tha",
-  CHILDREN: "Aapne bachche ki health concern ke liye doctor search kiya tha",
-  WOMEN: "Aapne women's health se judi problem (jaise PCOD, menstrual issues) ke liye doctor search kiya tha",
-  MEN: "Aapne men's health/urology se judi problem ke liye doctor search kiya tha",
-  RESPIRATORY: "Aapne saans, asthma ya allergy se judi problem ke liye doctor search kiya tha",
-  DIGESTIVE: "Aapne pet/digestion se judi problem (jaise gas, acidity, piles) ke liye doctor search kiya tha",
-  HORMONAL: "Aapne thyroid ya hormonal problem ke liye doctor search kiya tha",
-  MENTAL: "Aapne stress, anxiety ya neend se judi problem ke liye doctor search kiya tha",
-  JOINT_BONE: "Aapne joint ya haddi se judi problem (jaise arthritis, back pain) ke liye doctor search kiya tha",
-  CARDIAC: "Aapne heart health se judi query ke liye doctor search kiya tha — hum regular treatment ke saath homeopathic supportive care dete hain",
-  SEXUAL: "Aapne ek private health concern ke liye doctor search kiya tha — hum poori confidentiality rakhte hain",
-  HOMEOPATHY_DIRECT: "Aapne humein directly homeopathy treatment ke liye search kiya tha",
-  GENERAL: "Aapne humse enquiry ki thi",
+// Pain-first welcome per category (17 Oct 2026, Dr. Yadav). No name on
+// purpose: the lead searched for a different specialist and many JustDial
+// rows are literally "Justdial User". Mirrors the LEAD_WELCOME_<CAT>
+// AiSensy templates, which carry the same options as tap buttons.
+export interface LeadWelcomeContent {
+  searched: string;
+  pain: string;
+  question: string;
+  options: [string, string, string];
+  concern: string; // fills {{1}} in the follow-up (no-reply) templates
+}
+
+export const LEAD_WELCOME_CONTENT: Record<DiseaseCategory, LeadWelcomeContent> = {
+  NERVOUS: {
+    searched: "Aapne haal hi mein sar dard, chakkar ya nas (nerve) se judi problem ke liye online search kiya tha.",
+    pain: "Baar-baar ka dard sirf body ko nahi thakata — kaam, neend aur mood, sab par asar padta hai. Hum pehle aapki takleef achhe se samajhna chahte hain.",
+    question: "Aapko sabse zyada kya pareshan karta hai?",
+    options: ["Sar dard / Migraine", "Chakkar aana", "Nas ka dard"],
+    concern: "sar dard ya chakkar",
+  },
+  SKIN: {
+    searched: "Aapne haal hi mein skin ya baalon ki problem ke liye online search kiya tha.",
+    pain: "Skin ki takleef sirf khujli ya daag nahi hoti — kai baar log doosron ke saamne jaane mein bhi jhijhakne lagte hain. Hum pehle aapki problem achhe se samajhna chahte hain.",
+    question: "Aapki problem kis tarah ki hai?",
+    options: ["Khujli / Eczema", "Psoriasis / Daag", "Baal jhadna"],
+    concern: "skin aur baalon ki takleef",
+  },
+  CHILDREN: {
+    searched: "Aapne haal hi mein bachche ki sehat ke liye online search kiya tha.",
+    pain: "Bachcha baar-baar beemar pade to poora ghar pareshan rehta hai — aur har baar strong dawai dena bhi man ko theek nahi lagta. Hum pehle bachche ki takleef samajhna chahte hain.",
+    question: "Bachche ko kya pareshani hai?",
+    options: ["Baar-baar sardi", "Pet / Bhookh kam", "Kuch aur"],
+    concern: "bachche ki baar-baar ki beemari",
+  },
+  DIGESTIVE: {
+    searched: "Aapne haal hi mein pet ya paachan (digestion) ki problem ke liye online search kiya tha.",
+    pain: "Pet theek na ho to din bhar bechaini rehti hai — khana, neend aur kaam, sab par asar padta hai. Hum pehle aapki takleef samajhna chahte hain.",
+    question: "Sabse zyada kya pareshan karta hai?",
+    options: ["Gas / Acidity", "Kabz / IBS", "Piles / Fissure"],
+    concern: "pet aur paachan ki takleef",
+  },
+  RESPIRATORY: {
+    searched: "Aapne haal hi mein saans, asthma ya allergy ki problem ke liye online search kiya tha.",
+    pain: "Saans phoolna ya baar-baar ki allergy — har mausam badalne par fikar hone lagti hai. Hum pehle aapki takleef samajhna chahte hain.",
+    question: "Aapki problem kis tarah ki hai?",
+    options: ["Asthma / Saans", "Allergy / Cheenk", "Purani khansi"],
+    concern: "saans aur allergy ki takleef",
+  },
+  HOMEOPATHY_DIRECT: {
+    searched: "Aapne haal hi mein homeopathic doctor ke liye online search kiya tha.",
+    pain: "Homeopathy mein ilaaj sirf bimari ke naam se nahi, poore vyakti ko samajh kar hota hai — isliye hum pehle aapki takleef jaanna chahte hain.",
+    question: "Aap kis problem ke liye ilaaj dhoondh rahe hain?",
+    options: ["Skin / Baal", "Bachche ke liye", "Kuch aur"],
+    concern: "purani bimariyon",
+  },
+  MEN: {
+    searched: "Aapne haal hi mein peshaab, pathri ya prostate se judi problem ke liye online search kiya tha.",
+    pain: "Aisi takleef ke baare mein baat karna aasaan nahi hota — yahan aapki har baat poori tarah confidential rehti hai.",
+    question: "Aapki problem kis tarah ki hai?",
+    options: ["Peshaab ki takleef", "Pathri / Stone", "Prostate"],
+    concern: "peshaab ya prostate ki takleef",
+  },
+  RENAL: {
+    searched: "Aapne haal hi mein kidney se judi problem ke liye online search kiya tha.",
+    pain: "Kidney ki report mein gadbad aaye ya pathri ka dard ho — chinta hona swabhavik hai. Hum pehle aapki poori sthiti samajhna chahte hain.",
+    question: "Aapki problem kya hai?",
+    options: ["Kidney stone", "Report gadbad hai", "Kuch aur"],
+    concern: "kidney ki takleef",
+  },
+  JOINT_BONE: {
+    searched: "Aapne haal hi mein jodon ya haddiyon ke dard ke liye online search kiya tha.",
+    pain: "Jodon ka dard chalna, uthna-baithna aur seedhiyaan chadhna, sab mushkil kar deta hai. Hum pehle aapki takleef samajhna chahte hain.",
+    question: "Dard sabse zyada kahan hai?",
+    options: ["Ghutno ka dard", "Kamar / Gardan", "Arthritis / Sujan"],
+    concern: "jodon ke dard",
+  },
+  CANCER: {
+    searched: "Aapne haal hi mein cancer se judi jaankari ke liye online search kiya tha.",
+    pain: "Ilaaj ke dauraan mareez aur parivaar dono bahut kuch jhelte hain. Hum oncologist ka ilaaj band karne ki salah kabhi nahi dete — homeopathy sirf saath mein supportive care ke roop mein di jaati hai.",
+    question: "Aap kis baare mein baat karna chahenge?",
+    options: ["Side effects", "Kamzori / Thakaan", "Doctor se baat"],
+    concern: "is takleef",
+  },
+  AUTISM: {
+    searched: "Aapne haal hi mein bachche ke development ya autism se judi chinta ke liye online search kiya tha.",
+    pain: "Har bachcha alag hota hai — aur parents ke liye har chhota sudhaar bahut maayne rakhta hai. Hum pehle bachche ko achhe se samajhna chahte hain.",
+    question: "Sabse zyada chinta kis baat ki hai?",
+    options: ["Bolna / Speech", "Dhyan / Behaviour", "Neend / Gussa"],
+    concern: "bachche ke development",
+  },
+  AUTOIMMUNE: {
+    searched: "Aapne haal hi mein autoimmune bimari ke liye online search kiya tha.",
+    pain: "Autoimmune bimari lambi chalti hai — dard aur thakaan roz ki ladaai ban jaate hain. Hum pehle aapki poori sthiti samajhna chahte hain.",
+    question: "Kaunsi condition hai?",
+    options: ["Rheumatoid arthritis", "Lupus / SLE", "Kuch aur"],
+    concern: "autoimmune bimari",
+  },
+  SEXUAL: {
+    searched: "Aapne haal hi mein ek private health problem ke liye online search kiya tha.",
+    pain: "Aisi baat kisi se karna aasaan nahi hota — yahan aapki har baat poori tarah confidential rehti hai.",
+    question: "Aap kaise baat karna chahenge?",
+    options: ["Private call", "Pehle chat par", "Fees / timing"],
+    concern: "is takleef",
+  },
+  WOMEN: {
+    searched: "Aapne haal hi mein periods, PCOD ya mahilaon ki sehat se judi problem ke liye online search kiya tha.",
+    pain: "Periods ki gadbadi ya PCOD — har mahine ki pareshani aur aage ki chinta, dono saath chalti hain. Hum pehle aapki takleef samajhna chahte hain.",
+    question: "Aapki problem kis tarah ki hai?",
+    options: ["PCOD / PCOS", "Periods ki problem", "Kuch aur"],
+    concern: "periods ya PCOD ki takleef",
+  },
+  HORMONAL: {
+    searched: "Aapne haal hi mein thyroid ya hormone se judi problem ke liye online search kiya tha.",
+    pain: "Thakaan, wazan badhna, mood badalna — hormone ki gadbadi roz ki zindagi par asar daalti hai. Hum pehle aapki takleef samajhna chahte hain.",
+    question: "Aapki problem kya hai?",
+    options: ["Thyroid", "Wazan / Sugar", "Kuch aur"],
+    concern: "thyroid ya hormone ki takleef",
+  },
+  MENTAL: {
+    searched: "Aapne haal hi mein neend, tension ya ghabrahat se judi problem ke liye online search kiya tha.",
+    pain: "Ye takleef bahar se dikhti nahi, par andar se poori tarah thaka deti hai. Hum pehle aapki baat dhyan se samajhna chahte hain.",
+    question: "Sabse zyada kya pareshan karta hai?",
+    options: ["Neend nahi aati", "Ghabrahat / Tension", "Kuch aur"],
+    concern: "neend aur tension ki takleef",
+  },
+  CARDIAC: {
+    searched: "Aapne haal hi mein BP ya heart se judi problem ke liye online search kiya tha.",
+    pain: "Lambi chalne wali dawai aur sehat ki fikar, dono saath chalti hain. Hum chal rahi dawai band karne ki salah kabhi nahi dete — homeopathy saath mein supportive care ke roop mein di jaati hai.",
+    question: "Aapki problem kya hai?",
+    options: ["High BP", "Cholesterol", "Kuch aur"],
+    concern: "BP ya heart ki takleef",
+  },
+  GENETIC: {
+    searched: "Aapne haal hi mein genetic ya rare bimari se judi jaankari ke liye online search kiya tha.",
+    pain: "Aisi bimari mein sahi jaankari milna hi mushkil hota hai. Hum pehle aapki poori sthiti samajhna chahte hain.",
+    question: "Aap kaise aage badhna chahenge?",
+    options: ["Doctor se baat", "Pehle jaankari", "Fees / timing"],
+    concern: "is bimari",
+  },
+  GENERAL: {
+    searched: "Aapne haal hi mein hamare baare mein jaankari maangi thi.",
+    pain: "Hum pehle aapki takleef achhe se samajhna chahte hain, taaki sahi salah de sakein.",
+    question: "Aap kaise aage badhna chahenge?",
+    options: ["Apni problem batani", "Fees / timing", "Doctor se baat"],
+    concern: "aapki takleef",
+  },
 };
 
-// Same closing on every category — homeopathy treatment needs a full
-// case-history regardless of specialty, so the options are generic by
-// design; only the opener (above) is category-specific. Numbered so a
-// bare "1"/"2"/"3" reply is easy for the patient to send and easy for
-// classifyInbound (aisensy-whatsapp-status) to route.
-const LEAD_TEMPLATE_OPTIONS_FOOTER =
-  "\n\nReply karke bataiye:\n1️⃣ Apni problem/symptoms detail mein batani hai\n2️⃣ Fees aur timing jaanni hai\n3️⃣ Seedha appointment/consultation chahiye\n\n{disclosure}";
-
+// Staff send these by hand from their own WhatsApp (no tap buttons there),
+// so the options become numbers to reply with.
 export const DEFAULT_LEAD_WHATSAPP_TEMPLATES: LeadWhatsAppTemplates = DISEASE_CATEGORIES.reduce((acc, cat) => {
-  acc[cat] = `Namaste {name} ji, Yadav Homeo Clinic se. ${LEAD_TEMPLATE_OPENERS[cat]} — homeopathy mein iske liye poori case-history lekar treatment plan banaya jaata hai.${LEAD_TEMPLATE_OPTIONS_FOOTER}`;
+  const c = LEAD_WELCOME_CONTENT[cat];
+  acc[cat] =
+    `Namaste 🙏\nYe message Yadav Homeo Clinic, Jaipur se hai. ${c.searched}\n\n${c.pain}\n\n` +
+    `${c.question} Bas number likh kar reply karein:\n1. ${c.options[0]}\n2. ${c.options[1]}\n3. ${c.options[2]}\n\n{disclosure}`;
   return acc;
 }, {} as LeadWhatsAppTemplates);
 
