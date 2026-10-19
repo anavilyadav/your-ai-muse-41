@@ -8,7 +8,7 @@
 // Needs:
 //   - AISENSY_API_KEY secret (already set for the other WhatsApp functions)
 //   - JUSTDIAL_WEBHOOK_SECRET secret (used as the HMAC key now, see below)
-//   - An approved AiSensy API Campaign named exactly "LEAD_WELCOME"
+//   - Welcome WhatsApp: see lead-flow-send (LEAD_WELCOME_<category> templates)
 //
 // AUTH (audit P1-11, Dr. Yadav's decision 29 Jul: rate-limit AND HMAC).
 // Apps Script sends an `x-justdial-signature` header —
@@ -46,42 +46,20 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// RF-16: the Owner's WhatsApp master switch / per-campaign toggle / daily
-// cap (Control Centre → WhatsApp) governed every scheduled campaign but not
-// this webhook's LEAD_WELCOME send — turning the master switch off did not
-// actually stop new JustDial leads from getting a WhatsApp welcome. Same
-// inlined pattern as whatsapp-birthday-anniversary/index.ts.
-interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
-const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
-function istTodayDate(): string {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null }> {
-  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
-  if (error) {
-    // Fail CLOSED, not open — a transient read error must never be
-    // treated as "WhatsApp is on," especially when the Owner has
-    // explicitly turned it off. Found live 23 Sep 2026: this used to
-    // silently default to masterEnabled:true on ANY read failure, which
-    // could send real messages against the Owner's actual setting.
-    return { allowed: false, reason: "settings_error" };
+// Welcome WhatsApp goes through lead-flow-send (19 Oct 2026): category
+// template, Owner switches, and never for leads older than 3 days.
+async function sendWelcome(leadIds: string[]) {
+  const secret = Deno.env.get("CRON_FUNCTION_SECRET");
+  if (!secret || leadIds.length === 0) return;
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/lead-flow-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+      body: JSON.stringify({ leadIds, template: "WELCOME" }),
+    });
+  } catch {
+    // Lead is already saved; a WhatsApp hiccup must not fail the request.
   }
-  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
-  if (data?.value) {
-    try {
-      const parsed = JSON.parse(data.value);
-      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
-    } catch { /* keep defaults */ }
-  }
-  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
-  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, reason: null };
-  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
-  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
-  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
-  return { allowed: true, reason: null };
 }
 
 Deno.serve(async (req) => {
@@ -166,11 +144,8 @@ Deno.serve(async (req) => {
       // failing on this before the fix — confirmed 0 rows in the live table.
       const { data: newLead, error: leadErr } = await supabaseAdmin
         .from("leads")
-        // auto_touch_count: 1 — this LEAD_WELCOME send below is touch 1 of
-        // the 5-touch sequence (see migration 0086 / lead-touch-sequencer),
-        // set here regardless of whether the send itself succeeds — the
-        // sequence clock starts at lead-creation time, not at first-
-        // successful-send time.
+        // auto_touch_count: 1 = welcome step done; follow-ups start only
+        // once lead-flow-send records wa_welcome_sent_at.
         // WARM, not HOT (16 Oct 2026) — see sync-justdial-leads' matching
         // note; a reply (genuinely hot signal) sets HOT itself instead.
         .insert({ name, mobile, lead_source: "JUSTDIAL", status: "NEW", lead_quality: "WARM", notes: body.note ?? null, auto_touch_count: 1 })
@@ -186,54 +161,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, leadId, skipped: "lead already existed, no repeat welcome" }), { status: 200 });
     }
 
-    const apiKey = Deno.env.get("AISENSY_API_KEY");
-    const gate = apiKey ? await checkCampaignGate(supabaseAdmin, "LEAD_WELCOME") : null;
-    if (apiKey && gate?.allowed) {
-      try {
-        const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            apiKey,
-            campaignName: "LEAD_WELCOME",
-            destination: mobile,
-            userName: name,
-            source: "YHC-OS",
-            templateParams: [name],
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        // whatsapp_log write (12 Oct 2026) — this send used to only write to
-        // `interactions` on success, invisible to Owner > WhatsApp and to
-        // aisensy-whatsapp-status's delivered/read matching (it matches by
-        // message_id, falling back to destination+recency, both of which
-        // need a whatsapp_log row to exist in the first place).
-        await supabaseAdmin.from("whatsapp_log").insert({
-          patient_id: null,
-          campaign_name: "LEAD_WELCOME",
-          destination: mobile,
-          status: res.ok ? "sent" : "failed",
-          error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
-          message_id: res.ok ? (data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null) : null,
-          provider_response: data,
-        });
-        if (res.ok) {
-          await supabaseAdmin.from("interactions").insert({
-            lead_id: leadId,
-            type: "whatsapp",
-            summary: "LEAD_WELCOME sent (JustDial auto)",
-          });
-        }
-      } catch {
-        // Lead is already saved — a WhatsApp hiccup must not fail the whole request
-      }
-    } else if (apiKey && gate && !gate.allowed) {
-      await supabaseAdmin.from("interactions").insert({
-        lead_id: leadId,
-        type: "whatsapp",
-        summary: `LEAD_WELCOME skipped (${gate.reason}, JustDial auto)`,
-      });
-    }
+    await sendWelcome([leadId]);
 
     return new Response(JSON.stringify({ success: true, leadId }), { headers: { "Content-Type": "application/json" } });
   } catch (e) {

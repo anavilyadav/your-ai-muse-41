@@ -49,42 +49,21 @@ function requireCronSecret(req: Request): Response | null {
   return null;
 }
 
-// LEAD_WELCOME wiring (12 Oct 2026) — this cron, not the HMAC/shared-secret
-// webhooks (justdial-lead-webhook, external-lead-webhook), is the pipeline
-// actually connected to Dr. Yadav's real JustDial→Sheet flow, confirmed
-// live (the webhook variant was never wired to a live Apps Script trigger).
-// It only ever created lead rows, with no WhatsApp send at all — every
-// other lead-creation path in this project sends an instant LEAD_WELCOME
-// and this one didn't, closing that gap here. Same inlined
-// checkCampaignGate as every other WhatsApp-sending function in this
-// project (MCP deploy path can't resolve relative _shared/ imports).
-interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
-const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
-function istTodayDate(): string {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: string | null }> {
-  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
-  if (error) return { allowed: false, reason: "settings_error" };
-  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
-  if (data?.value) {
-    try {
-      const parsed = JSON.parse(data.value);
-      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
-    } catch { /* keep defaults */ }
+// Welcome WhatsApp for each new lead goes through lead-flow-send (19 Oct
+// 2026) — it picks the category template, checks the switches, and only
+// ever welcomes leads created in the last 3 days.
+async function sendWelcome(leadIds: string[]) {
+  const secret = Deno.env.get("CRON_FUNCTION_SECRET");
+  if (!secret || leadIds.length === 0) return;
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/lead-flow-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+      body: JSON.stringify({ leadIds, template: "WELCOME" }),
+    });
+  } catch {
+    // Leads are saved; a WhatsApp hiccup must not fail the sync.
   }
-  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
-  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, reason: null };
-  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
-  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
-  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
-  return { allowed: true, reason: null };
-}
-function extractMessageId(data: any): string | null {
-  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
 }
 
 // Same parser as parseCSV in src/lib/db.ts, ported here since Deno can't
@@ -330,9 +309,8 @@ Deno.serve(async (req) => {
         // and valid on every row.
         created_at: c.createdAt ?? new Date().toISOString(),
         modified_at: c.createdAt ?? new Date().toISOString(),
-        // auto_touch_count: 1 — LEAD_WELCOME below is touch 1 of the
-        // 5-touch sequence (migration 0086 / lead-touch-sequencer); set
-        // regardless of whether the send itself succeeds.
+        // auto_touch_count: 1 = welcome step done (sent or not); follow-ups
+        // only start once wa_welcome_sent_at is set — see lead-touch-sequencer.
         auto_touch_count: 1,
       }));
       // .select() added (12 Oct 2026) so the just-inserted rows' ids come
@@ -346,43 +324,7 @@ Deno.serve(async (req) => {
       }
       imported += chunk.length;
 
-      // LEAD_WELCOME — same instant-welcome behaviour every other lead-
-      // creation path in this project already has. Sequential on purpose
-      // (matches this project's style elsewhere); cheap when the campaign
-      // is gated off (checkCampaignGate's first check is a single settings
-      // read, no AiSensy call made at all).
-      const apiKey = Deno.env.get("AISENSY_API_KEY");
-      for (const lead of inserted ?? []) {
-        const gate = apiKey ? await checkCampaignGate(supabaseAdmin, "LEAD_WELCOME") : null;
-        if (!apiKey || !gate?.allowed) continue;
-        try {
-          const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              apiKey, campaignName: "LEAD_WELCOME", destination: lead.mobile,
-              userName: lead.name, source: "YHC-OS", templateParams: [lead.name],
-            }),
-          });
-          const data = await res.json().catch(() => ({}));
-          await supabaseAdmin.from("whatsapp_log").insert({
-            patient_id: null,
-            campaign_name: "LEAD_WELCOME",
-            destination: lead.mobile,
-            status: res.ok ? "sent" : "failed",
-            error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
-            message_id: res.ok ? extractMessageId(data) : null,
-            provider_response: data,
-          });
-          if (res.ok) {
-            await supabaseAdmin.from("interactions").insert({
-              lead_id: lead.id, type: "whatsapp", summary: "LEAD_WELCOME sent (JustDial sheet-sync auto)",
-            });
-          }
-        } catch {
-          // Lead is already saved — a WhatsApp hiccup must not fail the sync
-        }
-      }
+      await sendWelcome((inserted ?? []).map((l: any) => l.id));
     }
 
     const newLastRowCount = lastRowCount + newRows.length;

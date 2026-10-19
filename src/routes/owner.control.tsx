@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, X, ChevronDown, ChevronUp } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing, fetchQuickFillAmounts, saveQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, type QuickFillAmount, fetchLeadWhatsAppTemplates, saveLeadWhatsAppTemplates, DISEASE_CATEGORIES, DISEASE_CATEGORY_LABELS, DEFAULT_LEAD_WHATSAPP_DISCLOSURE, type LeadWhatsAppTemplates, type DiseaseCategory, fetchFollowupWhatsAppTemplates, saveFollowupWhatsAppTemplates } from "@/lib/db";
+import { fetchSettings, upsertSetting, fetchStaff, fetchFeeMaster, saveFeeMaster, FEE_LABELS, DEFAULT_FEE_MASTER, type FeeMaster, fetchFeeRules, saveFeeRules, DEFAULT_FEE_RULES, type FeeRule, type FeeRuleAppliesTo, fetchNextVisitOptions, saveNextVisitOptions, DEFAULT_NEXT_VISIT_OPTIONS, type NextVisitOption, fetchSlxInstructions, saveSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, fetchReferenceRubrics, saveReferenceRubrics, DEFAULT_REFERENCE_RUBRICS, type ReferenceRubric, fetchLeadSources, addLeadSource, setLeadSourceActive, fetchOnlineFollowupPricing, saveOnlineFollowupPricing, DEFAULT_ONLINE_FOLLOWUP_PRICING, type OnlineFollowupPricing, fetchQuickFillAmounts, saveQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, type QuickFillAmount, fetchLeadWhatsAppTemplates, saveLeadWhatsAppTemplates, DISEASE_CATEGORIES, DISEASE_CATEGORY_LABELS, DEFAULT_LEAD_WHATSAPP_DISCLOSURE, type LeadWhatsAppTemplates, type DiseaseCategory, fetchFollowupWhatsAppTemplates, saveFollowupWhatsAppTemplates, fetchLeadFlowConfig, saveLeadFlowAssets, uploadPublicMedia, type LeadFlowAssets } from "@/lib/db";
 import type { BackupDoctorConfig } from "@/lib/auth";
 import { RECEPTION_SCREENS, RECEPTION_FEATURES, CASE_DR_SCREENS, DOCTOR_SCREENS, PHARMACY_SCREENS } from "@/lib/auth";
 import { OWNER_NAV } from "./owner.index";
@@ -1116,7 +1116,7 @@ function LeadWhatsAppTemplatesCard() {
                       rows={4}
                       className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-xs"
                     />
-                    <p className="text-[10px] text-muted-foreground mt-1">{"{name} = lead ka naam, {disclosure} = upar wali line"}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{"{disclosure} = upar wali line. Patient ka naam mat daalo — lead ne kisi aur doctor ko dhoondha tha."}</p>
                   </div>
                 )}
               </div>
@@ -1132,6 +1132,89 @@ function LeadWhatsAppTemplatesCard() {
             {saving ? "Saving…" : "Save Templates"}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Photo and PDFs the automatic lead WhatsApp flow attaches (welcome photo
+// header; category PDF on the "kaise milna hai" step and the din-5
+// follow-up). Saved to settings.lead_flow_config, read by lead-flow-send.
+const FLOW_PDF_CATEGORIES: DiseaseCategory[] = [
+  "NERVOUS", "SKIN", "CHILDREN", "DIGESTIVE", "RESPIRATORY", "HOMEOPATHY_DIRECT", "MEN", "RENAL", "JOINT_BONE", "CANCER",
+];
+
+function LeadFlowMediaCard() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ["lead-flow-config"], queryFn: fetchLeadFlowConfig });
+  const [busy, setBusy] = useState<string | null>(null);
+  const assets: LeadFlowAssets = data?.assets ?? {};
+
+  const upload = async (slot: string, file: File | undefined, apply: (url: string) => LeadFlowAssets) => {
+    if (!file) return;
+    setBusy(slot);
+    try {
+      const url = await uploadPublicMedia(file, slot.toLowerCase());
+      await saveLeadFlowAssets(apply(url));
+      qc.invalidateQueries({ queryKey: ["lead-flow-config"] });
+      toast.success("Upload ho gaya");
+    } catch (e: any) {
+      toast.error("Upload nahi hua: " + (e?.message ?? "unknown error"));
+    }
+    setBusy(null);
+  };
+
+  const fileButton = (slot: string, accept: string, apply: (url: string) => LeadFlowAssets, label: string) => (
+    <label className={cn("shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-primary cursor-pointer", busy === slot && "opacity-50 pointer-events-none")}>
+      {busy === slot ? "Upload…" : label}
+      <input type="file" accept={accept} className="hidden" onChange={(e) => { void upload(slot, e.target.files?.[0], apply); e.target.value = ""; }} />
+    </label>
+  );
+
+  if (isLoading) return null;
+  const pdfs = assets.pdfByCategory ?? {};
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Lead WhatsApp flow — photo aur PDF
+      </div>
+      <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
+        <p className="text-[11px] text-muted-foreground">
+          Automatic WhatsApp flow inhe saath bhejta hai. Welcome photo ke bina welcome nahi jaayega; PDF ke bina "kaise milna hai" aur din-5 wala message nahi jaayega (category ki PDF na ho to common PDF jaati hai). Patient ki koi jaankari yahan mat daalo — ye files public link se khulti hain.
+        </p>
+        <div className="flex items-center gap-3">
+          {assets.welcomeImageUrl ? (
+            <img src={assets.welcomeImageUrl} alt="Welcome photo" className="h-16 w-16 rounded-lg object-cover border border-border" />
+          ) : (
+            <div className="h-16 w-16 rounded-lg border border-dashed border-border grid place-items-center text-[10px] text-muted-foreground text-center">Photo nahi</div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold">Welcome photo</div>
+            <div className="text-[10px] text-muted-foreground">Clinic logo, doctor ki photo, naam, BHMS, Regd. No., dono branch ka address</div>
+          </div>
+          {fileButton("WELCOME_PHOTO", "image/jpeg,image/png", (url) => ({ ...assets, welcomeImageUrl: url }), assets.welcomeImageUrl ? "Badlo" : "Upload")}
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold">Common PDF {assets.defaultPdfUrl ? "✓" : ""}</div>
+            <div className="text-[10px] text-muted-foreground">Jis category ki apni PDF nahi hai, use ye jaayegi</div>
+            {assets.defaultPdfUrl && <a href={assets.defaultPdfUrl} target="_blank" rel="noopener" className="text-[10px] text-primary underline">Dekho</a>}
+          </div>
+          {fileButton("PDF_COMMON", "application/pdf", (url) => ({ ...assets, defaultPdfUrl: url }), assets.defaultPdfUrl ? "Badlo" : "Upload")}
+        </div>
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-bold text-muted-foreground uppercase">Category PDF</div>
+          {FLOW_PDF_CATEGORIES.map((cat) => (
+            <div key={cat} className="flex items-center gap-2 rounded-xl border border-border px-3 py-2">
+              <span className="flex-1 min-w-0 text-[12px] truncate">
+                {DISEASE_CATEGORY_LABELS[cat]} {pdfs[cat] ? "✓" : ""}
+                {pdfs[cat] && <a href={pdfs[cat]} target="_blank" rel="noopener" className="ml-2 text-[10px] text-primary underline">Dekho</a>}
+              </span>
+              {fileButton(`PDF_${cat}`, "application/pdf", (url) => ({ ...assets, pdfByCategory: { ...pdfs, [cat]: url } }), pdfs[cat] ? "Badlo" : "Upload")}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1395,6 +1478,7 @@ function ControlPage() {
           <SlxInstructionsCard />
           <ReferenceRubricsCard />
           <LeadWhatsAppTemplatesCard />
+          <LeadFlowMediaCard />
           <FollowupWhatsAppTemplatesCard />
           <OtherModules />
           <PlannedModules />

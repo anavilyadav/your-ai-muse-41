@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Power, RotateCcw, Calendar, X, AlertTriangle } from "lucide-react";
@@ -50,14 +50,30 @@ const CAMPAIGN_LABEL: Record<string, string> = {
   HOLIDAY_GREETING: "Holiday Greeting",
   WINBACK: "Win-back",
   delivery_update: "Delivery Update",
-  LEAD_WELCOME: "Lead Welcome (touch 1)",
-  LEAD_TOUCH_2: "Lead Touch 2 (day 2)",
-  LEAD_TOUCH_3: "Lead Touch 3 (day 5)",
-  LEAD_TOUCH_4: "Lead Touch 4 (day 10)",
-  LEAD_TOUCH_5: "Lead Touch 5 (day 18, final)",
-  LEAD_INFO_REPLY: "Lead Reply — Info (auto)",
-  LEAD_BOOKING_ACK: "Lead Reply — Booking Intent (auto)",
-  LEAD_GENERIC_ACK: "Lead Reply — General Ack (auto)",
+  LEAD_WELCOME_NERVOUS: "Lead welcome — Nervous",
+  LEAD_WELCOME_SKIN: "Lead welcome — Skin",
+  LEAD_WELCOME_CHILDREN: "Lead welcome — Bachche",
+  LEAD_WELCOME_DIGESTIVE: "Lead welcome — Pet",
+  LEAD_WELCOME_RESPIRATORY: "Lead welcome — Saans",
+  LEAD_WELCOME_HOMEOPATHY_DIRECT: "Lead welcome — Direct homeopathy",
+  LEAD_WELCOME_MEN: "Lead welcome — Men / Urology",
+  LEAD_WELCOME_RENAL: "Lead welcome — Kidney",
+  LEAD_WELCOME_JOINT_BONE: "Lead welcome — Joint",
+  LEAD_WELCOME_CANCER: "Lead welcome — Cancer support",
+  LEAD_WELCOME_GENERAL: "Lead welcome — Baaki sab (general)",
+  LEAD_STEP_DURATION: "Lead sawaal — kitne samay se",
+  LEAD_STEP_TREATMENT: "Lead sawaal — ab tak ka ilaaj",
+  LEAD_STEP_CONSULT: "Lead sawaal — kaise milna hai (PDF)",
+  LEAD_REPLY_CLINIC: "Lead jawab — clinic aakar",
+  LEAD_REPLY_VIDEO: "Lead jawab — video consultation",
+  LEAD_REPLY_DELIVERY: "Lead jawab — dawai kaise milegi",
+  LEAD_REPLY_CALL: "Lead jawab — call karenge",
+  LEAD_REPLY_FEES: "Lead jawab — fees / timing",
+  LEAD_REPLY_TYPED: "Lead jawab — likha hua message mila",
+  LEAD_REPLY_STOP: "Lead jawab — STOP (DND)",
+  LEAD_NUDGE_1: "Lead follow-up — din 2",
+  LEAD_NUDGE_2: "Lead follow-up — din 5 (PDF)",
+  LEAD_NUDGE_3: "Lead follow-up — din 10 (aakhri)",
 };
 
 // Master + per-campaign on/off + daily cap (10 Aug 2026, Dr. Yadav's
@@ -124,11 +140,11 @@ function WhatsAppControlsPanel() {
   };
 
   const resetToAutomatic = async () => {
-    if (!window.confirm("Sab kuch wapas full-automatic kar dein? (Sab ON, koi cap nahi)")) return;
+    if (!window.confirm("Sab kuch wapas full-automatic kar dein? (Sab ON, koi cap nahi — lead WhatsApp flow ke switch jaise hain waise rahenge)")) return;
     setSaving(true);
     try {
       await resetWhatsAppToFullAutomatic();
-      setControls(DEFAULT_WHATSAPP_CONTROLS);
+      setControls(await fetchWhatsAppControls());
       qc.invalidateQueries({ queryKey: ["whatsapp-controls"] });
       toast.success("Wapas full-automatic ho gaya");
     } catch (e: any) {
@@ -168,11 +184,21 @@ function WhatsAppControlsPanel() {
         Module-wise
       </div>
       {WHATSAPP_CAMPAIGNS.map((c) => {
-        const mod = controls.modules[c] ?? { enabled: true, dailyCap: null };
+        const mod = controls.modules[c] ?? { enabled: !c.startsWith("LEAD_"), dailyCap: null };
         const sentToday = sentTodayByCampaign.get(c) ?? 0;
         const atCap = mod.dailyCap != null && sentToday >= mod.dailyCap;
         return (
-          <div key={c} className="rounded-xl border border-border p-2.5 space-y-1.5">
+          <Fragment key={c}>
+          {c === "LEAD_WELCOME_NERVOUS" && (
+            <div className="pt-2 space-y-1">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Lead WhatsApp flow</div>
+              <div className="text-[11px] text-muted-foreground">
+                Har switch ek AiSensy template hai — sirf tab ON karo jab AiSensy me wo template approve ho jaye.
+                "Full automatic" button inhe kabhi ON nahi karta.
+              </div>
+            </div>
+          )}
+          <div className="rounded-xl border border-border p-2.5 space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <span className={cn("text-[13px] font-medium truncate", mod.enabled ? "text-primary" : "text-muted-foreground line-through")}>
                 {CAMPAIGN_LABEL[c] ?? c}
@@ -206,6 +232,7 @@ function WhatsAppControlsPanel() {
               </div>
             </div>
           </div>
+          </Fragment>
         );
       })}
       <p className="text-[10px] text-muted-foreground px-0.5">

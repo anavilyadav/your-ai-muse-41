@@ -52,42 +52,20 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-// RF-16: the Owner's WhatsApp master switch / per-campaign toggle / daily
-// cap (Control Centre → WhatsApp) governed every scheduled campaign
-// (birthday, anniversary, winback, daily reminders) but not this webhook's
-// LEAD_WELCOME send, nor justdial-lead-webhook's or meta-leadgen-webhook's
-// — turning the master switch off did not actually stop new leads from
-// getting a WhatsApp welcome. Same inlined pattern as
-// whatsapp-birthday-anniversary/index.ts (a relative ../_shared/ import
-// isn't resolvable via the MCP hotfix deploy path used for these).
-interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
-const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
-function istTodayDate(): string {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: "master_off" | "module_off" | "cap_reached" | "settings_error" | null }> {
-  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
-  if (error) {
-    // Fail CLOSED, not open — see send-whatsapp/index.ts for the full
-    // reasoning (found live 23 Sep 2026).
-    return { allowed: false, reason: "settings_error" };
+// Welcome WhatsApp goes through lead-flow-send (19 Oct 2026): category
+// template, Owner switches, and never for leads older than 3 days.
+async function sendWelcome(leadIds: string[]) {
+  const secret = Deno.env.get("CRON_FUNCTION_SECRET");
+  if (!secret || leadIds.length === 0) return;
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/lead-flow-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+      body: JSON.stringify({ leadIds, template: "WELCOME" }),
+    });
+  } catch {
+    // Lead is already saved; a WhatsApp hiccup must not fail the request.
   }
-  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
-  if (data?.value) {
-    try {
-      const parsed = JSON.parse(data.value);
-      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
-    } catch { /* keep defaults */ }
-  }
-  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
-  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, reason: null };
-  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
-  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
-  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
-  return { allowed: true, reason: null };
 }
 
 Deno.serve(async (req) => {
@@ -181,9 +159,8 @@ Deno.serve(async (req) => {
           notes: body.note ?? null,
           disease_interest: body.disease_interest ?? null,
           source_ref: body.source_ref ?? null,
-          // auto_touch_count: 1 — LEAD_WELCOME below is touch 1 of the
-          // 5-touch sequence (migration 0086 / lead-touch-sequencer); set
-          // regardless of whether the send itself succeeds.
+          // auto_touch_count: 1 = welcome step done; follow-ups start only
+          // once lead-flow-send records wa_welcome_sent_at.
           auto_touch_count: 1,
         })
         .select("id")
@@ -198,52 +175,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, leadId, skipped: "lead already existed, no repeat welcome" }), { status: 200 });
     }
 
-    const apiKey = Deno.env.get("AISENSY_API_KEY");
-    const gate = apiKey ? await checkCampaignGate(supabaseAdmin, "LEAD_WELCOME") : null;
-    if (apiKey && gate?.allowed) {
-      try {
-        const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            apiKey,
-            campaignName: "LEAD_WELCOME",
-            destination: mobile,
-            userName: name,
-            source: "YHC-OS",
-            templateParams: [name],
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        // whatsapp_log write (12 Oct 2026) — see justdial-lead-webhook's
-        // matching note; this is what aisensy-whatsapp-status matches
-        // delivered/read callbacks against.
-        await supabaseAdmin.from("whatsapp_log").insert({
-          patient_id: null,
-          campaign_name: "LEAD_WELCOME",
-          destination: mobile,
-          status: res.ok ? "sent" : "failed",
-          error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
-          message_id: res.ok ? (data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null) : null,
-          provider_response: data,
-        });
-        if (res.ok) {
-          await supabaseAdmin.from("interactions").insert({
-            lead_id: leadId,
-            type: "whatsapp",
-            summary: `LEAD_WELCOME sent (${source} auto)`,
-          });
-        }
-      } catch {
-        // Lead is already saved — a WhatsApp hiccup must not fail the whole request
-      }
-    } else if (apiKey && gate && !gate.allowed) {
-      await supabaseAdmin.from("interactions").insert({
-        lead_id: leadId,
-        type: "whatsapp",
-        summary: `LEAD_WELCOME skipped (${gate.reason}, ${source} auto)`,
-      });
-    }
+    await sendWelcome([leadId]);
 
     return new Response(JSON.stringify({ success: true, leadId }), { headers: { "Content-Type": "application/json" } });
   } catch (e) {

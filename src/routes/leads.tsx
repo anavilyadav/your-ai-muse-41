@@ -109,47 +109,32 @@ function ordinal(n: number): string {
   return label ?? `${n}th`;
 }
 
-// Mirrors lead-touch-sequencer's TOUCH_SCHEDULE (edge function) — display
-// only, so staff can see where a lead sits in the auto-sequence without
-// needing to open Owner > WhatsApp. Kept in sync manually if the schedule
-// ever changes (same inline-duplication convention the edge functions use).
-const TOUCH_OFFSET_DAYS: Record<number, number> = { 1: 2, 2: 5, 3: 10, 4: 18 };
-// touchCount -> the campaign that touch corresponds to (1 = LEAD_WELCOME,
-// sent at creation time; 2-5 = lead-touch-sequencer's campaigns).
-const TOUCH_CAMPAIGN: Record<number, string> = { 1: "LEAD_WELCOME", 2: "LEAD_TOUCH_2", 3: "LEAD_TOUCH_3", 4: "LEAD_TOUCH_4", 5: "LEAD_TOUCH_5" };
+// Where this lead is in the WhatsApp flow — mirrors lead-flow-send /
+// lead-touch-sequencer (welcome, then follow-ups 2/5/10 days after the
+// welcome actually went out). Old leads that never got a welcome show
+// nothing: the flow only runs for new leads.
+const NUDGE_AFTER_DAYS: Record<number, number> = { 1: 2, 2: 5, 3: 10 };
 
-// Found live 15 Oct 2026 (Dr. Yadav testing): this used to always say
-// "touch N/5 SENT" regardless of whether anything actually went out —
-// auto_touch_count advances the moment a touch is ATTEMPTED (see
-// lead-touch-sequencer/the lead-creation webhooks), which includes being
-// gated off by the WhatsApp master switch or a disabled campaign module.
-// With WhatsApp still OFF globally, every lead showed "sent" when
-// genuinely nothing had been sent at all — confirmed against whatsapp_log
-// (zero LEAD_WELCOME rows ever). Now checks the CURRENT campaign-gate
-// state (global master switch + per-campaign module) and says "ho chuka"
-// (happened/processed, no delivery claim) instead of "sent" whenever that
-// specific touch's campaign isn't actually live right now. This can't
-// reconstruct what the gate state was AT THE TIME each past touch was
-// attempted, only the current state — accurate for "is this currently
-// really sending," which is what the confusion was about.
-function autoSequenceStatus(
-  l: { auto_touch_count?: number; call_count?: number; dnd?: boolean; status?: string; created_at: string; last_inbound_at?: string | null },
+function flowStatus(
+  l: { auto_touch_count?: number; call_count?: number; dnd?: boolean; status?: string; created_at: string; last_inbound_at?: string | null; wa_welcome_sent_at?: string | null },
   controls: WhatsAppControls,
 ): string | null {
-  if (l.dnd) return "Auto-sequence stopped (DND)";
   if (l.status === "CONVERTED" || l.status === "LOST") return null;
-  const touchCount = l.auto_touch_count ?? 0;
-  if (touchCount === 0) return null; // not yet picked up by any lead-creation path
-  const campaign = TOUCH_CAMPAIGN[touchCount];
-  const campaignLive = controls.masterEnabled && (controls.modules[campaign as keyof typeof controls.modules]?.enabled ?? true);
-  const verb = campaignLive ? "sent" : "ho chuka (WhatsApp abhi OFF hai, kuch gaya nahi)";
-  if (l.last_inbound_at) return `Auto-sequence stopped (touch ${touchCount}/5 ${verb}, lead replied)`;
-  if ((l.call_count ?? 0) > 0) return `Auto-sequence paused (touch ${touchCount}/5 ${verb}, staff ne call kar diya)`;
-  if (touchCount >= 5) return `Auto-sequence complete (5/5 touches ${verb})`;
-  const offsetDays = TOUCH_OFFSET_DAYS[touchCount];
-  const nextDate = new Date(new Date(l.created_at).getTime() + offsetDays * 24 * 60 * 60 * 1000);
-  return `Auto-sequence: touch ${touchCount}/5 ${verb} • next ~${nextDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
+  if (l.dnd) return "WhatsApp band (DND)";
+  if (!l.wa_welcome_sent_at) {
+    if (Date.now() - new Date(l.created_at).getTime() > 3 * 86_400_000) return null;
+    return controls.masterEnabled ? "WhatsApp welcome abhi nahi gaya (template ON nahi hai?)" : "WhatsApp OFF hai — welcome nahi gaya";
+  }
+  if (l.last_inbound_at) return "WhatsApp: patient ne jawab diya — follow-ups band, aage team baat kare";
+  if ((l.call_count ?? 0) > 0) return "WhatsApp follow-ups band (staff ne call kar diya)";
+  const done = (l.auto_touch_count ?? 1) - 1;
+  if (done >= 3) return "WhatsApp: welcome + 3 follow-up ho gaye, jawab nahi aaya";
+  const next = new Date(new Date(l.wa_welcome_sent_at).getTime() + NUDGE_AFTER_DAYS[done + 1] * 86_400_000);
+  const when = next.getTime() <= Date.now() ? "agla follow-up due hai" : `agla ~${next.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
+  return `WhatsApp: welcome gaya${done ? ` + ${done} follow-up` : ""} • ${when}`;
 }
+
+const PAIN_FIELDS: [string, string][] = [["symptom", "Takleef"], ["duration", "Kab se"], ["treatment", "Ilaaj"], ["consult", "Milna"]];
 
 function LeadsPage() {
   const qc = useQueryClient();
@@ -573,8 +558,15 @@ function LeadsPage() {
                         </div>
                       </div>
                     )}
-                    {mounted && autoSequenceStatus(l, waControls) && (
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{autoSequenceStatus(l, waControls)}</div>
+                    {l.pain_profile && PAIN_FIELDS.some(([k]) => l.pain_profile[k]) && (
+                      <div className="mt-1.5 rounded-lg bg-primary/5 border border-primary/20 px-2 py-1.5 text-[11px]">
+                        <span className="font-bold text-primary">🩺 Pain profile (WhatsApp se): </span>
+                        {PAIN_FIELDS.filter(([k]) => l.pain_profile[k]).map(([k, label]) => `${label}: ${l.pain_profile[k]}`).join(" · ")}
+                        {l.pain_profile.typed && <div className="text-foreground/70 mt-0.5">Likha: "{String(l.pain_profile.typed).slice(0, 160)}"</div>}
+                      </div>
+                    )}
+                    {mounted && flowStatus(l, waControls) && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{flowStatus(l, waControls)}</div>
                     )}
                     {assignedStaff && (
                       <div className="text-[10px] text-primary mt-0.5">→ {assignedStaff.name}</div>

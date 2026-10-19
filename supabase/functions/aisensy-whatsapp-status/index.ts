@@ -69,85 +69,73 @@ interface MessageEntry {
   from?: string;
   type?: string;
   text?: { body?: string };
+  button?: { text?: string; payload?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
 }
 
-// Inlined checkCampaignGate/extractMessageId — same pattern as every other
-// WhatsApp-sending function in this project (MCP deploy path can't
-// resolve relative _shared/ imports).
-interface WhatsAppModuleControl { enabled: boolean; dailyCap: number | null }
-const DEFAULT_MODULE: WhatsAppModuleControl = { enabled: true, dailyCap: null };
-function istTodayDate(): string {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
-async function checkCampaignGate(supabaseAdmin: any, campaignName: string): Promise<{ allowed: boolean; reason: string | null }> {
-  const { data, error } = await supabaseAdmin.from("settings").select("value").eq("key", "whatsapp_controls").maybeSingle();
-  if (error) return { allowed: false, reason: "settings_error" };
-  let controls: { masterEnabled: boolean; modules: Record<string, WhatsAppModuleControl> } = { masterEnabled: true, modules: {} };
-  if (data?.value) {
-    try {
-      const parsed = JSON.parse(data.value);
-      controls = { masterEnabled: parsed.masterEnabled ?? true, modules: parsed.modules ?? {} };
-    } catch { /* keep defaults */ }
-  }
-  if (!controls.masterEnabled) return { allowed: false, reason: "master_off" };
-  const mod = controls.modules[campaignName] ?? DEFAULT_MODULE;
-  if (!mod.enabled) return { allowed: false, reason: "module_off" };
-  if (mod.dailyCap == null) return { allowed: true, reason: null };
-  const todayStartUtc = new Date(`${istTodayDate()}T00:00:00+05:30`).toISOString();
-  const { count } = await supabaseAdmin.from("whatsapp_log").select("id", { count: "exact", head: true }).eq("campaign_name", campaignName).eq("status", "sent").gte("created_at", todayStartUtc);
-  if ((count ?? 0) >= mod.dailyCap) return { allowed: false, reason: "cap_reached" };
-  return { allowed: true, reason: null };
-}
-function extractMessageId(data: any): string | null {
-  return data?.messages?.[0]?.id ?? data?.messageId ?? data?.data?.messageId ?? data?.data?.messages?.[0]?.id ?? data?.id ?? null;
-}
-
-// Keyword classification — deliberately simple/rule-based, not an LLM:
-// every possible reply is pre-written and Dr.-Yadav-reviewed (see the
-// wording given alongside this file), so nothing can improvise clinical-
-// sounding or guaranteed-outcome language the way a generic AI chatbot
-// might (the NCH/NMC concern raised earlier in this project).
-//
-// Three tiers, checked in this order — found by testing real phrasings
-// (see /tmp/classify_test2.mjs output, 13 Oct 2026): a flat "booking
-// checked first" list was misclassifying "Fees kitni hai consultation ki"
-// as BOOKING_INTENT, because "consult" matches inside "consultation" even
-// when the actual question is about price. STRONG_BOOKING only has clear
-// action-intent phrases ("book", "call me", "slot") that don't co-occur
-// with price/timing questions in practice. INFO_KEYWORDS (price/timing/
-// address words) is checked next, so a fee question wins even when
-// "appointment"/"consultation" is also in the sentence. SOFT_BOOKING
-// ("appointment", "consult" alone) only applies once no clearer signal
-// matched — e.g. "Mujhe consultation chahiye" with no price/timing word.
+// Lead flow routing (19 Oct 2026). Every tap on a template button arrives
+// as its button text; each text maps to what to send next and which
+// "pain profile" answer it is. Texts must match the approved AiSensy
+// templates exactly (see the WhatsApp lead flow page). Rule-based on
+// purpose: every reply is pre-written and reviewed, nothing improvised
+// (NCH advertising rules).
 type InboundFlag = "BOOKING_INTENT" | "INFO_ANSWERED" | "NEEDS_HUMAN";
-const STRONG_BOOKING_KEYWORDS = ["book", "call me", "call kar", "slot", "time de", "milna hai", "available ho"];
-const INFO_KEYWORDS = ["time", "timing", "address", "location", "kaha", "fee", "fees", "price", "cost", "kitna", "kitni", "kitne", "charges"];
-const SOFT_BOOKING_KEYWORDS = ["appointment", "consult"];
-// Numbered-options reply (16 Oct 2026) — LEAD_WELCOME and the per-category
-// drafts (DEFAULT_LEAD_WHATSAPP_TEMPLATES in db.ts) now close with "1️⃣
-// symptoms / 2️⃣ fees+timing / 3️⃣ appointment", so a patient can just tap
-// a number instead of typing a sentence. Checked before the keyword lists
-// below so "2" alone (or the 2️⃣ emoji, which is "2"+combining chars that
-// strip out) routes correctly — length<=3 keeps this from firing on a
-// longer message that happens to contain a digit (e.g. "2 baje milna hai"
-// still falls through to STRONG_BOOKING_KEYWORDS below).
-function classifyBareOption(t: string): { flag: InboundFlag; campaign: string } | null {
-  if (t.trim().length > 3) return null;
-  const digits = t.replace(/[^0-9]/g, "");
-  if (digits === "3") return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
-  if (digits === "2") return { flag: "INFO_ANSWERED", campaign: "LEAD_INFO_REPLY" };
-  if (digits === "1") return { flag: "NEEDS_HUMAN", campaign: "LEAD_GENERIC_ACK" };
-  return null;
+type Route = { next: string | null; field?: "symptom" | "duration" | "treatment" | "consult"; flag?: InboundFlag; stop?: boolean };
+
+const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+const ROUTES = new Map<string, Route>();
+const add = (texts: string[], route: Route) => texts.forEach((t) => ROUTES.set(norm(t), route));
+
+// Welcome answers (symptom per category) -> how long?
+add([
+  "Sar dard / Migraine", "Chakkar aana", "Nas ka dard", "Khujli / Eczema", "Psoriasis / Daag", "Baal jhadna",
+  "Baar-baar sardi", "Pet / Bhookh kam", "Gas / Acidity", "Kabz / IBS", "Piles / Fissure", "Asthma / Saans",
+  "Allergy / Cheenk", "Purani khansi", "Skin / Baal", "Bachche ke liye", "Peshaab ki takleef", "Pathri / Stone",
+  "Prostate", "Kidney stone", "Report gadbad hai", "Ghutno ka dard", "Kamar / Gardan", "Arthritis / Sujan",
+  "Side effects", "Kamzori / Thakaan", "Bolna / Speech", "Dhyan / Behaviour", "Neend / Gussa",
+  "Rheumatoid arthritis", "Lupus / SLE", "PCOD / PCOS", "Periods ki problem", "Thyroid", "Wazan / Sugar",
+  "Neend nahi aati", "Ghabrahat / Tension", "High BP", "Cholesterol", "Kuch aur",
+], { next: "LEAD_STEP_DURATION", field: "symptom" });
+add(["Pehle chat par", "Apni problem batani"], { next: "LEAD_STEP_DURATION" });
+add(["6 mahine se kam", "6 mahine – 2 saal", "6 mahine - 2 saal", "2 saal se zyada"], { next: "LEAD_STEP_TREATMENT", field: "duration" });
+add(["Dawai chal rahi hai", "Li thi, fayda nahi", "Abhi kuch nahi"], { next: "LEAD_STEP_CONSULT", field: "treatment" });
+add(["Pehle jaankari"], { next: "LEAD_STEP_CONSULT" });
+add(["Clinic aakar", "Appointment chahiye"], { next: "LEAD_REPLY_CLINIC", field: "consult", flag: "BOOKING_INTENT" });
+add(["Video consultation"], { next: "LEAD_REPLY_VIDEO", field: "consult", flag: "BOOKING_INTENT" });
+add(["Pehle call karein", "Doctor se baat", "Private call", "Haan, call karein", "Abhi baat karni hai", "Time fix karein"],
+  { next: "LEAD_REPLY_CALL", field: "consult", flag: "BOOKING_INTENT" });
+add(["Fees / timing", "Fees jaanni hai"], { next: "LEAD_REPLY_FEES", flag: "INFO_ANSWERED" });
+add(["Dawai kaise milegi"], { next: "LEAD_REPLY_DELIVERY", flag: "INFO_ANSWERED" });
+add(["Message band karein", "STOP", "Stop karo", "Band karo"], { next: "LEAD_REPLY_STOP", stop: true });
+add(["Abhi nahi"], { next: null });
+
+// Typed messages: price/timing -> fees reply, medicine/delivery -> delivery
+// reply, "call/book" -> call reply, anything else -> "team will reply" and
+// a human picks it up from Lead CRM.
+const FEES_WORDS = ["fee", "fees", "price", "cost", "kitna", "kitni", "kitne", "charges", "timing", "address", "location", "kaha"];
+const DELIVERY_WORDS = ["dawai", "dawa", "medicine", "delivery", "courier", "porter", "swiggy", "ghar par", "bhej"];
+const CALL_WORDS = ["book", "call", "appointment", "slot", "milna", "consult", "available"];
+function routeTyped(text: string): Route {
+  const t = norm(text);
+  if (/^(stop|unsubscribe|band karo|message band)/.test(t)) return { next: "LEAD_REPLY_STOP", stop: true };
+  if (FEES_WORDS.some((w) => t.includes(w))) return { next: "LEAD_REPLY_FEES", flag: "INFO_ANSWERED" };
+  if (DELIVERY_WORDS.some((w) => t.includes(w))) return { next: "LEAD_REPLY_DELIVERY", flag: "INFO_ANSWERED" };
+  if (CALL_WORDS.some((w) => t.includes(w))) return { next: "LEAD_REPLY_CALL", flag: "BOOKING_INTENT" };
+  return { next: "LEAD_REPLY_TYPED", flag: "NEEDS_HUMAN" };
 }
-function classifyInbound(text: string): { flag: InboundFlag; campaign: string } {
-  const t = text.toLowerCase();
-  const bare = classifyBareOption(t);
-  if (bare) return bare;
-  if (STRONG_BOOKING_KEYWORDS.some((k) => t.includes(k))) return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
-  if (INFO_KEYWORDS.some((k) => t.includes(k))) return { flag: "INFO_ANSWERED", campaign: "LEAD_INFO_REPLY" };
-  if (SOFT_BOOKING_KEYWORDS.some((k) => t.includes(k))) return { flag: "BOOKING_INTENT", campaign: "LEAD_BOOKING_ACK" };
-  return { flag: "NEEDS_HUMAN", campaign: "LEAD_GENERIC_ACK" };
+
+async function callLeadFlowSend(leadId: string, template: string, allowDnd = false) {
+  const secret = Deno.env.get("CRON_FUNCTION_SECRET");
+  if (!secret) return;
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/lead-flow-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-cron-secret": secret },
+      body: JSON.stringify({ leadIds: [leadId], template, allowDnd }),
+    });
+  } catch {
+    // The tap is already saved on the lead; staff can follow up by hand.
+  }
 }
 
 Deno.serve(async (req) => {
@@ -233,81 +221,51 @@ Deno.serve(async (req) => {
       if (!error) matched++;
     }
 
-    // ---- Inbound replies (13 Oct 2026, Option B) ----
+    // ---- Inbound replies: lead flow ----
+    // A tap on a template button arrives as type "button" (or
+    // "interactive"); a typed reply as "text". Either way the lead goes
+    // HOT, the automatic follow-ups stop (last_inbound_at), the answer is
+    // saved on the lead, and lead-flow-send sends the next message.
     let repliesHandled = 0, repliesIgnored = 0;
-    const apiKey = Deno.env.get("AISENSY_API_KEY");
     for (const m of messages) {
-      if (m.type !== "text" || !m.text?.body || !m.from) { repliesIgnored++; continue; }
+      const tapped = m.button?.text ?? m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? null;
+      const typed = m.type === "text" ? m.text?.body ?? null : null;
+      const replyText = (tapped ?? typed ?? "").slice(0, 1000);
+      if (!replyText || !m.from) { repliesIgnored++; continue; }
       const mobile = m.from.replace(/\D/g, "").slice(-10);
-      const bodyText = m.text.body.slice(0, 1000); // generous cap, just in case
 
       const { data: lead } = await supabaseAdmin
         .from("leads")
-        .select("id, name, status, dnd")
+        .select("id, pain_profile")
         .eq("mobile", mobile)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
+      if (!lead) { repliesIgnored++; continue; }
 
-      if (!lead) {
-        // Not a known lead (could be an existing patient, or a number not
-        // in our lead table at all) — log nothing structured, nothing to
-        // react to without a lead row to attach it to.
-        repliesIgnored++;
-        continue;
-      }
+      const route = (tapped ? ROUTES.get(norm(tapped)) : undefined) ?? routeTyped(replyText);
+      const nowIso = new Date().toISOString();
+      const profile: Record<string, unknown> = { ...(lead.pain_profile ?? {}) };
+      if (route.field) profile[route.field] = replyText;
+      if (!tapped) profile.typed = replyText;
+      profile.history = [...((profile.history as unknown[]) ?? []), { at: nowIso, text: replyText, tapped: !!tapped }].slice(-30);
+      profile.updatedAt = nowIso;
 
-      const { flag, campaign } = classifyInbound(bodyText);
-
-      // Stop the automated outbound sequence immediately — see
-      // lead-touch-sequencer's stop-condition comment. A reply means a
-      // real conversation has started; blind automation stands down.
-      await supabaseAdmin.from("leads").update({
-        last_inbound_at: new Date().toISOString(),
-        last_inbound_text: bodyText,
-        inbound_flag: flag,
-        // HOT (16 Oct 2026, Dr. Yadav) — a lead that actually replies is a
-        // real signal regardless of what they said; unconditional, not
-        // just for BOOKING_INTENT. Pairs with sync-justdial-leads/
-        // justdial-lead-webhook now defaulting new leads to WARM instead
-        // of HOT, so "HOT" in Lead CRM means something again.
+      const update: Record<string, unknown> = {
+        last_inbound_at: nowIso,
+        last_inbound_text: replyText,
         lead_quality: "HOT",
-      }).eq("id", lead.id);
-
+        pain_profile: profile,
+      };
+      if (route.flag) update.inbound_flag = route.flag;
+      await supabaseAdmin.from("leads").update(update).eq("id", lead.id);
       await supabaseAdmin.from("interactions").insert({
-        lead_id: lead.id,
-        type: "whatsapp",
-        summary: `Lead replied: "${bodyText.slice(0, 200)}" (classified ${flag})`,
+        lead_id: lead.id, type: "whatsapp",
+        summary: `${tapped ? "Button dabaya" : "Patient ne likha"}: "${replyText.slice(0, 200)}"`,
       });
 
-      // Auto-reply — gated exactly like every other campaign; OFF by
-      // default (migration 0087) until Dr. Yadav reviews + approves each
-      // template and turns it on from Owner > WhatsApp.
-      if (apiKey && !lead.dnd) {
-        const gate = await checkCampaignGate(supabaseAdmin, campaign);
-        if (gate.allowed) {
-          try {
-            const res = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                apiKey, campaignName: campaign, destination: mobile,
-                userName: lead.name, source: "YHC-OS", templateParams: [lead.name],
-              }),
-            });
-            const data = await res.json().catch(() => ({}));
-            await supabaseAdmin.from("whatsapp_log").insert({
-              patient_id: null,
-              campaign_name: campaign,
-              destination: mobile,
-              status: res.ok ? "sent" : "failed",
-              error_message: res.ok ? null : (data?.message ?? "AiSensy send failed"),
-              message_id: res.ok ? extractMessageId(data) : null,
-              provider_response: data,
-            });
-          } catch {
-            // Lead/flag already saved — an auto-reply hiccup must not lose the inbound record
-          }
-        }
-      }
+      if (route.next) await callLeadFlowSend(lead.id, route.next, route.stop === true);
+      if (route.stop) await supabaseAdmin.from("leads").update({ dnd: true }).eq("id", lead.id);
       repliesHandled++;
     }
 

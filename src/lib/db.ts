@@ -4595,7 +4595,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0089_lead_last_enquired_at";
+export const EXPECTED_SCHEMA_VERSION = "0090_lead_whatsapp_flow";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7676,6 +7676,20 @@ export interface WhatsAppLogEntry {
 // The other campaigns here were created earlier, before this was enforced,
 // and are already live in uppercase — left as-is rather than renamed, since
 // renaming a working campaign risks breaking it for no benefit.
+// Lead WhatsApp flow (migration 0090): one AiSensy template each, sent by
+// lead-flow-send. All start OFF; each is switched on only after AiSensy
+// approves that template, and "full automatic" never switches them on.
+export const LEAD_FLOW_CAMPAIGNS = [
+  "LEAD_WELCOME_NERVOUS", "LEAD_WELCOME_SKIN", "LEAD_WELCOME_CHILDREN", "LEAD_WELCOME_DIGESTIVE",
+  "LEAD_WELCOME_RESPIRATORY", "LEAD_WELCOME_HOMEOPATHY_DIRECT", "LEAD_WELCOME_MEN", "LEAD_WELCOME_RENAL",
+  "LEAD_WELCOME_JOINT_BONE", "LEAD_WELCOME_CANCER", "LEAD_WELCOME_GENERAL",
+  "LEAD_STEP_DURATION", "LEAD_STEP_TREATMENT", "LEAD_STEP_CONSULT",
+  "LEAD_REPLY_CLINIC", "LEAD_REPLY_VIDEO", "LEAD_REPLY_DELIVERY", "LEAD_REPLY_CALL",
+  "LEAD_REPLY_FEES", "LEAD_REPLY_TYPED", "LEAD_REPLY_STOP",
+  "LEAD_NUDGE_1", "LEAD_NUDGE_2", "LEAD_NUDGE_3",
+] as const;
+const LEAD_FLOW_SET = new Set<string>(LEAD_FLOW_CAMPAIGNS);
+
 export const WHATSAPP_CAMPAIGNS = [
   "REGISTRATION_CONFIRM",
   "APPOINTMENT_REMINDER",
@@ -7685,22 +7699,7 @@ export const WHATSAPP_CAMPAIGNS = [
   "HOLIDAY_GREETING",
   "WINBACK",
   "delivery_update",
-  // Lead-gen (12 Oct 2026) — LEAD_WELCOME fires on lead creation (JustDial/
-  // external webhooks/Meta Lead Ads); LEAD_TOUCH_2..5 are the automated
-  // follow-up sequence (lead-touch-sequencer, every 30 min). All 5
-  // registered DISABLED by default (migration 0086) — Owner turns each on
-  // here once its AiSensy template is approved and reviewed.
-  "LEAD_WELCOME",
-  "LEAD_TOUCH_2",
-  "LEAD_TOUCH_3",
-  "LEAD_TOUCH_4",
-  "LEAD_TOUCH_5",
-  // Inbound-reply auto-answers (13 Oct 2026, Option B) — aisensy-whatsapp-
-  // status classifies a lead's reply and sends one of these three, gated
-  // the same disabled-by-default way (migration 0087).
-  "LEAD_INFO_REPLY",
-  "LEAD_BOOKING_ACK",
-  "LEAD_GENERIC_ACK",
+  ...LEAD_FLOW_CAMPAIGNS,
 ] as const;
 export type WhatsAppCampaign = (typeof WHATSAPP_CAMPAIGNS)[number];
 
@@ -7715,7 +7714,9 @@ export interface WhatsAppControls {
 
 export const DEFAULT_WHATSAPP_CONTROLS: WhatsAppControls = {
   masterEnabled: true,
-  modules: Object.fromEntries(WHATSAPP_CAMPAIGNS.map((c) => [c, { enabled: true, dailyCap: null }])) as WhatsAppControls["modules"],
+  modules: Object.fromEntries(
+    WHATSAPP_CAMPAIGNS.map((c) => [c, { enabled: !LEAD_FLOW_SET.has(c), dailyCap: null }]),
+  ) as WhatsAppControls["modules"],
 };
 
 // Forecast — how many WhatsApp messages will actually go out, day by day,
@@ -7789,7 +7790,51 @@ export async function saveWhatsAppControls(controls: WhatsAppControls) {
 // caps — so pausing for a test/import doesn't turn into having to remember
 // and manually re-toggle 7 separate switches afterward.
 export async function resetWhatsAppToFullAutomatic() {
-  await saveWhatsAppControls(DEFAULT_WHATSAPP_CONTROLS);
+  // Lead-flow switches keep their current state: turning one on before its
+  // template is approved just produces failed sends.
+  const current = await fetchWhatsAppControls();
+  const modules = { ...DEFAULT_WHATSAPP_CONTROLS.modules };
+  for (const c of LEAD_FLOW_CAMPAIGNS) modules[c] = current.modules[c] ?? modules[c];
+  await saveWhatsAppControls({ masterEnabled: true, modules });
+}
+
+// Photo / PDFs / YouTube ids the lead flow attaches (read by lead-flow-send
+// from settings.lead_flow_config.assets). Files live in the public-media
+// bucket because WhatsApp fetches them by URL.
+export interface LeadFlowAssets {
+  welcomeImageUrl?: string;
+  defaultPdfUrl?: string;
+  pdfByCategory?: Partial<Record<DiseaseCategory, string>>;
+  videoIdByCategory?: Partial<Record<DiseaseCategory, string>>;
+  playlistIdByCategory?: Partial<Record<DiseaseCategory, string>>;
+}
+export interface LeadFlowConfig {
+  templates?: Record<string, unknown>;
+  assets: LeadFlowAssets;
+}
+
+export async function fetchLeadFlowConfig(): Promise<LeadFlowConfig> {
+  const { data, error } = await supabase.from("settings").select("value").eq("key", "lead_flow_config").maybeSingle();
+  if (error) throw dataLoadError(error);
+  try {
+    const parsed = data?.value ? JSON.parse(data.value) : {};
+    return { ...parsed, assets: parsed.assets ?? {} };
+  } catch {
+    return { assets: {} };
+  }
+}
+
+export async function saveLeadFlowAssets(assets: LeadFlowAssets) {
+  const current = await fetchLeadFlowConfig();
+  await upsertSetting("lead_flow_config", JSON.stringify({ ...current, assets }));
+}
+
+export async function uploadPublicMedia(file: File, prefix: string): Promise<string> {
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const path = `lead-flow/${prefix}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("public-media").upload(path, file, { contentType: file.type || undefined });
+  if (error) throw error;
+  return supabase.storage.from("public-media").getPublicUrl(path).data.publicUrl;
 }
 
 export async function fetchWhatsAppLog(opts?: {
