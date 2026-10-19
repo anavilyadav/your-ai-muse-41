@@ -12,7 +12,7 @@ import {
   maskMobile, logWhatsAppInteraction, createLead, fetchStaff, searchPatients, fetchLeadSources,
   LEAD_SOURCES, LEAD_SOURCE_LABELS, LEAD_SOURCE_CRITERIA, LEAD_STAGES, LEAD_STAGE_LABELS,
   LEAD_QUALITIES, LEAD_CALL_OUTCOMES,
-  fetchLeadRepeatInfo, fetchLeadWhatsAppTemplates, buildLeadWhatsAppDraft, DISEASE_CATEGORY_LABELS,
+  fetchLeadRepeatInfo, fetchLeadWhatsAppTemplates, buildLeadWhatsAppDraft, DISEASE_CATEGORY_LABELS, describeRepeatPattern,
   fetchWhatsAppControls, DEFAULT_WHATSAPP_CONTROLS,
   fetchLeadCategoryStats, fetchLeadsByCategory,
   type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo, type WhatsAppControls, type DiseaseCategory,
@@ -29,8 +29,14 @@ export const Route = createFileRoute("/leads")({
   ),
 });
 
-type Filter = "All" | "HOT" | "Follow-up Due" | "New Today";
-const filters: Filter[] = ["All", "HOT", "Follow-up Due", "New Today"];
+type Filter = "All" | "HOT" | "Follow-up Due" | "New Today" | "Dobara search";
+const filters: Filter[] = ["All", "HOT", "Follow-up Due", "New Today", "Dobara search"];
+
+// A later search than the one that created the lead (leads.last_enquired_at,
+// migration 0089); a minute's slack absorbs same-second sheet duplicates.
+function searchedAgain(l: { created_at: string; last_enquired_at?: string | null }): boolean {
+  return !!l.last_enquired_at && new Date(l.last_enquired_at).getTime() - new Date(l.created_at).getTime() > 60_000;
+}
 
 // FIXED 05 Aug: temperature (quality) and funnel stage are two different
 // DB columns now — styled separately instead of one conflated enum.
@@ -82,6 +88,20 @@ function exactDateTime(iso: string | null | undefined): string {
 
 function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+// Calendar days (device clock), not 24-hour blocks: a search last night
+// is "Kal", not "Aaj".
+function dayWord(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = Math.round(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86_400_000,
+  );
+  if (diff === 0) return "Aaj";
+  if (diff === 1) return "Kal";
+  return shortDate(iso);
 }
 
 function ordinal(n: number): string {
@@ -160,6 +180,7 @@ function LeadsPage() {
       if (filter === "All") return true;
       if (filter === "HOT") return quality === "HOT";
       if (filter === "New Today") return daysSince(created) < 1;
+      if (filter === "Dobara search") return searchedAgain(l);
       if (filter === "Follow-up Due") {
         // A real due-date takes priority (leads.next_followup); leads
         // without one fall back to the old "hot/warm and not touched
@@ -472,12 +493,15 @@ function LeadsPage() {
             const quality = (l.lead_quality ?? "WARM") as LeadQuality;
             const stage = (l.status ?? "NEW") as LeadStage;
             const created = l.created_at;
-            const days = mounted ? daysSince(created) : 0;
+            const again = searchedAgain(l);
+            const days = mounted ? daysSince(again ? l.last_enquired_at : created) : 0;
             const sourceLabel = LEAD_SOURCE_LABELS[(l.lead_source ?? "OTHER") as LeadSource] ?? l.lead_source ?? "—";
             const assignedStaff = assignableStaff.find((u: any) => u.id === l.assigned_to);
             const isOpen = manageId === l.id;
             const closed = stage === "CONVERTED" || stage === "LOST";
             const repeat = repeatByMobile.get(l.mobile);
+            const latest = repeat && repeat.count > 1 ? repeat.occurrences[repeat.occurrences.length - 1] : null;
+            const pattern = repeat && repeat.count > 1 ? describeRepeatPattern(repeat.occurrences) : null;
             return (
               <li
                 key={l.id}
@@ -488,13 +512,22 @@ function LeadsPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
+                    {latest && (
+                      <div className="mb-1 inline-flex max-w-full rounded-md bg-destructive text-destructive-foreground px-2 py-0.5 text-[10px] font-bold">
+                        <span className="truncate">
+                          🔁 {mounted ? `${dayWord(latest.date)} ${new Date(latest.date).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true })}` : ""} dobara search
+                          {latest.disease ? ` — "${latest.disease}"` : ""} · {ordinal(repeat!.count)} baar
+                        </span>
+                      </div>
+                    )}
                     <div className="font-semibold text-sm truncate">{l.name}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
                       {maskMobile(l.mobile)} • {sourceLabel}
                       {l.disease_interest ? ` • ${l.disease_interest}` : ""}
                     </div>
                     <div className="text-[10px] text-primary font-semibold mt-0.5">
-                      {mounted ? exactDateTime(l.created_at) : "—"} ko enquiry aayi
+                      {latest ? "Pehli enquiry: " : ""}
+                      {mounted ? exactDateTime(l.created_at) : "—"}{latest ? "" : " ko enquiry aayi"}
                       {l.disease_interest ? ` — "${l.disease_interest}" ke liye` : ""}
                     </div>
                     {l.notes && (
@@ -515,15 +548,25 @@ function LeadsPage() {
                     )}
                     {repeat && repeat.count > 1 && (
                       <div className="mt-1.5 rounded-lg bg-destructive/10 border border-destructive/30 px-2 py-1.5">
-                        <div className="text-[10px] text-destructive font-bold">
+                        {pattern && (
+                          <div className="text-[11px] text-foreground font-semibold leading-snug">
+                            {pattern.kind === "SUSPICIOUS" || pattern.kind === "MANY_PROBLEMS" ? "⚠️ " : pattern.kind === "WANTS_HOMEOPATHY" || pattern.kind === "URGENT_SAME" ? "🎯 " : "💡 "}
+                            {pattern.text}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-destructive font-bold mt-1">
                           🔁 Ye {ordinal(repeat.count)} baar search hui hai isi number se
                         </div>
                         <div className="text-[10px] text-destructive/90 mt-0.5 space-y-0.5">
                           {repeat.occurrences.map((o, i) => {
-                            const isLast = i === repeat.occurrences.length - 1;
+                            const n = repeat.occurrences.length;
+                            const isLast = i === n - 1;
+                            if (n > 6 && i > 0 && i < n - 4) {
+                              return i === 1 ? <div key={i}>… beech me {n - 5} aur …</div> : null;
+                            }
                             return (
                               <div key={i}>
-                                {isLast ? "Ab" : ordinal(i + 1)} ({shortDate(o.date)}): {o.disease || "—"}
+                                {isLast ? "Ab" : ordinal(i + 1)} ({shortDate(o.date)}{new Date(o.date).getFullYear() !== new Date().getFullYear() ? ` ${String(new Date(o.date).getFullYear()).slice(2)}` : ""}): {o.disease || "—"}
                               </div>
                             );
                           })}
@@ -575,7 +618,7 @@ function LeadsPage() {
                     {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} Manage
                   </button>
                   <span className="text-[10px] text-muted-foreground">
-                    {mounted ? (days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
+                    {mounted ? (again ? `Dobara search: ${dayWord(l.last_enquired_at)}` : days === 0 ? "Enquired today" : `${days}d ago`) : "—"}
                     {l.call_count > 0 ? ` • ${l.call_count} call${l.call_count > 1 ? "s" : ""}` : ""}
                   </span>
                 </div>

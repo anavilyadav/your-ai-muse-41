@@ -2208,6 +2208,73 @@ export function classifyDiseaseCategory(diseaseInterest: string | null | undefin
   return "GENERAL";
 }
 
+// Reads a repeat-searcher's history and says what it most likely means, so
+// the caller knows how to open the call (Dr. Yadav, 19 Oct 2026). Hints,
+// not verdicts — thresholds were picked against the real top repeaters
+// (e.g. 17 searches across 6 specialties; 14 "Homeopathic Doctors"
+// searches in ~6 weeks; 9 "Neurologists" over 1.5 years).
+export type RepeatPatternKind =
+  | "BRAND" | "SUSPICIOUS" | "MANY_PROBLEMS" | "WANTS_HOMEOPATHY" | "URGENT_SAME" | "SAME_AGAIN" | "NEW_PROBLEM_LATER" | "NEW_PROBLEM_SOON";
+export interface RepeatPattern { kind: RepeatPatternKind; text: string }
+
+const DAY_MS = 86_400_000;
+
+function gapText(days: number): string {
+  if (days < 1) return "usi din";
+  if (days < 60) return `${days} din baad`;
+  return `${Math.round(days / 30)} mahine baad`;
+}
+
+export function describeRepeatPattern(occurrences: { date: string; disease: string }[]): RepeatPattern | null {
+  if (occurrences.length < 2) return null;
+  const occ = [...occurrences].sort((a, b) => a.date.localeCompare(b.date));
+  const times = occ.map((o) => new Date(o.date).getTime());
+  const cats = occ.map((o) => classifyDiseaseCategory(o.disease));
+  const distinct = new Set(cats.filter((c) => c !== "GENERAL")).size;
+
+  const brandHits = occ.filter((o) => /yadav\s*homeo/i.test(o.disease)).length;
+  if (brandHits * 2 >= occ.length) {
+    return { kind: "BRAND", text: `Clinic ka naam ${brandHits} baar search kiya — shayad purana patient hai jo number dhoondhta hai. Patient list me mobile check karein.` };
+  }
+
+  let densest = 1;
+  for (let i = 0, j = 0; j < times.length; j++) {
+    while (times[j] - times[i] > 60 * DAY_MS) i++;
+    densest = Math.max(densest, j - i + 1);
+  }
+  const spanDays = Math.round((times[times.length - 1] - times[0]) / DAY_MS);
+  if (densest >= 5 || (distinct >= 4 && spanDays <= 180)) {
+    const why = densest >= 5 ? `2 mahine ke andar ${densest} baar search` : `${spanDays} din me ${distinct} alag tarah ke doctor`;
+    return { kind: "SUSPICIOUS", text: `${why} — competitor ya agent ho sakta hai. Call par pehle poochhein kis ke liye dhoondh rahe hain.` };
+  }
+  if (distinct >= 4) {
+    return { kind: "MANY_PROBLEMS", text: `${Math.round(spanDays / 30)} mahine me ${distinct} alag takleef ke doctor — ya to poora parivaar yahin se doctor dhoondhta hai, ya koi agent. Call par poochhein.` };
+  }
+
+  const label = (c: DiseaseCategory) => DISEASE_CATEGORY_LABELS[c];
+  // "Homeopathic Doctors" / unknown names a way of treating, not a problem;
+  // compare against the last real specialty before it.
+  const isReal = (c: DiseaseCategory) => c !== "GENERAL" && c !== "HOMEOPATHY_DIRECT";
+  const last = cats[cats.length - 1];
+  const earlierReal = cats.slice(0, -1).reverse().find(isReal);
+  if (last === "HOMEOPATHY_DIRECT" && earlierReal) {
+    return { kind: "WANTS_HOMEOPATHY", text: `Pehle ${label(earlierReal)} ke liye doctor dhoondha tha, ab seedha homeopathy dhoondh raha hai — shayad doosre ilaaj se aaram nahi mila. Achha mauka hai, jaldi call karein.` };
+  }
+  const prev = isReal(last) && earlierReal ? earlierReal : cats[cats.length - 2];
+  const gapDays = Math.round((times[times.length - 1] - times[times.length - 2]) / DAY_MS);
+  if (prev === last) {
+    if (gapDays <= 2) {
+      return { kind: "URGENT_SAME", text: `Wahi takleef ke liye ${gapText(gapDays)} dobara search — abhi zaroorat hai, jaldi call karein.` };
+    }
+    const what = last === "HOMEOPATHY_DIRECT" || last === "GENERAL" ? "Homeopathy doctor" : label(last);
+    return { kind: "SAME_AGAIN", text: `${what} dobara, ${gapText(gapDays)} — lagta hai abhi tak aaram nahi mila. Call par yahi poochhein ki ab tak kya ilaaj liya.` };
+  }
+  if (gapDays > 90) {
+    return { kind: "NEW_PROBLEM_LATER", text: `${gapText(gapDays)} nayi takleef: pehle ${label(prev)}, ab ${label(last)} — ho sakta hai ghar me kisi aur ke liye ho.` };
+  }
+  return { kind: "NEW_PROBLEM_SOON", text: `${gapText(gapDays)} alag takleef: pehle ${label(prev)}, ab ${label(last)} — ek se zyada problem, ya parivaar me kisi aur ke liye.` };
+}
+
 export type LeadWhatsAppTemplates = Record<DiseaseCategory, string>;
 
 // {name} is substituted with the lead's name; {disclosure} with the
@@ -2688,6 +2755,7 @@ export async function fetchLeads(): Promise<{ rows: any[]; truncated: boolean }>
   const { data, error } = await supabase
     .from("leads")
     .select("*")
+    .order("last_enquired_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(LIMIT + 1);
   // RF-10: was `if (error) return { rows: [], truncated: false }` — swallowed
@@ -4527,7 +4595,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0088_lead_repeat_enquiries";
+export const EXPECTED_SCHEMA_VERSION = "0089_lead_last_enquired_at";
 
 export interface SchemaMigrationRow {
   filename: string;
