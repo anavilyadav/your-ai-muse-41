@@ -257,15 +257,49 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (repeatLog.length > 0) {
-      for (let i = 0; i < repeatLog.length; i += INSERT_BATCH) {
-        const chunk = repeatLog.slice(i, i + INSERT_BATCH).map((c) => ({
-          mobile: c.mobile,
-          disease_interest: c.category || null,
-          source: "JUSTDIAL",
-          occurred_at: c.createdAt ?? new Date().toISOString(),
-        }));
-        await supabaseAdmin.from("lead_repeat_enquiries").insert(chunk);
+    // Idempotent: a sheet row already stored — as the lead's own row or as
+    // an earlier repeat — is skipped, so re-scanning from row 0 (the
+    // backfill of repeats dropped before 0088) never double-counts.
+    // Counted as a multiset because the sheet has rows that repeat the
+    // same mobile at the very same second.
+    const alreadyStored = new Map<string, number>();
+    const keyOf = (mobile: string, iso: string) => `${mobile}|${new Date(iso).getTime()}`;
+    const bump = (k: string) => alreadyStored.set(k, (alreadyStored.get(k) ?? 0) + 1);
+    const repeatMobiles = Array.from(new Set(repeatLog.map((c) => c.mobile)));
+    for (let i = 0; i < repeatMobiles.length; i += MOBILE_CHECK_CHUNK) {
+      const chunk = repeatMobiles.slice(i, i + MOBILE_CHECK_CHUNK);
+      const [{ data: leadRows, error: e1 }, { data: repeatRows, error: e2 }] = await Promise.all([
+        supabaseAdmin.from("leads").select("mobile, created_at").in("mobile", chunk),
+        supabaseAdmin.from("lead_repeat_enquiries").select("mobile, occurred_at").in("mobile", chunk).limit(10000),
+      ]);
+      if (e1 || e2) {
+        await raiseAlert(supabaseAdmin, `Repeat-enquiry lookup failed: ${(e1 ?? e2)!.message}`, {});
+        return new Response(JSON.stringify({ success: false, error: "repeat lookup failed" }), { status: 500 });
+      }
+      (leadRows ?? []).forEach((r: any) => bump(keyOf(normalizeMobile(r.mobile), r.created_at)));
+      (repeatRows ?? []).forEach((r: any) => bump(keyOf(r.mobile, r.occurred_at)));
+    }
+    const newRepeats = repeatLog.filter((c) => {
+      if (!c.createdAt) return true;
+      const k = keyOf(c.mobile, c.createdAt);
+      const n = alreadyStored.get(k) ?? 0;
+      if (n > 0) { alreadyStored.set(k, n - 1); return false; }
+      return true;
+    });
+
+    for (let i = 0; i < newRepeats.length; i += INSERT_BATCH) {
+      const chunk = newRepeats.slice(i, i + INSERT_BATCH).map((c) => ({
+        mobile: c.mobile,
+        disease_interest: c.category || null,
+        source: "JUSTDIAL",
+        occurred_at: c.createdAt ?? new Date().toISOString(),
+      }));
+      const { error } = await supabaseAdmin.from("lead_repeat_enquiries").insert(chunk);
+      if (error) {
+        // Watermark not advanced: the next run retries this batch, and the
+        // skip above keeps whatever did get inserted from doubling.
+        await raiseAlert(supabaseAdmin, `Repeat-enquiry insert failed: ${error.message}`, { chunkStart: i });
+        return new Response(JSON.stringify({ success: false, error: "repeat insert failed" }), { status: 500 });
       }
     }
 
@@ -372,7 +406,8 @@ Deno.serve(async (req) => {
       processedRows: newRows.length,
       candidates: allOccurrences.length,
       imported,
-      repeatEnquiriesLogged: repeatLog.length,
+      repeatEnquiriesLogged: newRepeats.length,
+      repeatAlreadyStored: repeatLog.length - newRepeats.length,
       newLastRowCount,
       totalRowsInSheet: dataRows.length,
       remaining: Math.max(0, dataRows.length - newLastRowCount),

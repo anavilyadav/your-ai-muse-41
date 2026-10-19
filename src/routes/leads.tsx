@@ -177,7 +177,7 @@ function LeadsPage() {
   // wildly wrong totals here, since the array itself is intentionally
   // bounded for performance).
   const statsQ = useQuery({ queryKey: ["lead-stats"], queryFn: fetchLeadStats });
-  const stats = statsQ.data ?? { total: 0, hot: 0, converted: 0, newToday: 0 };
+  const stats = statsQ.data ?? { total: 0, repeatEnquiries: 0, totalEnquiries: 0, hot: 0, converted: 0, newToday: 0 };
 
   // TASK 5 — source analytics. Also COUNT-based, so it stays correct past
   // the 500-row display cap.
@@ -309,7 +309,11 @@ function LeadsPage() {
         </div>
       )}
       <div className="grid grid-cols-3 gap-2 mt-2">
-        <StatCard label="Total Leads" value={stats.total} />
+        <StatCard
+          label="Total Enquiries"
+          value={stats.totalEnquiries}
+          sub={`${stats.total.toLocaleString("en-IN")} log · ${stats.repeatEnquiries.toLocaleString("en-IN")} repeat`}
+        />
         <StatCard label="HOT" value={stats.hot} tone="destructive" />
         <StatCard label="Converted" value={stats.converted} tone="success" />
       </div>
@@ -370,30 +374,36 @@ function LeadsPage() {
             <div className="text-[11px] text-muted-foreground">Abhi koi category data nahi hai.</div>
           ) : (
             <>
-              <div className="grid grid-cols-4 gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-[10px] uppercase tracking-wider text-muted-foreground px-1">
                 <span>Category</span>
-                <span className="text-right">Leads</span>
+                <span className="text-right">Enquiries</span>
+                <span className="text-right">Log</span>
                 <span className="text-right">Converted</span>
-                <span className="text-right">Conv %</span>
               </div>
               <ul className="mt-1.5 space-y-1.5">
                 {categoryRows.map((r) => (
                   <li key={r.category}>
                     <button
                       onClick={() => { setActiveCategory(r.category); setShowCategories(false); setSearchTerm(""); }}
-                      className="w-full grid grid-cols-4 gap-2 text-xs items-center text-left hover:bg-muted/50 rounded-lg px-1 py-0.5"
+                      className="w-full grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-xs items-center text-left hover:bg-muted/50 rounded-lg px-1 py-0.5"
                     >
                       <span className="font-semibold truncate">{r.label}</span>
-                      <span className="text-right tabular-nums">{r.leads}</span>
-                      <span className="text-right tabular-nums text-success font-semibold">{r.converted}</span>
-                      <span className="text-right tabular-nums">
-                        {r.leads > 0 ? `${Math.round((r.converted / r.leads) * 100)}%` : "—"}
+                      <span className="text-right tabular-nums font-semibold">{r.enquiries.toLocaleString("en-IN")}</span>
+                      <span className="text-right tabular-nums">{r.leads.toLocaleString("en-IN")}</span>
+                      <span className="text-right tabular-nums text-success font-semibold">
+                        {r.converted}{r.leads > 0 ? ` · ${Math.round((r.converted / r.leads) * 100)}%` : ""}
                       </span>
                     </button>
                   </li>
                 ))}
+                <li className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-xs items-center border-t border-border pt-1.5 px-1 font-bold">
+                  <span>Total</span>
+                  <span className="text-right tabular-nums">{categoryRows.reduce((s, r) => s + r.enquiries, 0).toLocaleString("en-IN")}</span>
+                  <span className="text-right tabular-nums">{categoryRows.reduce((s, r) => s + r.leads, 0).toLocaleString("en-IN")}</span>
+                  <span className="text-right tabular-nums text-success">{categoryRows.reduce((s, r) => s + r.converted, 0)}</span>
+                </li>
               </ul>
-              <p className="mt-2 text-[10px] text-muted-foreground">Kisi category pe tap karke sirf wahi leads dekh sakte ho.</p>
+              <p className="mt-2 text-[10px] text-muted-foreground">Enquiries = sheet ki har row (dobara search bhi gini gayi). Log = alag-alag log. Kisi category pe tap karke sirf wahi leads dekh sakte ho.</p>
             </>
           )}
         </div>
@@ -746,10 +756,12 @@ function StatCard({
   label,
   value,
   tone,
+  sub,
 }: {
   label: string;
   value: number;
   tone?: "destructive" | "success";
+  sub?: string;
 }) {
   return (
     <div className="rounded-xl bg-surface border border-border p-2.5 text-center">
@@ -760,9 +772,10 @@ function StatCard({
           tone === "success" && "text-success",
         )}
       >
-        {value}
+        {value.toLocaleString("en-IN")}
       </div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
     </div>
   );
 }

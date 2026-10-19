@@ -2047,14 +2047,19 @@ export async function searchLeads(term: string) {
 // client-side-computed stats wildly wrong, since they'd only reflect
 // whichever 500 rows happened to load).
 export async function fetchLeadStats() {
-  const [total, hot, converted, newToday] = await Promise.all([
+  const [total, hot, converted, newToday, repeats] = await Promise.all([
     supabase.from("leads").select("id", { count: "exact", head: true }),
     supabase.from("leads").select("id", { count: "exact", head: true }).eq("lead_quality", "HOT"),
     supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "CONVERTED"),
     supabase.from("leads").select("id", { count: "exact", head: true }).gte("created_at", istDayStart(today())),
+    supabase.from("lead_repeat_enquiries").select("id", { count: "exact", head: true }),
   ]);
   return {
     total: total.count ?? 0,
+    // Every JustDial sheet row is one enquiry; a person searching again
+    // doesn't get a second lead card, so enquiries = leads + repeats.
+    repeatEnquiries: repeats.count ?? 0,
+    totalEnquiries: (total.count ?? 0) + (repeats.count ?? 0),
     hot: hot.count ?? 0,
     converted: converted.count ?? 0,
     newToday: newToday.count ?? 0,
@@ -2600,7 +2605,7 @@ export async function fetchLeadSourceStats(): Promise<
 // for a lead, and the category filter below are always talking about the
 // same thing.
 export async function fetchLeadCategoryStats(): Promise<
-  { category: DiseaseCategory; label: string; leads: number; converted: number }[]
+  { category: DiseaseCategory; label: string; leads: number; converted: number; repeats: number; enquiries: number }[]
 > {
   const counts = new Map<DiseaseCategory, { leads: number; converted: number }>();
   for (const cat of DISEASE_CATEGORIES) counts.set(cat, { leads: 0, converted: 0 });
@@ -2620,10 +2625,29 @@ export async function fetchLeadCategoryStats(): Promise<
     }
     if (data.length < 1000) break;
   }
+  const repeats = new Map<DiseaseCategory, number>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("lead_repeat_enquiries")
+      .select("disease_interest")
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw dataLoadError(error);
+    if (!data || data.length === 0) break;
+    for (const row of data as { disease_interest: string | null }[]) {
+      const cat = classifyDiseaseCategory(row.disease_interest);
+      repeats.set(cat, (repeats.get(cat) ?? 0) + 1);
+    }
+    if (data.length < 1000) break;
+  }
   return DISEASE_CATEGORIES
-    .map((cat) => ({ category: cat, label: DISEASE_CATEGORY_LABELS[cat], ...counts.get(cat)! }))
-    .filter((r) => r.leads > 0)
-    .sort((a, b) => b.leads - a.leads);
+    .map((cat) => {
+      const c = counts.get(cat)!;
+      const rep = repeats.get(cat) ?? 0;
+      return { category: cat, label: DISEASE_CATEGORY_LABELS[cat], ...c, repeats: rep, enquiries: c.leads + rep };
+    })
+    .filter((r) => r.enquiries > 0)
+    .sort((a, b) => b.enquiries - a.enquiries);
 }
 
 // Actual lead rows for one category — used by the category filter (not
