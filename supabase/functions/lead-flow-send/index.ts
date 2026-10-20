@@ -62,10 +62,11 @@ interface TemplateConfig {
   params?: "concern"[];
   urlButton?: "video" | "playlist";
 }
+// First version goes out without PDFs (Dr. Yadav, 20 Oct 2026); a PDF
+// version can be switched on later via settings, no redeploy.
 const DEFAULT_TEMPLATES: Record<string, TemplateConfig> = {
-  LEAD_STEP_CONSULT: { header: "document" },
   LEAD_NUDGE_1: { params: ["concern"] },
-  LEAD_NUDGE_2: { header: "document", params: ["concern"] },
+  LEAD_NUDGE_2: { params: ["concern"] },
   LEAD_NUDGE_3: { params: ["concern"] },
 };
 const WELCOME_TEMPLATE: TemplateConfig = { header: "image" };

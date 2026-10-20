@@ -63,7 +63,7 @@ const CAMPAIGN_LABEL: Record<string, string> = {
   LEAD_WELCOME_GENERAL: "Lead welcome — Baaki sab (general)",
   LEAD_STEP_DURATION: "Lead sawaal — kitne samay se",
   LEAD_STEP_TREATMENT: "Lead sawaal — ab tak ka ilaaj",
-  LEAD_STEP_CONSULT: "Lead sawaal — kaise milna hai (PDF)",
+  LEAD_STEP_CONSULT: "Lead sawaal — kaise milna hai",
   LEAD_REPLY_CLINIC: "Lead jawab — clinic aakar",
   LEAD_REPLY_VIDEO: "Lead jawab — video consultation",
   LEAD_REPLY_DELIVERY: "Lead jawab — dawai kaise milegi",
@@ -72,7 +72,7 @@ const CAMPAIGN_LABEL: Record<string, string> = {
   LEAD_REPLY_TYPED: "Lead jawab — likha hua message mila",
   LEAD_REPLY_STOP: "Lead jawab — STOP (DND)",
   LEAD_NUDGE_1: "Lead follow-up — din 2",
-  LEAD_NUDGE_2: "Lead follow-up — din 5 (PDF)",
+  LEAD_NUDGE_2: "Lead follow-up — din 5",
   LEAD_NUDGE_3: "Lead follow-up — din 10 (aakhri)",
 };
 

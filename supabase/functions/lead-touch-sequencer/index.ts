@@ -1,6 +1,6 @@
 // Runs every 30 min (cron, migration 0086). Sends the no-reply follow-ups
 // of the lead WhatsApp flow through lead-flow-send:
-//   LEAD_NUDGE_1 — din 2, LEAD_NUDGE_2 — din 5 (with PDF), LEAD_NUDGE_3 — din 10 (last)
+//   LEAD_NUDGE_1 — din 2, LEAD_NUDGE_2 — din 5, LEAD_NUDGE_3 — din 10 (last)
 // counted from when the welcome actually went out (leads.wa_welcome_sent_at).
 // Leads whose welcome never went out — including all 31k imported before
 // the flow existed — are never touched, so turning WhatsApp on can't blast
@@ -98,6 +98,6 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 200 });
+    return new Response(JSON.stringify({ error: String(e), success: false }), { status: 200 });
   }
 });

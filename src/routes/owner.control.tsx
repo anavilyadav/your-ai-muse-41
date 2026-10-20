@@ -1137,9 +1137,8 @@ function LeadWhatsAppTemplatesCard() {
   );
 }
 
-// Photo and PDFs the automatic lead WhatsApp flow attaches (welcome photo
-// header; category PDF on the "kaise milna hai" step and the din-5
-// follow-up). Saved to settings.lead_flow_config, read by lead-flow-send.
+// Photo (and, for a later version, PDFs) the automatic lead WhatsApp flow
+// attaches. Saved to settings.lead_flow_config, read by lead-flow-send.
 const FLOW_PDF_CATEGORIES: DiseaseCategory[] = [
   "NERVOUS", "SKIN", "CHILDREN", "DIGESTIVE", "RESPIRATORY", "HOMEOPATHY_DIRECT", "MEN", "RENAL", "JOINT_BONE", "CANCER",
 ];
@@ -1181,7 +1180,7 @@ function LeadFlowMediaCard() {
       </div>
       <div className="rounded-2xl bg-surface border border-border p-3.5 space-y-3">
         <p className="text-[11px] text-muted-foreground">
-          Automatic WhatsApp flow inhe saath bhejta hai. Welcome photo ke bina welcome nahi jaayega; PDF ke bina "kaise milna hai" aur din-5 wala message nahi jaayega (category ki PDF na ho to common PDF jaati hai). Patient ki koi jaankari yahan mat daalo — ye files public link se khulti hain.
+          Welcome message ke upar ye photo jaati hai — iske bina welcome nahi jaayega. PDF abhi zaroori nahi (abhi ke templates bina PDF ke hain); baad me PDF wala version banayenge tab kaam aayegi. Patient ki koi jaankari yahan mat daalo — ye files public link se khulti hain.
         </p>
         <div className="flex items-center gap-3">
           {assets.welcomeImageUrl ? (
