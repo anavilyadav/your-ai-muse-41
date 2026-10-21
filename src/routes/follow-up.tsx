@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, MessageCircle, CheckCircle2, History, TrendingUp, TrendingDown, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
+import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
@@ -37,6 +38,7 @@ function FollowUpPage() {
   // not actually clickable. Now a real filter, same tap-to-filter pattern
   // as Lead CRM's stat cards.
   const [dueFilter, setDueFilter] = useState<"ALL" | "OVERDUE" | "DUE_SOON">("ALL");
+  const [remoteOnly, setRemoteOnly] = useState<"ALL" | "ONLINE" | "COURIER">("ALL");
   const [waDraftRow, setWaDraftRow] = useState<any | null>(null);
   const staffQ = useQuery({ queryKey: ["staff-for-followup"], queryFn: fetchStaff });
   const staffById = new Map((staffQ.data ?? []).map((u: any) => [u.id, u.name]));
@@ -114,10 +116,14 @@ function FollowUpPage() {
   // = due_date already passed; "Due Soon" = due today or within the next
   // 7 days (fetchFollowups' own window).
   const filteredRows = rows.filter((r) => {
+    if (remoteOnly === "ONLINE" && !r.patient?.is_online) return false;
+    if (remoteOnly === "COURIER" && !r.patient?.uses_courier) return false;
     if (dueFilter === "ALL") return true;
     const d = daysDiff(r.due_date);
     return dueFilter === "OVERDUE" ? d > 0 : d <= 0;
   });
+  const onlineCount = rows.filter((r) => r.patient?.is_online).length;
+  const courierCount = rows.filter((r) => r.patient?.uses_courier).length;
 
   return (
     <MobileShell title="Follow-up Calls" subtitle="Today" showBack>
@@ -152,6 +158,25 @@ function FollowUpPage() {
         </div>
       )}
 
+      <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar">
+        {([
+          ["ALL", "Sab patient"],
+          ["ONLINE", `🌐 Online (${onlineCount})`],
+          ["COURIER", `📦 Courier (${courierCount})`],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setRemoteOnly(key)}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium",
+              remoteOnly === key ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {total > rows.length && (
         <div className="mt-2 rounded-lg bg-accent/15 text-accent-foreground text-[11px] px-3 py-2">
           {rows.length} sabse purani/jaldi wali dikh rahi hain (list mein) — baaki {total - rows.length} bhi pending hain, list neeche karte jao ya ek-ek "Done" karte jaao taaki agli batch dikhe.
@@ -163,7 +188,7 @@ function FollowUpPage() {
       ) : isError ? (
         <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : filteredRows.length === 0 ? (
-        <EmptyBlock label={dueFilter === "ALL" ? "Koi pending follow-up nahi." : "Is filter mein koi follow-up nahi — 'Due' pe tap karke sab dekho."} />
+        <EmptyBlock label={dueFilter === "ALL" && remoteOnly === "ALL" ? "Koi pending follow-up nahi." : "Is filter mein koi follow-up nahi — 'Due' aur 'Sab patient' pe tap karke sab dekho."} />
       ) : (
         <ul className="mt-4 space-y-2.5">
           {filteredRows.map((r) => {
@@ -177,6 +202,7 @@ function FollowUpPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                       <div className="font-semibold text-sm text-primary truncate">{r.patient?.name ?? "—"}</div>
+                      <RemoteBadges patient={r.patient} className="shrink-0" />
                       {r.channel && (
                         <span
                           className={cn(

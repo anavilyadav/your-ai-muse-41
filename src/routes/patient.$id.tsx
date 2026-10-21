@@ -54,6 +54,7 @@ import {
   updatePatientAddress,
   deletePatientAddress,
   type PatientAddress,
+  setPatientRemoteFlags,
 } from "@/lib/db";
 
 const countryCodes = [
@@ -1245,6 +1246,43 @@ function PatientProfilePage() {
             <Calendar className="h-3.5 w-3.5" /> Follow-up
           </button>
         </div>
+      </div>
+
+      {/* Online / courier mark (migration 0091) — set automatically by a
+          video visit, courier delivery or online follow-up; staff can fix
+          it here for patients from the old records. */}
+      <div className="mt-3 rounded-xl bg-surface border border-border p-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] font-semibold text-muted-foreground">Patient type:</span>
+          {([
+            ["is_online", "🌐 Online consult"],
+            ["uses_courier", "📦 Courier se dawai"],
+          ] as const).map(([field, label]) => {
+            const on = !!(patient as any)[field];
+            return (
+              <button
+                key={field}
+                onClick={async () => {
+                  try {
+                    await setPatientRemoteFlags(patient.id, { [field]: !on });
+                    toast.success(on ? `${label} mark hataya` : `${label} mark lagaya`);
+                    reload();
+                  } catch (e: any) {
+                    toast.error("Save nahi hua: " + (e?.message ?? "unknown error"));
+                  }
+                }}
+                aria-pressed={on}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                  on ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground",
+                )}
+              >
+                {on ? "✓ " : ""}{label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">Video visit, courier delivery ya online follow-up hote hi apne aap lag jaata hai. Purane patient ke liye yahan se lagao.</p>
       </div>
 
       {(!patient.address || !patient.city || !patient.dob || !patient.profession) && (

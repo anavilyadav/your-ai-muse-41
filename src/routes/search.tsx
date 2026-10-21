@@ -3,6 +3,7 @@ import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { searchPatients, displayPatientCode } from "@/lib/db";
 
 export const Route = createFileRoute("/search")({
@@ -87,7 +88,9 @@ function SearchPage() {
                 {(p.name ?? "?").charAt(0)}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-sm text-primary">{p.name}</p>
+                <p className="truncate font-semibold text-sm text-primary">
+                  {p.name} <RemoteBadges patient={p} />
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {displayPatientCode(p)} • {p.mobile}
                 </p>

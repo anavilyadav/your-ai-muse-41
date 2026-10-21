@@ -4,7 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Search as SearchIcon, AlertTriangle } from "lucide-react";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags } from "@/lib/db";
+import { toast } from "sonner";
+import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags, fetchRemotePatients, type RemoteFilter } from "@/lib/db";
+import { RemoteBadges } from "@/components/yhc/RemoteBadges";
+import { cn } from "@/lib/utils";
 
 // Compact inline labels for the list — same underlying flags as
 // DataQualityBanner's fuller Hinglish sentences, shortened to fit one
@@ -32,6 +35,7 @@ function PatientsPage() {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [remote, setRemote] = useState<RemoteFilter | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -42,8 +46,8 @@ function PatientsPage() {
   }, [q]);
 
   const list = useQuery({
-    queryKey: ["owner-patients-list", debouncedQ, visibleCount],
-    queryFn: () => fetchPatientsPage(visibleCount, debouncedQ || undefined),
+    queryKey: ["owner-patients-list", debouncedQ, visibleCount, remote],
+    queryFn: () => fetchPatientsPage(visibleCount, debouncedQ || undefined, remote ?? undefined),
   });
 
   // Deliberately its own query, independent of search/page state (Dr.
@@ -54,6 +58,28 @@ function PatientsPage() {
     queryFn: fetchPatientsTotalCount,
     staleTime: 60_000,
   });
+
+  // Full online/courier lists (not page-capped) for the counts and
+  // "copy numbers" — e.g. to message only courier patients.
+  const remoteQ = useQuery({
+    queryKey: ["owner-remote-patients"],
+    queryFn: async () => {
+      const [online, courier] = await Promise.all([fetchRemotePatients("ONLINE"), fetchRemotePatients("COURIER")]);
+      return { online, courier };
+    },
+    staleTime: 60_000,
+  });
+  const copyNumbers = async (kind: "ONLINE" | "COURIER") => {
+    const people = kind === "ONLINE" ? remoteQ.data?.online : remoteQ.data?.courier;
+    const numbers = Array.from(new Set((people ?? []).map((p) => p.mobile).filter((m) => m && m.length >= 10)));
+    if (!numbers.length) { toast.error("Koi number nahi mila"); return; }
+    try {
+      await navigator.clipboard.writeText(numbers.join("\n"));
+      toast.success(`${numbers.length} number copy ho gaye`);
+    } catch {
+      toast.error("Copy nahi hua — browser ne mana kiya");
+    }
+  };
 
   const rows = list.data?.rows ?? [];
   const hasMore = list.data?.hasMore ?? false;
@@ -90,6 +116,33 @@ function PatientsPage() {
         />
       </div>
 
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {([
+          [null, "Sab"],
+          ["ONLINE", `🌐 Online (${remoteQ.data?.online.length ?? "…"})`],
+          ["COURIER", `📦 Courier (${remoteQ.data?.courier.length ?? "…"})`],
+        ] as const).map(([key, label]) => (
+          <button
+            key={label}
+            onClick={() => { setRemote(key); setVisibleCount(PAGE_SIZE); }}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-medium",
+              remote === key ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+        {(remote === "ONLINE" || remote === "COURIER") && (
+          <button
+            onClick={() => void copyNumbers(remote)}
+            className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-primary"
+          >
+            Sabke number copy karo
+          </button>
+        )}
+      </div>
+
       <div className="mt-2 text-[11px] text-muted-foreground px-1">
         {list.isLoading ? "Load ho raha hai…" : `${rows.length}${hasMore ? "+" : ""} patient${rows.length === 1 ? "" : "s"} dikh rahe hain`}
       </div>
@@ -124,7 +177,9 @@ function PatientsPage() {
                   {(p.name ?? "?").charAt(0)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-sm text-primary">{p.name}</p>
+                  <p className="truncate font-semibold text-sm text-primary">
+                    {p.name} <RemoteBadges patient={p} />
+                  </p>
                   {/* Was falling back to patient_code (e.g. "YHC-22035")
                       whenever a real card number was missing — that's an
                       internal system ID, not a card, and looked like one

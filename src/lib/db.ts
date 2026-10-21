@@ -83,6 +83,8 @@ export interface DBPatient {
   // migration 0079) since the app always called every patient with no
   // opt-out until this existed.
   call_consent: boolean;
+  is_online?: boolean; // consults online (video / online follow-up)
+  uses_courier?: boolean; // gets medicine by courier
   dob: string | null;
   anniversary_date: string | null;
   profession: string | null;
@@ -4595,7 +4597,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0090_lead_whatsapp_flow";
+export const EXPECTED_SCHEMA_VERSION = "0091_patient_online_courier_flags";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -6650,8 +6652,13 @@ export async function fetchPatientsTotalCount(): Promise<number> {
   return count ?? 0;
 }
 
-export async function fetchPatientsPage(limit: number, search?: string): Promise<PatientListPage> {
+export type RemoteFilter = "ONLINE" | "COURIER" | "ANY";
+
+export async function fetchPatientsPage(limit: number, search?: string, remote?: RemoteFilter): Promise<PatientListPage> {
   let q = supabase.from("patients").select("*").eq("is_deleted", false);
+  if (remote === "ONLINE") q = q.eq("is_online", true);
+  else if (remote === "COURIER") q = q.eq("uses_courier", true);
+  else if (remote === "ANY") q = q.or("is_online.eq.true,uses_courier.eq.true");
   const t = search ? sanitizeOrFilterTerm(search) : "";
   if (t) {
     const like = `%${t}%`;
@@ -6692,6 +6699,28 @@ export async function fetchPatientsPage(limit: number, search?: string): Promise
   if (error) throw dataLoadError(error);
   const rows = (data ?? []) as DBPatient[];
   return { rows, hasMore: rows.length === limit };
+}
+
+// Every online / courier patient (no page cap), for the count and the
+// "copy numbers" list on the master screen — a small set by nature.
+export async function fetchRemotePatients(remote: RemoteFilter): Promise<{ id: string; name: string; mobile: string }[]> {
+  const out: { id: string; name: string; mobile: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    let q = supabase.from("patients").select("id, name, mobile").eq("is_deleted", false);
+    if (remote === "ONLINE") q = q.eq("is_online", true);
+    else if (remote === "COURIER") q = q.eq("uses_courier", true);
+    else q = q.or("is_online.eq.true,uses_courier.eq.true");
+    const { data, error } = await q.order("id").range(from, from + 999);
+    if (error) throw dataLoadError(error);
+    out.push(...((data ?? []) as any[]));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+export async function setPatientRemoteFlags(id: string, flags: { is_online?: boolean; uses_courier?: boolean }) {
+  const { error } = await supabase.from("patients").update(flags).eq("id", id);
+  if (error) throw error;
 }
 
 export async function fetchPatientById(id: string) {
