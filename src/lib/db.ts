@@ -241,26 +241,30 @@ export async function autoConvertMatchingLead(patientId: string, mobile: string,
 // for them (no duplicate patient record), and since they've now actually
 // walked in, resolve any pending follow-ups for them automatically so
 // reminders don't keep going out to someone who's already here.
-export async function findPatientByMobile(mobile: string, countryCode: string = "+91"): Promise<{
+export interface MobileMatch {
   id: string; name: string; mobile: string; patient_code: string | null;
   card_series: string | null; card_register: string | null; card_number: string | null;
   mobile_confirmed: boolean; whatsapp_confirmed: boolean; whatsapp_number: string | null;
-} | null> {
+  last_visit_date: string | null;
+}
+
+// Every patient on this number — families share one phone (258 numbers
+// cover 553 patients, Oct 2026). This was a single-row lookup, which
+// errored on a shared number and left Reception with no Check-In button
+// at all for anyone in such a family.
+export async function findPatientsByMobile(mobile: string, countryCode: string = "+91"): Promise<MobileMatch[]> {
   const { data, error } = await supabase
     .from("patients")
-    .select("id, name, mobile, patient_code, card_series, card_register, card_number, mobile_confirmed, whatsapp_confirmed, whatsapp_number")
+    .select("id, name, mobile, patient_code, card_series, card_register, card_number, mobile_confirmed, whatsapp_confirmed, whatsapp_number, last_visit_date")
     .eq("mobile", mobile)
     .eq("mobile_country_code", countryCode)
     .eq("is_deleted", false)
-    .maybeSingle();
-  // A failed lookup is NOT the same as "genuinely no such patient" — the
-  // caller (registration's duplicate-check hint) would otherwise silently
-  // treat a network hiccup as "safe to register as new," risking a
-  // duplicate patient record for someone who actually already exists.
-  // Kept non-throwing (this is a live-typing hint, not a hard gate) but
-  // now at least visible for debugging.
-  if (error) console.error("findPatientByMobile failed:", error.message);
-  return data ?? null;
+    .order("last_visit_date", { ascending: false, nullsFirst: false })
+    .limit(20);
+  // Live-typing hint, not a hard gate: a failed lookup must not look like
+  // "no such patient", so it's at least logged.
+  if (error) console.error("findPatientsByMobile failed:", error.message);
+  return (data ?? []) as MobileMatch[];
 }
 
 export async function checkInExistingPatient(input: {
@@ -810,10 +814,26 @@ export function thirtyDaysAgo(): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Every visit dated `date` (any status, back-entered ones too) — the
+// queue screen's date picker.
+export async function fetchQueueForDate(date: string, branch?: string) {
+  let q = supabase
+    .from("visits")
+    .select("*, patient:patients(*)")
+    .eq("visit_date", date)
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as (DBVisit & { patient: DBPatient })[];
+}
+
 export async function fetchTodayQueue(branch?: string) {
   let q = supabase
     .from("visits")
     .select("*, patient:patients(*)")
+    .eq("is_deleted", false)
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     // 25 Sep 2026, Dr. Yadav: "date wise token nahi dikhte, decending order
     // me ho, date naye sabse upar baaki niche" — was created_at ascending

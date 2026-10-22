@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, fetchAppointments, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
+import { fetchTodayQueue, fetchQueueForDate, fetchAppointments, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -149,18 +149,34 @@ function QueuePage() {
     setToday(new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }));
   }, []);
 
+  // Any day can be opened; today also lists still-open visits from the
+  // last 30 days, which are counted separately so the day's own totals
+  // stay right.
+  const [date, setDate] = useState(() => todayStr());
+  const isToday = date === todayStr();
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["today-queue", branchScope ?? "all"],
-    queryFn: () => fetchTodayQueue(branchScope),
-    refetchInterval: 15_000,
+    queryKey: isToday ? ["today-queue", branchScope ?? "all"] : ["day-queue", branchScope ?? "all", date],
+    queryFn: () => (isToday ? fetchTodayQueue(branchScope) : fetchQueueForDate(date, branchScope)),
+    refetchInterval: isToday ? 15_000 : false,
   });
-
 
   const rows = data ?? [];
   const stats = useMemo(() => {
-    const waiting = rows.filter((r) => ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status)).length;
-    const done = rows.filter((r) => r.visit_status === "DONE").length;
-    return { total: rows.length, waiting, done };
+    const day = rows.filter((r) => r.visit_date === date);
+    const waiting = day.filter((r) => ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status)).length;
+    const done = day.filter((r) => r.visit_status === "DONE").length;
+    const online = day.filter((r) => r.visit_type === "VIDEO").length;
+    return { total: day.length, waiting, done, online, oldPending: rows.length - day.length };
+  }, [rows, date]);
+  const countsByDate = useMemo(() => {
+    const m = new Map<string, { total: number; done: number }>();
+    for (const r of rows) {
+      const c = m.get(r.visit_date) ?? { total: 0, done: 0 };
+      c.total++;
+      if (r.visit_status === "DONE") c.done++;
+      m.set(r.visit_date, c);
+    }
+    return m;
   }, [rows]);
 
   const filtered = rows.filter((r) => {
@@ -190,11 +206,31 @@ function QueuePage() {
         </Link>
       }
     >
-      <div className="grid grid-cols-3 gap-2">
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          max={todayStr()}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          className="flex-1 rounded-lg bg-surface border border-input px-3 py-2 text-sm"
+          aria-label="Kis din ki queue dekhni hai"
+        />
+        {!isToday && (
+          <button onClick={() => setDate(todayStr())} className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary">
+            Aaj
+          </button>
+        )}
+      </div>
+      <div className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">
+        {isToday ? "Aaj ke" : new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " ke"} patient
+        {isToday && stats.oldPending > 0 ? ` • purane pending alag: ${stats.oldPending}` : ""}
+      </div>
+      <div className="grid grid-cols-4 gap-2">
         {[
           { label: "Total", value: stats.total, tone: "primary" },
           { label: "Waiting", value: stats.waiting, tone: "accent" },
           { label: "Done", value: stats.done, tone: "success" },
+          { label: "Online", value: stats.online, tone: "primary" },
         ].map((s) => (
           <div key={s.label} className="rounded-xl bg-surface border border-border px-2 py-2.5 text-center">
             <div
@@ -250,7 +286,7 @@ function QueuePage() {
       ) : isError ? (
         <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : filtered.length === 0 ? (
-        <EmptyBlock label={t("Aaj koi patient nahi mila.")} />
+        <EmptyBlock label={isToday ? t("Aaj koi patient nahi mila.") : "Is din koi patient nahi mila."} />
       ) : (
         <ul className="mt-3 space-y-2">
           {filtered.map((r, i) => {
@@ -273,6 +309,13 @@ function QueuePage() {
                       {r.visit_date === todayStr()
                         ? "Aaj"
                         : new Date(r.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                      {(() => {
+                        const c = countsByDate.get(r.visit_date);
+                        if (!c) return null;
+                        return r.visit_date === date
+                          ? ` • ${c.total} patient • ${c.done} done`
+                          : ` • ${c.total - c.done} pending`;
+                      })()}
                     </div>
                   </li>
                 )}

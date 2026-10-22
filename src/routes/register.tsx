@@ -7,7 +7,7 @@ import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientByMobile, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -43,7 +43,8 @@ export const Route = createFileRoute("/register")({
   // collected at booking time.
   validateSearch: (search: Record<string, unknown>): { name?: string; mobile?: string; branch?: string } => ({
     name: typeof search.name === "string" ? search.name : undefined,
-    mobile: typeof search.mobile === "string" ? search.mobile : undefined,
+    // A bare number in the URL parses as a number, not a string.
+    mobile: typeof search.mobile === "string" || typeof search.mobile === "number" ? String(search.mobile) : undefined,
     branch: typeof search.branch === "string" ? search.branch : undefined,
   }),
   head: () => ({ meta: [{ title: "Register / Check-in — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
@@ -183,6 +184,7 @@ function RegisterPage() {
     mobile_confirmed: boolean; whatsapp_confirmed: boolean; whatsapp_number: string | null;
   } | null>(null);
   const [checkInBusy, setCheckInBusy] = useState(false);
+  const [mobileMatches, setMobileMatches] = useState<MobileMatch[]>([]);
   // Not pre-selected (was RELATIONSHIPS[0] = "Husband") — a plain mobile
   // match used to silently link every new registration as "Husband" of
   // whoever already used that number unless staff actively noticed and
@@ -255,7 +257,13 @@ function RegisterPage() {
       try {
         const isDup = await isDuplicateMobile(digits, effectiveCountryCode);
         setDupWarn(isDup);
-        setExistingPatient(isDup ? await findPatientByMobile(digits, effectiveCountryCode) : null);
+        const matches = isDup ? await findPatientsByMobile(digits, effectiveCountryCode) : [];
+        setMobileMatches(matches);
+        // One patient on the number: pick them. Several (a family): pick
+        // the one Search sent us here for, else let Reception choose.
+        const wanted = search.name?.trim().toLowerCase();
+        const preferred = matches.length === 1 ? matches[0] : wanted ? matches.find((m) => m.name.trim().toLowerCase() === wanted) : undefined;
+        setExistingPatient(preferred ?? null);
         setFamilyRelationship(null);
       } catch {
         // RF-09: this used to fail open silently (no error check → treated
@@ -270,6 +278,7 @@ function RegisterPage() {
     } else {
       setDupWarn(false);
       setExistingPatient(null);
+      setMobileMatches([]);
     }
   };
 
@@ -557,6 +566,7 @@ function RegisterPage() {
                 });
                 setDupWarn(false);
                 setExistingPatient(null);
+                setMobileMatches([]);
                 setPaymentAmount("");
                 setPaymentAmountTouched(false);
                 setPaymentMode("CASH");
@@ -695,6 +705,41 @@ function RegisterPage() {
             Patient se number confirm kar liya hai
           </label>
         </Section>
+
+        {mobileMatches.length > 1 && (
+          <div className="rounded-xl bg-primary/5 border border-primary/30 p-3">
+            <p className="text-xs font-semibold text-primary">
+              Is number par {mobileMatches.length} patient registered hain — kaun aaya hai?
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {mobileMatches.map((m) => {
+                const chosen = existingPatient?.id === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => { setExistingPatient(m); setFamilyRelationship(null); }}
+                    aria-pressed={chosen}
+                    className={cn(
+                      "w-full rounded-lg border px-3 py-2 text-left text-xs flex items-center justify-between gap-2",
+                      chosen ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border",
+                    )}
+                  >
+                    <span className="font-semibold truncate">{chosen ? "✓ " : ""}{m.name}</span>
+                    <span className={cn("shrink-0 text-[11px]", chosen ? "opacity-90" : "text-muted-foreground")}>
+                      {displayPatientCode(m)}{m.last_visit_date ? ` • last ${m.last_visit_date}` : " • koi visit nahi"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {!existingPatient && (
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Jo aaya hai use chuno — Check-In aur family ke options neeche aa jayenge. Naya family member hai to bhi kisi ek ko chuno aur relation batao.
+              </p>
+            )}
+          </div>
+        )}
 
         {existingPatient && (
           <div className="rounded-xl bg-accent/15 border border-accent p-3">
