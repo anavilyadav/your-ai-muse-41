@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users, PhoneCall, Clock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { fetchDaySummary } from "@/lib/db";
+import { fetchDaySummary, fetchBackfilledEntries, type BackfilledEntry } from "@/lib/db";
+import { today as todayIso } from "@/lib/supabase";
 
 export const Route = createFileRoute("/summary")({
   head: () => ({ meta: [{ title: "Day Summary — YHC Jaipur" }] }),
@@ -25,6 +26,9 @@ function SummaryPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [date, setDate] = useState(() => todayIso());
+  const [backfilled, setBackfilled] = useState<BackfilledEntry[]>([]);
+  const isToday = date === todayIso();
 
   useEffect(() => {
     let cancelled = false;
@@ -32,8 +36,8 @@ function SummaryPage() {
     setLoadError(null);
     (async () => {
       try {
-        const r = await fetchDaySummary();
-        if (!cancelled) setS(r);
+        const [r, b] = await Promise.all([fetchDaySummary(undefined, date), fetchBackfilledEntries(date)]);
+        if (!cancelled) { setS(r); setBackfilled(b); }
       } catch (e) {
         // fetchDaySummary now throws on a real DB error instead of
         // silently returning ₹0/0-everything — this catch is what turns
@@ -46,15 +50,36 @@ function SummaryPage() {
     return () => {
       cancelled = true;
     };
-  }, [retryTick]);
+  }, [retryTick, date]);
 
-  const today = new Date().toLocaleDateString("en-IN", {
+  const today = new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
+
+  // Any past day can be opened — e.g. to check visits Reception back-
+  // entered with "Purani Tareekh Se Entry".
+  const datePicker = (
+    <div className="mb-3 flex items-center gap-2">
+      <input
+        type="date"
+        value={date}
+        max={todayIso()}
+        onChange={(e) => e.target.value && setDate(e.target.value)}
+        className="flex-1 rounded-lg bg-surface border border-input px-3 py-2 text-sm"
+        aria-label="Kis din ki summary dekhni hai"
+      />
+      {!isToday && (
+        <button onClick={() => setDate(todayIso())} className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary">
+          Aaj
+        </button>
+      )}
+    </div>
+  );
 
   if (loading) {
     return (
       <MobileShell title="Day Summary" subtitle={today} showBack>
+        {datePicker}
         <p className="text-sm text-muted-foreground text-center py-10">Loading…</p>
       </MobileShell>
     );
@@ -63,6 +88,7 @@ function SummaryPage() {
   if (loadError || !s) {
     return (
       <MobileShell title="Day Summary" subtitle={today} showBack>
+        {datePicker}
         <ErrorBlock error={loadError} onRetry={() => setRetryTick((t) => t + 1)} />
       </MobileShell>
     );
@@ -70,8 +96,10 @@ function SummaryPage() {
 
   return (
     <MobileShell title="Day Summary" subtitle={today} showBack>
+      {datePicker}
+      {backfilled.length > 0 && <BackfilledList entries={backfilled} isToday={isToday} />}
       <div className="rounded-2xl bg-primary text-primary-foreground p-4 shadow-sm">
-        <div className="text-[11px] uppercase tracking-wider opacity-70">Today's Revenue</div>
+        <div className="text-[11px] uppercase tracking-wider opacity-70">{isToday ? "Today's Revenue" : "Is din ka Revenue"}</div>
         <div className="mt-1 text-3xl font-bold flex items-center">
           <IndianRupee className="h-6 w-6" /> {s.revenue.toLocaleString("en-IN")}
         </div>
@@ -191,6 +219,52 @@ function PayBar({ label, amount, total, color }: { label: string; amount: number
       <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div className={cn("h-full transition-all", color)} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+// Visits typed in on this day but dated earlier ("Purani Tareekh Se
+// Entry") — they count on their own date, so without this list nobody
+// could see what was back-entered today.
+function BackfilledList({ entries, isToday }: { entries: BackfilledEntry[]; isToday: boolean }) {
+  const [open, setOpen] = useState(false);
+  const dupes = entries.filter((e) => e.alreadyExisted).length;
+  const byDate = new Map<string, BackfilledEntry[]>();
+  for (const e of entries) byDate.set(e.visit_date, [...(byDate.get(e.visit_date) ?? []), e]);
+  const fmt = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  return (
+    <div className="mb-3 rounded-2xl border border-accent/50 bg-accent/10 p-3">
+      <button onClick={() => setOpen((v) => !v)} className="w-full text-left">
+        <div className="text-[12px] font-bold text-primary">
+          {isToday ? "Aaj" : "Is din"} {entries.length} purani entries daali gayi {open ? "▾" : "▸"}
+        </div>
+        <div className="text-[11px] text-muted-foreground mt-0.5">
+          {Array.from(byDate.entries()).map(([d, list]) => `${fmt(d)}: ${list.length}`).join(" • ")}
+          {" — ye apni tareekh ki summary me gini jaati hain, is din ki me nahi."}
+        </div>
+        {dupes > 0 && (
+          <div className="text-[11px] font-semibold text-destructive mt-1">
+            ⚠️ {dupes} entries ki visit app me pehle se thi (dobara daal di gayi)
+          </div>
+        )}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {Array.from(byDate.entries()).map(([d, list]) => (
+            <div key={d}>
+              <div className="text-[11px] font-bold text-muted-foreground">{fmt(d)} ki visit</div>
+              <ul className="mt-0.5 space-y-0.5">
+                {list.map((e) => (
+                  <li key={e.id} className="text-[12px] flex items-center justify-between gap-2">
+                    <span className="truncate">{e.patient_name}</span>
+                    {e.alreadyExisted && <span className="shrink-0 text-[10px] font-semibold text-destructive">pehle se thi</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

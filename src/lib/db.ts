@@ -276,6 +276,23 @@ export async function checkInExistingPatient(input: {
   // one live (non-fallback) path still generating T-XX tokens with a
   // plain client-side count()+1, so two simultaneous check-ins at the
   // same branch could land on the same token number.
+  if (input.visit_date && input.visit_date !== today()) {
+    // Backfilling a day that's already in the app doubles the visit and
+    // the patient's visit count — found 22 Oct 2026: 26 of 44 backfilled
+    // visits for 1–5 Oct already existed.
+    const { data: existing, error: dupErr } = await supabase
+      .from("visits")
+      .select("id, created_at")
+      .eq("patient_id", input.patient_id)
+      .eq("visit_date", input.visit_date)
+      .eq("is_deleted", false)
+      .limit(1);
+    if (dupErr) throw dupErr;
+    if (existing && existing.length > 0) {
+      const when = new Date(existing[0].created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+      throw new Error(`Is patient ki ${input.visit_date} ki visit app me pehle se hai (${when} ko daali gayi thi) — dobara entry ki zaroorat nahi.`);
+    }
+  }
   const { data, error } = await supabase.rpc("check_in_existing_patient_atomic", {
     p_patient_id: input.patient_id,
     p_branch: input.branch,
@@ -7490,8 +7507,56 @@ export async function deletePatientDocument(id: string) {
   return softDeleteRow("patient_documents", id);
 }
 
-export async function fetchDaySummary(branch?: string) {
-  const t = today();
+// Visits typed in on `date` but dated earlier ("Purani Tareekh Se Entry")
+// — these never show in that day's queue or summary, so Owner had no way
+// to see what Reception back-entered (22 Oct 2026). `alreadyExisted`
+// flags a backfill for a patient+day the app already had.
+export interface BackfilledEntry {
+  id: string;
+  visit_date: string;
+  created_at: string;
+  patient_id: string;
+  patient_name: string;
+  alreadyExisted: boolean;
+}
+export async function fetchBackfilledEntries(date: string): Promise<BackfilledEntry[]> {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("id, visit_date, created_at, patient_id, patient:patients(name)")
+    .eq("is_deleted", false)
+    .gte("created_at", istDayStart(date))
+    .lte("created_at", istDayEnd(date))
+    .lt("visit_date", date)
+    .order("visit_date", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(1000);
+  if (error) throw dataLoadError(error);
+  const rows = (data ?? []) as any[];
+  if (rows.length === 0) return [];
+  const patientIds = Array.from(new Set(rows.map((r) => r.patient_id)));
+  const earlier = new Set<string>();
+  for (let i = 0; i < patientIds.length; i += 300) {
+    const { data: others, error: e2 } = await supabase
+      .from("visits")
+      .select("id, patient_id, visit_date, created_at")
+      .in("patient_id", patientIds.slice(i, i + 300))
+      .eq("is_deleted", false)
+      .lt("created_at", istDayStart(date));
+    if (e2) throw dataLoadError(e2);
+    for (const o of others ?? []) earlier.add(`${o.patient_id}|${o.visit_date}`);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    visit_date: r.visit_date,
+    created_at: r.created_at,
+    patient_id: r.patient_id,
+    patient_name: r.patient?.name ?? "—",
+    alreadyExisted: earlier.has(`${r.patient_id}|${r.visit_date}`),
+  }));
+}
+
+export async function fetchDaySummary(branch?: string, date?: string) {
+  const t = date || today();
   let visQ = supabase.from("visits").select("id,patient_id,visit_status,branch,visit_type").eq("visit_date", t);
   // Payments joined to their visit's real visit_date, not the payment
   // row's own created_at (import-insert timestamp) — same bug class as
