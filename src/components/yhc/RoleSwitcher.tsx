@@ -70,22 +70,24 @@ export function RoleSwitcher() {
   );
 }
 
-/** Small persistent banner shown across the app whenever Owner is previewing another role. */
+/** Persistent banner shown across the app whenever Owner is previewing another role. */
 export function ViewAsBanner() {
   const { user, viewAsRole, setViewAsRole } = useAuth();
   const navigate = useNavigate();
   if (!user || user.role !== "OWNER" || !viewAsRole) return null;
+  const label = PREVIEW_ROLES.find((r) => r.role === viewAsRole)?.label ?? viewAsRole;
   return (
-    <div className="sticky top-0 z-50 bg-accent text-accent-foreground text-[12px] font-bold text-center py-1.5 flex items-center justify-center gap-2">
-      Viewing as {viewAsRole}
+    <div className="sticky top-0 z-50 bg-accent text-accent-foreground text-[12px] font-bold py-1.5 px-3 flex items-center justify-center gap-2">
+      <Eye className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">Owner preview: {label}</span>
       <button
         onClick={() => {
           setViewAsRole(null);
           navigate({ to: "/owner" });
         }}
-        className="underline"
+        className="shrink-0 rounded-full bg-primary text-primary-foreground px-3 py-1 text-[11.5px] font-bold"
       >
-        Exit preview
+        Owner pe wapas jao
       </button>
     </div>
   );

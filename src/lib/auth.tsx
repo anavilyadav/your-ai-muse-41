@@ -243,8 +243,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshReceptionPerms();
       }
       if (mounted) {
+        // Owner "view as" preview lives only for this tab session. It used
+        // to sit in localStorage, so a preview left on (e.g. Reception)
+        // came back on every later app open and the Owner landed on the
+        // Reception screen after logging in.
         try {
-          const v = localStorage.getItem(LS_VIEW);
+          localStorage.removeItem(LS_VIEW);
+          const v = sessionStorage.getItem(LS_VIEW);
           if (v) setViewAsRoleState(v as Role);
         } catch {}
         setLoading(false);
@@ -314,7 +319,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
+  // A fresh login always starts as the account's own role — never inside
+  // an Owner preview left over from before.
   const signIn = async (mobile: string, pin: string) => {
+    const err = await signInWithLockout(mobile, pin);
+    if (!err) setViewAsRole(null);
+    return err;
+  };
+
+  const signInWithLockout = async (mobile: string, pin: string) => {
     const cleaned = mobile.replace(/\D/g, "");
     if (cleaned.length !== 10 || pin.length < 4) return "Mobile ya PIN galat hai";
     // Proxied through staff-signin (audit P1-14) so a server-side lockout
@@ -357,6 +370,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     try {
+      sessionStorage.removeItem(LS_VIEW);
       localStorage.removeItem(LS_VIEW);
     } catch {}
     setViewAsRoleState(null);
@@ -365,8 +379,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setViewAsRole = (r: Role | null) => {
     setViewAsRoleState(r);
     try {
-      if (r) localStorage.setItem(LS_VIEW, r);
-      else localStorage.removeItem(LS_VIEW);
+      if (r) sessionStorage.setItem(LS_VIEW, r);
+      else sessionStorage.removeItem(LS_VIEW);
     } catch {}
   };
 
