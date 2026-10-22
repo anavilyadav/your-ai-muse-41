@@ -457,12 +457,21 @@ function StaffPage() {
                   <div className="text-[12px] text-muted-foreground truncate">
                     {role} • {branchLabel(s.branch) || "Both"} • Cap: {cap}
                   </div>
-                  <button
-                    onClick={() => setEditingEmail(s)}
-                    className="text-[11px] text-primary underline mt-0.5 truncate block"
-                  >
-                    {s.email ? s.email : "Set login email →"}
-                  </button>
+                  {s.has_login ? (
+                    <button
+                      onClick={() => setEditingEmail(s)}
+                      className="text-[11px] text-primary underline mt-0.5 truncate block"
+                    >
+                      {s.email ? s.email : "Set login email →"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setEditingEmail(s)}
+                      className="text-[11px] font-bold text-destructive underline mt-0.5 truncate block"
+                    >
+                      ⚠️ Login nahi bana — Login banao →
+                    </button>
+                  )}
                   {s.has_login && (
                     <button
                       onClick={async () => {

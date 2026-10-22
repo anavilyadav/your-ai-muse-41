@@ -4634,7 +4634,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0091_patient_online_courier_flags";
+export const EXPECTED_SCHEMA_VERSION = "0092_staff_has_login_default_false";
 
 export interface SchemaMigrationRow {
   filename: string;
