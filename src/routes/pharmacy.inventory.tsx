@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus, markBottleFinished, setInventoryBottleSize } from "@/lib/db";
+import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus, markBottleFinished, setInventoryBottleSize, editInventoryLine } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -256,6 +256,105 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
   );
 }
 
+// Correct a stock line after it was entered (Dr. Yadav, 22 Oct 2026).
+// The count typed here replaces the old one — it's a correction, not a
+// top-up (that is still "+ Stock").
+function EditStockModal({ row, onClose, onSaved }: { row: any; onClose: () => void; onSaved: () => void }) {
+  const [medicine, setMedicine] = useState<string>(row.medicine_name ?? "");
+  const [potency, setPotency] = useState<string>(row.potency && row.potency !== NO_POTENCY ? row.potency : "");
+  const [size, setSize] = useState<string>(row.bottle_size ?? "");
+  const [count, setCount] = useState<string>(String(Number(row.stock_drams ?? 0)));
+  const [expiry, setExpiry] = useState<string>(row.expiry_date ? String(row.expiry_date).slice(0, 10) : "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const n = Number(count);
+    if (!medicine.trim()) { toast.error("Medicine naam bharo"); return; }
+    if (count.trim() === "" || !Number.isFinite(n) || n < 0) { toast.error("Bottles ki sahi ginti bharo"); return; }
+    setSaving(true);
+    const res = await editInventoryLine({
+      id: row.id,
+      medicine_name: medicine.trim(),
+      potency: potency.trim() || null,
+      bottle_size: size || null,
+      count: n,
+      expiry_date: expiry || null,
+    });
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success(res.merged ? "Isi dawa/potency/size ki line pehle se thi — bottles usme jod di" : "Stock line update ho gayi");
+    onSaved();
+    onClose();
+  };
+
+  const chip = (active: boolean) =>
+    cn("rounded-full px-2.5 py-1 text-[12px] font-bold border", active ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground");
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">Stock Edit — {branchLabel(row.branch)}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
+            <MedicineAutocomplete value={medicine} onChange={setMedicine} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Potency</label>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              <button type="button" onClick={() => setPotency("")} className={chip(potency === "")}>Bina potency</button>
+              {COMMON_POTENCIES.map((p) => (
+                <button type="button" key={p} onClick={() => setPotency(p)} className={chip(potency === p)}>{p}</button>
+              ))}
+            </div>
+            <input
+              value={potency}
+              onChange={(e) => setPotency(e.target.value)}
+              placeholder="Ya alag potency likho (e.g. 6X)"
+              className="w-full mt-1.5 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">Bottle Size</label>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {BOTTLE_SIZES.map((sz) => (
+                <button type="button" key={sz} onClick={() => setSize(sz)} className={chip(size === sz)}>{sz}</button>
+              ))}
+              <button type="button" onClick={() => setSize("")} className={chip(size === "")}>Size nahi pata</button>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Kitni bottles hain</label>
+              <input
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+                inputMode="numeric"
+                className="w-full mt-1 rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Expiry</label>
+              <input
+                type="date"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+                className="w-full mt-1 rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <button onClick={save} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InventoryPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>(BRANCH_KEYS[0]);
   const [f, setF] = useState<"All" | "Low Stock" | "Expiring Soon">("All");
@@ -288,6 +387,7 @@ function InventoryPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inventory"] });
   const [finishing, setFinishing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<any | null>(null);
   // Stock entered before sizes existed: Pharmacy picks the size here.
   const [sizingId, setSizingId] = useState<string | null>(null);
   const setSize = async (row: any, size: string) => {
@@ -326,6 +426,7 @@ function InventoryPage() {
         </button>
       }
     >
+      {editing && <EditStockModal row={editing} onClose={() => setEditing(null)} onSaved={invalidate} />}
       {showAdd && (
         <AddStockModal defaultBranch={tab === TOTAL ? BRANCH_KEYS[0] : tab} onClose={() => setShowAdd(false)} onAdded={invalidate} />
       )}
@@ -447,6 +548,14 @@ function InventoryPage() {
                       className="mt-1 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] font-bold text-primary disabled:opacity-50"
                     >
                       −1 bottle khatam
+                    </button>
+                  )}
+                  {tab !== TOTAL && (
+                    <button
+                      onClick={() => setEditing(i)}
+                      className="mt-1 ml-1 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] font-bold text-primary"
+                    >
+                      ✏️ Edit
                     </button>
                   )}
                 </div>

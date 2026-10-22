@@ -2948,6 +2948,27 @@ export async function setInventoryBottleSize(id: string, bottleSize: string) {
   return { success: !error, error: error?.message ?? null, merged: !!(data as any)?.merged };
 }
 
+/** Corrects a stock line — name, potency, size, exact bottle count, expiry
+ * (0099). If it now matches another line, the bottles move to that line. */
+export async function editInventoryLine(input: {
+  id: string;
+  medicine_name: string;
+  potency: string | null;
+  bottle_size: string | null;
+  count: number;
+  expiry_date: string | null;
+}) {
+  const { data, error } = await supabase.rpc("edit_inventory_line", {
+    p_id: input.id,
+    p_medicine_name: input.medicine_name,
+    p_potency: input.potency,
+    p_bottle_size: input.bottle_size,
+    p_count: input.count,
+    p_expiry_date: input.expiry_date,
+  });
+  return { success: !error, error: error?.message ?? null, merged: !!(data as any)?.merged };
+}
+
 /** One bottle of this stock line is used up — Pharmacy taps this instead of
  * the old per-dispense dram subtraction (0096). Same row-locked RPC as
  * adding stock, with -1; it never goes below 0. */
@@ -4663,7 +4684,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0098_set_inventory_bottle_size";
+export const EXPECTED_SCHEMA_VERSION = "0099_edit_inventory_line";
 
 export interface SchemaMigrationRow {
   filename: string;
