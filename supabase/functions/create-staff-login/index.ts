@@ -165,14 +165,19 @@ Deno.serve(async (req) => {
         .update({ is_active: false, is_deleted: true })
         .eq("mobile", mobile);
       if (delErr) return json({ error: delErr.message }, 400);
-      if (profile.has_login) {
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(profile.id, { ban_duration: "87600h" });
-        } catch (e) {
-          // Profile is already removed either way; a ban failure (e.g. no
-          // real Auth account ever existed for this id) shouldn't block that.
-          console.error("Auth ban on delete failed:", e);
+      // Ban whenever an Auth account really exists for this profile — not
+      // only when has_login says so (it was wrong for Deepika). Removing the
+      // profile also ends its sessions (trigger, 0097), so an app that is
+      // already open is refused on its next request.
+      try {
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+        if (authUser?.user) {
+          const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { ban_duration: "87600h" });
+          if (banErr) console.error("Auth ban on delete failed:", banErr);
         }
+      } catch (e) {
+        // Profile is already removed either way; a ban failure shouldn't block that.
+        console.error("Auth ban on delete failed:", e);
       }
       return json({ success: true });
     }

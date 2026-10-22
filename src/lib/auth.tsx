@@ -167,9 +167,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const attemptLoadUser = async (authUserId: string) => {
     authUserIdRef.current = authUserId;
     const u = await loadUser(authUserId);
+    // No profile could mean a slow network (show retry) or that the Owner
+    // removed this staff member — then sign out instead of offering a retry.
+    if (!u && (await isRemovedFromStaff())) {
+      await kickOutRemovedStaff();
+      return null;
+    }
     setUser(u);
     setProfileLoadFailed(!u);
     return u;
+  };
+
+  // Removed staff (Owner → Staff → Remove) must not keep using an app that
+  // is already open (Dr. Yadav, 22 Oct 2026). The database already refuses
+  // their requests (0097); this tells them why and signs them out. Only a
+  // definite answer counts — a network failure is never treated as removal.
+  const isRemovedFromStaff = async (): Promise<boolean> => {
+    try {
+      const { data, error } = await withTimeout(Promise.resolve(supabase.rpc("my_staff_status")), 8_000, "Staff status");
+      return !error && (data === "REMOVED" || data === "NONE");
+    } catch {
+      return false;
+    }
+  };
+  const kickedOutRef = useRef(false);
+  const kickOutRemovedStaff = async () => {
+    if (kickedOutRef.current) return;
+    kickedOutRef.current = true;
+    toast.error("Aapka access hata diya gaya hai — Owner se baat karein.");
+    await signOut();
+    kickedOutRef.current = false;
   };
 
   const retryLoadProfile = () => {
@@ -271,6 +298,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setBackupDoctorActive(false);
       }
     });
+    // A staff member removed while their app is open is signed out within a
+    // minute, or as soon as they come back to the app.
+    const checkStillStaff = async () => {
+      if (userIdRef.current && (await isRemovedFromStaff())) await kickOutRemovedStaff();
+    };
+    const removedCheck = setInterval(checkStillStaff, 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") void checkStillStaff(); };
+    document.addEventListener("visibilitychange", onVisible);
     // Re-check every 5 minutes in case a backup window starts/ends mid-session.
     const interval = setInterval(() => refreshBackupDoctorStatus(userIdRef.current), 5 * 60 * 1000);
     // Separate, much faster retry specifically for reception permissions —
@@ -287,6 +322,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sub.subscription.unsubscribe();
       clearInterval(interval);
       clearInterval(permsRetry);
+      clearInterval(removedCheck);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
