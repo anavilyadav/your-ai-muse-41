@@ -1,10 +1,12 @@
 // Supabase Edge Function — creates AND updates the Auth login for staff.
-// Uses REAL email addresses (not a fake @yhcos.in one) so password resets
-// and account recovery actually work.
+// A real email is stored when the Owner gives one (so password resets and
+// account recovery work); otherwise the login uses <mobile>@yhcos.in.
 //
 // Called with (Authorization: Bearer <caller's Supabase session JWT> required):
-//   { action: "create", mobile, email, pin }        — first-time login setup
+//   { action: "create", mobile, email?, pin }       — first-time login setup
 //   { action: "update-email", mobile, email }        — change email later
+//   { action: "reset-pin", mobile, pin }              — reset an existing login's PIN
+//   { action: "delete", mobile }                      — remove a staff member
 //
 // SECURITY: this function uses the service-role key, which bypasses RLS
 // entirely — without a caller check, anyone with the URL could create or
@@ -196,11 +198,10 @@ Deno.serve(async (req) => {
       return json({ success: true });
     }
 
-    if (!email || !String(email).includes("@")) {
-      return json({ error: "Valid email required" }, 400);
-    }
-
     if (action === "update-email") {
+      if (!email || !String(email).includes("@")) {
+        return json({ error: "Valid email required" }, 400);
+      }
       if (profile.has_login) {
         const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { email });
         if (error) return json({ error: error.message }, 400);
@@ -213,17 +214,64 @@ Deno.serve(async (req) => {
     if (!pin || String(pin).length < 6) {
       return json({ error: "6+ digit PIN required" }, 400);
     }
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password: pin,
-      email_confirm: true,
-    });
-    if (error) {
-      return json({ error: error.message }, 400);
+    if (email && !String(email).includes("@")) {
+      return json({ error: "Valid email required" }, 400);
     }
+    // Most staff don't have (or don't want to give) an email. Without one
+    // the login used to never get created at all — Deepika (Pharmacy,
+    // 22 Oct 2026) was added that way and could not sign in. staff-signin
+    // already falls back to <mobile>@yhcos.in when users.email is empty,
+    // so that is the login email here too.
+    const loginEmail = email ? String(email).trim() : `${mobile}@yhcos.in`;
+
+    // Which Auth account this login should use:
+    //  - the profile's own id, if it already is one (a staff member who was
+    //    removed — their login gets banned — and then added again);
+    //  - an account already registered for this email (an earlier attempt
+    //    that created the account but never linked it — Deepika, 22 Oct);
+    //  - otherwise a brand new one.
+    // An existing account is brought back with the new PIN and unbanned.
+    const { data: existingAuth } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+    let authId: string | null = existingAuth?.user ? profile.id : null;
+    if (!authId) {
+      const { data: byEmail } = await supabaseAdmin.rpc("staff_auth_id_for_email", { p_email: loginEmail });
+      if (byEmail) {
+        // Only an unlinked account may be taken over — never one that
+        // already belongs to another staff member (or the Owner).
+        const { data: owner } = await supabaseAdmin.from("users").select("name").eq("id", byEmail).maybeSingle();
+        if (owner) return json({ error: `Ye email pehle se ${owner.name} ke login me hai — dusri email daalo ya khaali chhodo` }, 400);
+        authId = byEmail as string;
+      }
+    }
+    if (authId) {
+      const { error: revErr } = await supabaseAdmin.auth.admin.updateUserById(authId, {
+        email: loginEmail,
+        password: String(pin),
+        email_confirm: true,
+        ban_duration: "none",
+      });
+      if (revErr) return json({ error: revErr.message }, 400);
+    } else {
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email: loginEmail,
+        password: pin,
+        email_confirm: true,
+      });
+      if (error) return json({ error: error.message }, 400);
+      authId = data.user.id;
+    }
+
+    // Was a plain PostgREST update whose error was never checked; it failed
+    // (500) and left the Auth account unlinked while the request still
+    // reported success. This RPC raises a real error instead.
     const oldId = profile.id;
-    const newId = data.user.id;
-    await supabaseAdmin.from("users").update({ id: newId, email, has_login: true }).eq("mobile", mobile);
+    const newId = authId as string;
+    const { error: linkErr } = await supabaseAdmin.rpc("link_staff_login", {
+      p_mobile: mobile,
+      p_auth_id: newId,
+      p_email: email ? loginEmail : null,
+    });
+    if (linkErr) return json({ error: "Login bana lekin staff se jud nahi paya: " + linkErr.message }, 500);
 
     if (oldId && oldId !== newId) {
       try {

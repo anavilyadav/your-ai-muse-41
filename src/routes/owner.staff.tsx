@@ -58,7 +58,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       toast.error("Email sahi format mein daalo (ya khaali chhod do)");
       return;
     }
-    if (email.trim() && pin.trim().length < 6) {
+    if ((email.trim() || pin.trim()) && pin.trim().length < 6) {
       toast.error("Login banane ke liye PIN kam se kam 6 digit ka hona chahiye");
       return;
     }
@@ -70,9 +70,12 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       return;
     }
 
-    if (email.trim() && pin.trim()) {
+    // Email is optional — without one the login uses the mobile number
+    // (create-staff-login falls back to <mobile>@yhcos.in, which is what
+    // staff-signin looks up too). Only the PIN decides whether a login is made.
+    if (pin.trim()) {
       try {
-        const fnRes = await callCreateStaffLogin({ action: "create", mobile: cleanMobile, email: email.trim(), pin: pin.trim() });
+        const fnRes = await callCreateStaffLogin({ action: "create", mobile: cleanMobile, email: email.trim() || undefined, pin: pin.trim() });
         const fnData = await fnRes.json();
         if (!fnRes.ok || fnData.error) {
           toast.error(name + " add ho gaye, lekin login banane mein dikkat: " + (fnData.error ?? "unknown error"));
@@ -83,7 +86,7 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
         toast.error(name + " add ho gaye, lekin login create karte waqt network error aaya");
       }
     } else {
-      toast.success(name + " add ho gaye. Login baad mein 'Set Login' se bana sakte ho.");
+      toast.success(name + " add ho gaye. Login baad mein 'Login banao' se bana sakte ho.");
     }
     setSaving(false);
     onAdded();
@@ -123,11 +126,11 @@ function AddStaffModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
             </div>
           </div>
           <div className="border-t border-border pt-3 mt-1">
-            <div className="text-[11px] font-bold text-muted-foreground uppercase mb-2">Login (optional — ab ya baad mein)</div>
-            <label className="text-[11px] font-bold text-muted-foreground uppercase">Real Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="unki asli email" />
-            <label className="text-[11px] font-bold text-muted-foreground uppercase mt-2 block">PIN</label>
+            <div className="text-[11px] font-bold text-muted-foreground uppercase mb-2">Login (PIN daaloge to login abhi ban jayega)</div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase">PIN</label>
             <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="6-digit PIN" />
+            <label className="text-[11px] font-bold text-muted-foreground uppercase mt-2 block">Email (optional)</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" placeholder="khaali chhod sakte ho" />
           </div>
           <button onClick={submit} disabled={saving} className="mt-2 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Add Staff"}
@@ -233,20 +236,20 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
   const needsPin = !s.has_login;
 
   const submit = async () => {
-    if (!email.includes("@")) { toast.error("Sahi email daalo"); return; }
+    if ((!needsPin || email.trim()) && !email.includes("@")) { toast.error("Sahi email daalo"); return; }
     if (needsPin && pin.trim().length < 6) { toast.error("Pehli baar login banane ke liye PIN chahiye (6 digit)"); return; }
     setSaving(true);
     try {
       const res = await callCreateStaffLogin(
         needsPin
-          ? { action: "create", mobile: s.mobile, email: email.trim(), pin: pin.trim() }
+          ? { action: "create", mobile: s.mobile, email: email.trim() || undefined, pin: pin.trim() }
           : { action: "update-email", mobile: s.mobile, email: email.trim() },
       );
       const data = await res.json();
       if (!res.ok || data.error) {
         toast.error("Nahi hua: " + (data.error ?? "unknown error"));
       } else {
-        toast.success("Email update ho gayi");
+        toast.success(needsPin ? `${s.name} ka login ban gaya — mobile ${s.mobile} aur ye PIN se login karein` : "Email update ho gayi");
         onSaved();
         onClose();
       }
@@ -260,14 +263,14 @@ function EditEmailModal({ s, onClose, onSaved }: { s: any; onClose: () => void; 
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
       <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="font-extrabold text-primary text-lg">{s.name} — Login Email</h2>
+          <h2 className="font-extrabold text-primary text-lg">{s.name} — {needsPin ? "Login banao" : "Login Email"}</h2>
           <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <p className="text-[12px] text-muted-foreground mb-3">
-          {needsPin ? "Abhi is staff ka login bana nahi hai — email + PIN daalo." : "Login pehle se hai — sirf email badal rahe ho, PIN wahi rahega."}
+          {needsPin ? "Abhi is staff ka login bana nahi hai — 6-digit PIN daalo (email optional hai). Staff apne mobile number aur is PIN se login karega." : "Login pehle se hai — sirf email badal rahe ho, PIN wahi rahega."}
         </p>
         <div className="flex flex-col gap-3">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Real email" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={needsPin ? "Email (optional)" : "Real email"} className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           {needsPin && (
             <input value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" maxLength={6} placeholder="6-digit PIN" className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm" />
           )}
