@@ -2975,7 +2975,7 @@ export async function addBulkStockEntries(
 }
 
 export async function fetchMedicinesCatalog(search?: string, includeInactive = true): Promise<DBMedicine[]> {
-  let q = supabase.from("medicines").select("id, name, is_active").eq("is_deleted", false).order("name", { ascending: true }).limit(500);
+  let q = supabase.from("medicines").select("id, name, is_active").eq("is_deleted", false).order("name", { ascending: true }).limit(1000);
   if (!includeInactive) q = q.eq("is_active", true);
   const clean = search ? sanitizeIlikeTerm(search) : "";
   const { data, error } = clean ? await q.ilike("name", `%${clean}%`) : await q;
@@ -4634,7 +4634,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0092_staff_has_login_default_false";
+export const EXPECTED_SCHEMA_VERSION = "0095_link_staff_login";
 
 export interface SchemaMigrationRow {
   filename: string;
