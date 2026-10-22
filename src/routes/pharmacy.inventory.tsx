@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus, markBottleFinished } from "@/lib/db";
+import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus, markBottleFinished, setInventoryBottleSize } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -288,6 +288,19 @@ function InventoryPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inventory"] });
   const [finishing, setFinishing] = useState<string | null>(null);
+  // Stock entered before sizes existed: Pharmacy picks the size here.
+  const [sizingId, setSizingId] = useState<string | null>(null);
+  const setSize = async (row: any, size: string) => {
+    setFinishing(row.id);
+    const res = await setInventoryBottleSize(row.id, size);
+    setFinishing(null);
+    if (!res.success) { toast.error("Size save nahi hua: " + res.error); return; }
+    setSizingId(null);
+    toast.success(res.merged
+      ? `${row.medicine_name} ${row.potency ?? ""} — ${size} ki bottles me jod diya`
+      : `${row.medicine_name} ${row.potency ?? ""} — size ${size} save`);
+    invalidate();
+  };
   const bottleFinished = async (row: any) => {
     setFinishing(row.id);
     const res = await markBottleFinished(row);
@@ -382,10 +395,33 @@ function InventoryPage() {
                 <div>
                   <div className="font-bold text-primary text-[15px]">
                     {i.medicine_name ?? i.med} {i.potency && i.potency !== "—" && i.potency}
-                    <span className={cn("ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold align-middle", i.bottle_size ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                      {i.bottle_size ?? "size nahi likha"}
-                    </span>
+                    {i.bottle_size || tab === TOTAL ? (
+                      <span className={cn("ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold align-middle", i.bottle_size ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                        {i.bottle_size ?? "size nahi likha"}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setSizingId(sizingId === i.id ? null : i.id)}
+                        className="ml-1.5 rounded-full border border-dashed border-accent px-2 py-0.5 text-[11px] font-bold text-accent-foreground align-middle"
+                      >
+                        size nahi likha — chuno ▾
+                      </button>
+                    )}
                   </div>
+                  {sizingId === i.id && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {BOTTLE_SIZES.map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setSize(i, size)}
+                          disabled={finishing === i.id}
+                          className="rounded-full bg-primary text-primary-foreground px-2.5 py-1 text-[11.5px] font-bold disabled:opacity-50"
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {tab === TOTAL && (
                     <div className="text-[11px] text-muted-foreground mt-0.5">
                       {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${allRows.filter((r) => r.medicine_name === i.medicine_name && r.potency === i.potency && (r.bottle_size ?? null) === (i.bottle_size ?? null) && r.branch === b).reduce((s, r) => s + Number(r.stock_drams ?? 0), 0)}`).join(" · ")}

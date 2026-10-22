@@ -2856,6 +2856,7 @@ export async function fetchInventory(): Promise<{ rows: any[]; truncated: boolea
   const { data, error } = await supabase
     .from("inventory")
     .select("*")
+    .eq("is_deleted", false)
     .order("medicine_name", { ascending: true })
     .limit(LIMIT + 1);
   // RF-10: was `if (error) return { rows: [], truncated: false }` — see the
@@ -2937,6 +2938,14 @@ export async function addStockEntry(input: StockEntryInput) {
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
+}
+
+/** Gives a size to a stock line entered before sizes existed (0098). If a
+ * line of that size already exists for the same medicine/potency/branch,
+ * the bottles are added to it and this line is retired. */
+export async function setInventoryBottleSize(id: string, bottleSize: string) {
+  const { data, error } = await supabase.rpc("set_inventory_bottle_size", { p_id: id, p_bottle_size: bottleSize });
+  return { success: !error, error: error?.message ?? null, merged: !!(data as any)?.merged };
 }
 
 /** One bottle of this stock line is used up — Pharmacy taps this instead of
@@ -4654,7 +4663,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0097_removed_staff_lose_access";
+export const EXPECTED_SCHEMA_VERSION = "0098_set_inventory_bottle_size";
 
 export interface SchemaMigrationRow {
   filename: string;
