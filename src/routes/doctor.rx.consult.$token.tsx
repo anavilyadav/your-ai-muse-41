@@ -762,8 +762,10 @@ function RxRowEditor({
           />
           {open && inv && inv.length > 0 && (
             <ul className="absolute z-10 mt-1 w-full max-h-40 overflow-auto rounded-lg bg-surface border border-border shadow-lg">
-              {inv.slice(0, 8).map((m: any) => (
-                <li key={m.id}>
+              {/* One stock line per potency and bottle size, but the doctor
+                  only picks the name here — show each name once. */}
+              {Array.from(new Map(inv.map((m: any) => [m.medicine_name, m])).values()).slice(0, 8).map((m: any) => (
+                <li key={m.medicine_name}>
                   <button
                     type="button"
                     onMouseDown={() => { onChange({ medicine_name: m.medicine_name }); setTerm(m.medicine_name); setOpen(false); }}

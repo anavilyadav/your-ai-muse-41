@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { RoleShell, Stat } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { PHARMACY_NAV } from "./pharmacy.index";
-import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus } from "@/lib/db";
+import { fetchInventory, addBulkStockEntries, fetchMedicinesCatalog, branchLabel, BRANCH_KEYS, expiryStatus, markBottleFinished } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -24,6 +24,12 @@ export const Route = createFileRoute("/pharmacy/inventory")({
 const TOTAL = "TOTAL" as const;
 const TABS = [...BRANCH_KEYS, TOTAL] as const;
 const COMMON_POTENCIES = ["6", "30", "200", "1M", "10M", "50M", "CM", "Q"];
+// Stock is counted as bottles of each size (Dr. Yadav, 22 Oct 2026).
+const BOTTLE_SIZES = ["11ml", "30ml", "100ml", "450ml"];
+// Row key for items that have no potency (PL — non-medicated alcohol).
+const NO_POTENCY = "—";
+const qtyKey = (potency: string, size: string) => `${potency}|${size}`;
+const SIZE_GRID = { gridTemplateColumns: `3rem repeat(${BOTTLE_SIZES.length}, minmax(0, 1fr))` };
 
 function isLow(row: any): boolean {
   const stock = Number(row.stock_drams ?? row.stock ?? 0);
@@ -98,7 +104,11 @@ function MedicineAutocomplete({ value, onChange }: { value: string; onChange: (v
 function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: string; onClose: () => void; onAdded: () => void }) {
   const [medicine, setMedicine] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
-  const [qtyByPotency, setQtyByPotency] = useState<Record<string, string>>({});
+  // Keyed by potency|size — one box per potency per bottle size.
+  const [qty, setQtyState] = useState<Record<string, string>>({});
+  // PL and similar items have a size but no potency; picking a name that
+  // starts with "PL" turns this on by itself.
+  const [noPotency, setNoPotency] = useState(false);
   const [extraPotencies, setExtraPotencies] = useState<string[]>([]);
   const [newPotency, setNewPotency] = useState("");
   const [saving, setSaving] = useState(false);
@@ -108,9 +118,14 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
   // blank is fine, existing/older stock never had one either.
   const [expiryDate, setExpiryDate] = useState("");
 
-  const potencyRows = [...COMMON_POTENCIES, ...extraPotencies];
+  const potencyRows = noPotency ? [NO_POTENCY] : [...COMMON_POTENCIES, ...extraPotencies];
 
-  const setQty = (p: string, v: string) => setQtyByPotency((cur) => ({ ...cur, [p]: v }));
+  const setQty = (p: string, size: string, v: string) => setQtyState((cur) => ({ ...cur, [qtyKey(p, size)]: v }));
+
+  const pickMedicine = (name: string) => {
+    setMedicine(name);
+    if (/^PL\b/i.test(name.trim())) setNoPotency(true);
+  };
 
   const addCustomPotency = () => {
     const p = newPotency.trim();
@@ -121,7 +136,8 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
 
   const resetForNext = () => {
     setMedicine("");
-    setQtyByPotency({});
+    setQtyState({});
+    setNoPotency(false);
     setExtraPotencies([]);
     setExpiryDate("");
   };
@@ -129,16 +145,20 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
   const submit = async () => {
     if (!medicine.trim()) { toast.error("Medicine naam bharo"); return; }
     const entries = potencyRows
-      .map((p) => ({ potency: p, quantity: Number(qtyByPotency[p]) }))
+      .flatMap((p) => BOTTLE_SIZES.map((size) => ({
+        potency: p === NO_POTENCY ? null : p,
+        bottle_size: size,
+        quantity: Number(qty[qtyKey(p, size)]),
+      })))
       .filter((e) => e.quantity > 0);
-    if (entries.length === 0) { toast.error("Kam se kam ek potency mein quantity bharo"); return; }
+    if (entries.length === 0) { toast.error("Kam se kam ek box mein bottles ki ginti bharo"); return; }
 
     setSaving(true);
     const result = await addBulkStockEntries(medicine.trim(), branch, entries, expiryDate || null);
     setSaving(false);
 
     if (result.failed.length === 0) {
-      toast.success(`${medicine.trim()} — ${result.succeeded} potencies save ho gayi`);
+      toast.success(`${medicine.trim()} — ${result.succeeded} line${result.succeeded > 1 ? "s" : ""} save ho gayi`);
     } else if (result.succeeded > 0) {
       toast.error(`${result.succeeded} saved, ${result.failed.length} fail: ${result.failed.map((f) => f.potency).join(", ")}`);
     } else {
@@ -171,7 +191,11 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Medicine Name</label>
-            <MedicineAutocomplete value={medicine} onChange={setMedicine} />
+            <MedicineAutocomplete value={medicine} onChange={pickMedicine} />
+            <label className="flex items-center gap-2 mt-2 text-[12px] text-primary font-semibold">
+              <input type="checkbox" checked={noPotency} onChange={(e) => setNoPotency(e.target.checked)} className="h-4 w-4" />
+              Bina potency (jaise PL — non-medicated alcohol)
+            </label>
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">Expiry Date (optional)</label>
@@ -181,27 +205,35 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
               onChange={(e) => setExpiryDate(e.target.value)}
               className="w-full mt-1 rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
             />
-            <p className="text-[10px] text-muted-foreground mt-1">Sabhi potencies is submission ki isi expiry se save hongi.</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Is submission ki sabhi bottles isi expiry se save hongi.</p>
           </div>
           <div>
             <label className="text-[11px] font-bold text-muted-foreground uppercase">
-              Jitni potencies ka stock hai, sab bhar do — khaali chhod do jiska nahi hai
+              Har size ki kitni bottles hain — khaali chhod do jo nahi hai
             </label>
             <div className="mt-1.5 rounded-xl border border-border overflow-hidden">
+              <div style={SIZE_GRID} className="grid gap-1.5 px-2 py-1.5 bg-muted text-[10.5px] font-bold text-muted-foreground uppercase">
+                <span>{noPotency ? "" : "Pot."}</span>
+                {BOTTLE_SIZES.map((size) => <span key={size} className="text-center">{size}</span>)}
+              </div>
               {potencyRows.map((p, i) => (
-                <div key={p} className={cn("flex items-center gap-2 px-3 py-2", i % 2 === 0 ? "bg-surface" : "bg-background")}>
-                  <span className="text-[13px] font-bold text-primary w-14 shrink-0">{p}</span>
-                  <input
-                    value={qtyByPotency[p] ?? ""}
-                    onChange={(e) => setQty(p, e.target.value)}
-                    inputMode="numeric"
-                    placeholder="qty"
-                    className="flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm"
-                  />
+                <div key={p} style={SIZE_GRID} className={cn("grid gap-1.5 items-center px-2 py-1.5", i % 2 === 0 ? "bg-surface" : "bg-background")}>
+                  <span className="text-[13px] font-bold text-primary">{p}</span>
+                  {BOTTLE_SIZES.map((size) => (
+                    <input
+                      key={size}
+                      value={qty[qtyKey(p, size)] ?? ""}
+                      onChange={(e) => setQty(p, size, e.target.value)}
+                      inputMode="numeric"
+                      aria-label={`${p === NO_POTENCY ? "" : p + " "}${size} bottles`}
+                      placeholder="0"
+                      className="w-full min-w-0 rounded-lg border border-input bg-background px-1.5 py-1.5 text-sm text-center"
+                    />
+                  ))}
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-2 mt-2">
+            {!noPotency && <div className="flex items-center gap-2 mt-2">
               <input
                 value={newPotency}
                 onChange={(e) => setNewPotency(e.target.value)}
@@ -212,7 +244,7 @@ function AddStockModal({ defaultBranch, onClose, onAdded }: { defaultBranch: str
               <button type="button" onClick={addCustomPotency} className="rounded-full bg-muted text-primary text-[12px] font-bold px-3 py-1.5 shrink-0">
                 + Row
               </button>
-            </div>
+            </div>}
           </div>
           <button onClick={submit} disabled={saving} className="mt-1 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
             {saving ? "Saving…" : "Save & Next Medicine"}
@@ -242,7 +274,7 @@ function InventoryPage() {
     tab === TOTAL
       ? Array.from(
           allRows.reduce((map, r) => {
-            const key = `${r.medicine_name}__${r.potency ?? ""}`;
+            const key = `${r.medicine_name}__${r.potency ?? ""}__${r.bottle_size ?? ""}`;
             const cur = map.get(key) ?? { ...r, stock_drams: 0, reorder_level: 0 };
             cur.stock_drams = Number(cur.stock_drams) + Number(r.stock_drams ?? 0);
             cur.reorder_level = Math.max(Number(cur.reorder_level), Number(r.reorder_level ?? 0));
@@ -255,6 +287,15 @@ function InventoryPage() {
   const missingExpiryCount = rows.filter(hasMissingExpiry).length;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inventory"] });
+  const [finishing, setFinishing] = useState<string | null>(null);
+  const bottleFinished = async (row: any) => {
+    setFinishing(row.id);
+    const res = await markBottleFinished(row);
+    setFinishing(null);
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    toast.success(`${row.medicine_name} ${row.potency ?? ""} ${row.bottle_size ?? ""} — 1 bottle kam kar di`);
+    invalidate();
+  };
 
   return (
     <RoleShell
@@ -329,7 +370,7 @@ function InventoryPage() {
           {list.map((i, idx) => {
             const low = isLow(i);
             const stock = Number(i.stock_drams ?? i.stock ?? 0);
-            const unit = i.unit ?? "drams";
+            const unit = stock === 1 ? "bottle" : "bottles";
             return (
               <li
                 key={i.id ?? idx}
@@ -341,10 +382,13 @@ function InventoryPage() {
                 <div>
                   <div className="font-bold text-primary text-[15px]">
                     {i.medicine_name ?? i.med} {i.potency && i.potency !== "—" && i.potency}
+                    <span className={cn("ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold align-middle", i.bottle_size ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                      {i.bottle_size ?? "size nahi likha"}
+                    </span>
                   </div>
                   {tab === TOTAL && (
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${allRows.filter((r) => r.medicine_name === i.medicine_name && r.potency === i.potency && r.branch === b).reduce((s, r) => s + Number(r.stock_drams ?? 0), 0)}`).join(" · ")}
+                      {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${allRows.filter((r) => r.medicine_name === i.medicine_name && r.potency === i.potency && (r.bottle_size ?? null) === (i.bottle_size ?? null) && r.branch === b).reduce((s, r) => s + Number(r.stock_drams ?? 0), 0)}`).join(" · ")}
                     </div>
                   )}
                   {low && <div className="text-[12px] text-destructive font-semibold mt-0.5">⚠ Low stock — reorder soon</div>}
@@ -360,6 +404,15 @@ function InventoryPage() {
                 <div className="text-right">
                   <div className={cn("text-lg font-extrabold", low ? "text-destructive" : "text-primary")}>{stock}</div>
                   <div className="text-[11px] text-muted-foreground">{unit}</div>
+                  {tab !== TOTAL && stock > 0 && (
+                    <button
+                      onClick={() => bottleFinished(i)}
+                      disabled={finishing === i.id}
+                      className="mt-1 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] font-bold text-primary disabled:opacity-50"
+                    >
+                      −1 bottle khatam
+                    </button>
+                  )}
                 </div>
               </li>
             );

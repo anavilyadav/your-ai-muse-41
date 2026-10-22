@@ -2869,7 +2869,8 @@ export async function fetchInventory(): Promise<{ rows: any[]; truncated: boolea
 
 export interface StockEntryInput {
   medicine_name: string;
-  potency: string;
+  // null for items with no potency (PL — non-medicated alcohol)
+  potency: string | null;
   branch: string;
   quantity: number;
   type?: string;
@@ -2880,9 +2881,12 @@ export interface StockEntryInput {
   // whichever is EARLIER — the column always reflects the soonest-
   // expiring stock on hand for that item.
   expiry_date?: string | null;
+  // 0096 — stock is counted in bottles of a size (11ml/30ml/100ml/450ml).
+  // Each size is its own stock line. Null for rows from before sizes.
+  bottle_size?: string | null;
 }
 
-/** Adds stock: if a row for this medicine+potency+branch exists, increments it; else creates it. */
+/** Adds stock: if a row for this medicine+potency+size+branch exists, increments it; else creates it. */
 export async function addStockEntry(input: StockEntryInput) {
   // Was read-then-write (select stock_drams, add in JS, write back) —
   // two staff adding stock for the same medicine at the same moment
@@ -2897,17 +2901,19 @@ export async function addStockEntry(input: StockEntryInput) {
     p_quantity: input.quantity,
     p_type: input.type ?? null,
     p_expiry_date: input.expiry_date ?? null,
+    p_bottle_size: input.bottle_size ?? null,
   });
   if (!rpcError) return { success: true, error: null, id: (data as any)?.id };
   logDegradedModeAlert("increment_stock", { medicine_name: input.medicine_name, branch: input.branch });
 
-  const { data: existing } = await supabase
+  let existingQ = supabase
     .from("inventory")
     .select("id, stock_drams, expiry_date")
     .eq("medicine_name", input.medicine_name)
-    .eq("potency", input.potency)
-    .eq("branch", input.branch)
-    .maybeSingle();
+    .eq("branch", input.branch);
+  existingQ = input.potency ? existingQ.eq("potency", input.potency) : existingQ.is("potency", null);
+  existingQ = input.bottle_size ? existingQ.eq("bottle_size", input.bottle_size) : existingQ.is("bottle_size", null);
+  const { data: existing } = await existingQ.maybeSingle();
 
   if (existing?.id) {
     const newStock = Number(existing.stock_drams ?? 0) + input.quantity;
@@ -2927,9 +2933,24 @@ export async function addStockEntry(input: StockEntryInput) {
     stock_drams: input.quantity,
     type: input.type ?? null,
     expiry_date: input.expiry_date ?? null,
+    bottle_size: input.bottle_size ?? null,
   });
   if (error) return { success: false, error: error.message };
   return { success: true, error: null };
+}
+
+/** One bottle of this stock line is used up — Pharmacy taps this instead of
+ * the old per-dispense dram subtraction (0096). Same row-locked RPC as
+ * adding stock, with -1; it never goes below 0. */
+export async function markBottleFinished(row: { medicine_name: string; potency: string | null; branch: string; bottle_size?: string | null }) {
+  const { error } = await supabase.rpc("increment_stock", {
+    p_medicine_name: row.medicine_name,
+    p_potency: row.potency,
+    p_branch: row.branch,
+    p_quantity: -1,
+    p_bottle_size: row.bottle_size ?? null,
+  });
+  return { success: !error, error: error?.message ?? null };
 }
 
 // ---------- Medicine Master (05 Aug 2026) ----------
@@ -2959,17 +2980,17 @@ export interface DBMedicine {
 export async function addBulkStockEntries(
   medicine_name: string,
   branch: string,
-  entries: { potency: string; quantity: number }[],
+  entries: { potency: string | null; quantity: number; bottle_size?: string | null }[],
   expiry_date?: string | null,
 ): Promise<{ succeeded: number; failed: { potency: string; error: string }[] }> {
   const results = await Promise.allSettled(
-    entries.map((e) => addStockEntry({ medicine_name, potency: e.potency, branch, quantity: e.quantity, expiry_date })),
+    entries.map((e) => addStockEntry({ medicine_name, potency: e.potency, branch, quantity: e.quantity, expiry_date, bottle_size: e.bottle_size })),
   );
   const failed: { potency: string; error: string }[] = [];
   let succeeded = 0;
   results.forEach((r, i) => {
     if (r.status === "fulfilled" && r.value.success) succeeded += 1;
-    else failed.push({ potency: entries[i].potency, error: r.status === "fulfilled" ? r.value.error ?? "Unknown error" : String(r.reason) });
+    else failed.push({ potency: [entries[i].potency, entries[i].bottle_size].filter(Boolean).join(" "), error: r.status === "fulfilled" ? r.value.error ?? "Unknown error" : String(r.reason) });
   });
   return { succeeded, failed };
 }
@@ -3120,12 +3141,11 @@ export async function fetchInventoryExpiryForBranch(branch: string): Promise<Rec
 
 export async function markDispensed(visitId: string) {
   // One atomic RPC (audit P0-5, Dr. Yadav's decision 29 Jul): the status
-  // guard + status update + inventory decrement for every prescription
-  // line on this visit all happen in one transaction.
-  // Decrement is approximate by design (Dr. Yadav's own words: exact
-  // drops aren't fixed, staff already eyeballs the physical bottle) —
-  // is_slx (SL globules) = 4 drams (a full 45ml bottle), non-SLX
-  // (drops/liquid) = 0.5 dram.
+  // guard + status update (and, until 0096, an inventory decrement per
+  // prescription line) happen in one transaction.
+  // 0096: stock is now counted in bottles per size, so the RPC no longer
+  // subtracts drams per Rx line (one bottle serves many patients) —
+  // Pharmacy marks a finished bottle with markBottleFinished instead.
   //
   // Block 3: the old two-step fallback was REMOVED. It skipped the
   // inventory decrement entirely, so dispensing kept working while stock
@@ -4634,7 +4654,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0095_link_staff_login";
+export const EXPECTED_SCHEMA_VERSION = "0096_inventory_bottle_sizes";
 
 export interface SchemaMigrationRow {
   filename: string;
