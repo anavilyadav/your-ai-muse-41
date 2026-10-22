@@ -328,13 +328,31 @@ function EditStockModal({ row, onClose, onSaved }: { row: any; onClose: () => vo
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-[11px] font-bold text-muted-foreground uppercase">Kitni bottles hain</label>
-              <input
-                value={count}
-                onChange={(e) => setCount(e.target.value)}
-                inputMode="numeric"
-                className="w-full mt-1 rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
-              />
+              <label className="text-[11px] font-bold text-muted-foreground uppercase">Kul bottles (total)</label>
+              <div className="flex items-center gap-1.5 mt-1">
+                <button
+                  type="button"
+                  aria-label="Ek bottle kam"
+                  onClick={() => setCount(String(Math.max(0, (Number(count) || 0) - 1)))}
+                  className="h-9 w-9 shrink-0 rounded-full bg-muted text-primary text-lg font-extrabold"
+                >
+                  −
+                </button>
+                <input
+                  value={count}
+                  onChange={(e) => setCount(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full min-w-0 rounded-lg border border-input bg-background px-2 py-2 text-sm text-center font-bold"
+                />
+                <button
+                  type="button"
+                  aria-label="Ek bottle zyada"
+                  onClick={() => setCount(String((Number(count) || 0) + 1))}
+                  className="h-9 w-9 shrink-0 rounded-full bg-primary text-primary-foreground text-lg font-extrabold"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <div className="flex-1">
               <label className="text-[11px] font-bold text-muted-foreground uppercase">Expiry</label>
