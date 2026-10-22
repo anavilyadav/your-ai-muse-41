@@ -113,6 +113,8 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
+// Where the Owner "view as" preview used to be saved. It is no longer saved
+// anywhere (see setViewAsRole); the key is only cleared from old installs.
 const LS_VIEW = "yhc-viewas";
 
 function isBackupActiveNow(cfg: BackupDoctorConfig | null, userId: string | undefined): boolean {
@@ -270,14 +272,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshReceptionPerms();
       }
       if (mounted) {
-        // Owner "view as" preview lives only for this tab session. It used
-        // to sit in localStorage, so a preview left on (e.g. Reception)
-        // came back on every later app open and the Owner landed on the
-        // Reception screen after logging in.
+        // Owner "view as" preview is never restored on load. It used to be
+        // saved (localStorage, then sessionStorage), and the installed
+        // MacBook/iPhone apps kept bringing the Owner back to the Reception
+        // screen; an app open or reload now always starts as the real role.
         try {
           localStorage.removeItem(LS_VIEW);
-          const v = sessionStorage.getItem(LS_VIEW);
-          if (v) setViewAsRoleState(v as Role);
+          sessionStorage.removeItem(LS_VIEW);
         } catch {}
         setLoading(false);
       }
@@ -413,12 +414,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setViewAsRoleState(null);
   };
 
+  // Preview is in-memory only — it ends on reload or app restart.
   const setViewAsRole = (r: Role | null) => {
     setViewAsRoleState(r);
-    try {
-      if (r) sessionStorage.setItem(LS_VIEW, r);
-      else sessionStorage.removeItem(LS_VIEW);
-    } catch {}
   };
 
   const hasReceptionPermission = (screenKey: string): boolean => {
