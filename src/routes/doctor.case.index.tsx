@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueueCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
+import { fetchTodayQueueCaseDR, fetchQueueForDateCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { today } from "@/lib/supabase";
 import { Lock, Sparkles } from "lucide-react";
@@ -38,6 +39,10 @@ function CaseBoardPage() {
   // label format ("Bajaj Nagar") instead of the key ("BAJAJ_NAGAR")
   // visits.branch uses — see the comment on index.tsx's identical line.
   const branchScope = effectiveRole === "OWNER" ? undefined : normalizeBranchKey(user?.branch) || undefined;
+  // Any day can be opened (Dr. Yadav, 23 Oct 2026: cases were not shown
+  // date-wise). Today also lists still-pending cases from the last 30 days.
+  const [date, setDate] = useState(() => today());
+  const isToday = date === today();
   const { data, isLoading, isError, error, refetch } = useQuery({
     // A dedicated "casedr" segment, not just branchScope, is deliberate:
     // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,
@@ -49,9 +54,9 @@ function CaseBoardPage() {
     // so existing invalidateQueries({queryKey: ["today-queue"]}) calls
     // elsewhere (register/pay/dispense/case-form/rx-consult) continue to
     // refresh this too.
-    queryKey: ["today-queue", "casedr", branchScope ?? "all"],
-    queryFn: () => fetchTodayQueueCaseDR(branchScope),
-    refetchInterval: 15_000,
+    queryKey: isToday ? ["today-queue", "casedr", branchScope ?? "all"] : ["day-queue", "casedr", branchScope ?? "all", date],
+    queryFn: () => (isToday ? fetchTodayQueueCaseDR(branchScope) : fetchQueueForDateCaseDR(date, branchScope)),
+    refetchInterval: isToday ? 15_000 : false,
   });
   const { data: levels, isError: levelsError } = useQuery({ queryKey: ["case-dr-levels"], queryFn: fetchCaseDrLevels });
 
@@ -85,9 +90,23 @@ function CaseBoardPage() {
   });
   const rows = isJunior ? allRows.filter((r: any) => (r.case_complexity ?? "Simple") === "Simple") : allRows;
   const hiddenForJunior = allRows.length - rows.length;
-  const assigned = rows.length;
-  const submitted = rows.filter((r) => r.visit_status === "WAITING_DOCTOR").length;
+  // Totals are for the chosen day only; older still-pending cases (shown on
+  // today's list) are counted separately so they don't inflate the day.
+  const dayRows = rows.filter((r) => r.visit_date === date);
+  const assigned = dayRows.length;
+  const submitted = dayRows.filter((r) => r.visit_status === "WAITING_DOCTOR").length;
   const remaining = assigned - submitted;
+  const oldPending = rows.length - dayRows.length;
+  const countsByDate = useMemo(() => {
+    const m = new Map<string, { total: number; submitted: number }>();
+    for (const r of rows) {
+      const c = m.get(r.visit_date) ?? { total: 0, submitted: 0 };
+      c.total++;
+      if (r.visit_status === "WAITING_DOCTOR") c.submitted++;
+      m.set(r.visit_date, c);
+    }
+    return m;
+  }, [rows]);
 
   const markComplex = async (visitId: string, current: string) => {
     const next = current === "Complex" ? "Simple" : "Complex";
@@ -102,6 +121,25 @@ function CaseBoardPage() {
 
   return (
     <DoctorShell title="My Cases" subtitle="Contact details hidden" showLogout nav="case">
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          max={today()}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          className="flex-1 rounded-lg bg-surface border border-input px-3 py-2 text-sm"
+          aria-label="Kis din ke case dekhne hain"
+        />
+        {!isToday && (
+          <button onClick={() => setDate(today())} className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary">
+            Aaj
+          </button>
+        )}
+      </div>
+      <div className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">
+        {isToday ? "Aaj ke" : new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " ke"} case
+        {isToday && oldPending > 0 ? ` • purane pending alag: ${oldPending}` : ""}
+      </div>
       <div className="grid grid-cols-3 gap-2">
         <Stat v={assigned} l="Assigned" />
         <Stat v={submitted} l="Submitted" tone="success" />
@@ -128,16 +166,35 @@ function CaseBoardPage() {
       ) : isError ? (
         <ErrorBlock error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
-        <EmptyBlock label="Koi case pending nahi." />
+        <EmptyBlock label={isToday ? "Koi case pending nahi." : "Is din koi case nahi mila."} />
       ) : (
         <ul className="mt-3 space-y-2.5">
-          {rows.map((c: any) => {
+          {rows.map((c: any, i: number) => {
             const status = mapStatus(c.visit_status);
             const clickable = status !== "Submitted";
             const complexity = c.case_complexity ?? "Simple";
             const daysWaiting = Math.max(0, Math.floor((Date.parse(today()) - Date.parse(c.visit_date)) / 86_400_000));
+            // Date headers — same as the reception queue: newest date first,
+            // each group labelled with its calendar date.
+            const showDateHeader = i === 0 || rows[i - 1].visit_date !== c.visit_date;
+            const dayCounts = countsByDate.get(c.visit_date);
             return (
-              <li key={c.id}>
+              <Fragment key={c.id}>
+              {showDateHeader && (
+                <li className="pt-1 first:pt-0">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
+                    {c.visit_date === today()
+                      ? "Aaj"
+                      : new Date(c.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    {dayCounts
+                      ? c.visit_date === date
+                        ? ` • ${dayCounts.total} case • ${dayCounts.submitted} submit`
+                        : ` • ${dayCounts.total - dayCounts.submitted} pending`
+                      : ""}
+                  </div>
+                </li>
+              )}
+              <li>
                 <div
                   className={
                     "rounded-2xl bg-surface border border-border p-3.5 shadow-sm transition " +
@@ -162,7 +219,7 @@ function CaseBoardPage() {
                     </div>
                     <div className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-2 flex-wrap">
                       <span>{c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}</span>
-                      {daysWaiting > 0 && (
+                      {daysWaiting > 0 && status !== "Submitted" && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
                           {daysWaiting}d pending
                         </span>
@@ -193,6 +250,7 @@ function CaseBoardPage() {
                   )}
                 </div>
               </li>
+              </Fragment>
             );
           })}
         </ul>

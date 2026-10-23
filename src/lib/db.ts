@@ -891,6 +891,7 @@ export async function fetchTodayQueueCaseDR(branch?: string) {
   let q = supabase
     .from("visits")
     .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
+    .eq("is_deleted", false)
     .or(`visit_date.eq.${today()},and(visit_status.neq.DONE,visit_date.gte.${thirtyDaysAgo()})`)
     // Same date-descending fix as fetchTodayQueue above.
     .order("visit_date", { ascending: false })
@@ -901,6 +902,21 @@ export async function fetchTodayQueueCaseDR(branch?: string) {
   return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
 }
 
+
+// Case Board for one chosen day (its date picker) — same patient fields as
+// fetchTodayQueueCaseDR, so Hidden Identity Mode still applies.
+export async function fetchQueueForDateCaseDR(date: string, branch?: string) {
+  let q = supabase
+    .from("visits")
+    .select(`*, patient:patients(${CASE_DR_SAFE_PATIENT_FIELDS})`)
+    .eq("visit_date", date)
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: true });
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as (DBVisit & { patient: Partial<DBPatient> })[];
+}
 
 export async function updateCaseComplexity(visitId: string, complexity: "Simple" | "Complex") {
   const { error } = await supabase.from("visits").update({ case_complexity: complexity }).eq("id", visitId);
