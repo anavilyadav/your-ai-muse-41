@@ -3181,14 +3181,25 @@ export async function setMedicineActive(id: string, isActive: boolean): Promise<
  * Jagatpura Y · Total Z" line on the Medicine Master screen. Reuses
  * fetchInventory() (already fetched for the Inventory tab in most sessions)
  * rather than a second round-trip; caller decides whether to pass it in. */
-export function summarizeStockByMedicine(inventoryRows: any[]): Map<string, { potencies: Set<string>; byBranch: Record<string, number>; total: number }> {
-  const map = new Map<string, { potencies: Set<string>; byBranch: Record<string, number>; total: number }>();
+export interface MedicineStockSummary {
+  potencies: Set<string>;
+  byBranch: Record<string, number>;
+  /** Bottles per size ("30ml"); stock entered before sizes existed is under "size nahi likha". */
+  bySize: Record<string, number>;
+  /** Total number of bottles across potencies, sizes and branches. */
+  total: number;
+}
+export const NO_SIZE_LABEL = "size nahi likha";
+export function summarizeStockByMedicine(inventoryRows: any[]): Map<string, MedicineStockSummary> {
+  const map = new Map<string, MedicineStockSummary>();
   for (const r of inventoryRows) {
     if (r.is_deleted) continue;
-    const cur = map.get(r.medicine_name) ?? { potencies: new Set<string>(), byBranch: {}, total: 0 };
+    const cur = map.get(r.medicine_name) ?? { potencies: new Set<string>(), byBranch: {}, bySize: {}, total: 0 };
     if (r.potency) cur.potencies.add(r.potency);
     const stock = Number(r.stock_drams ?? 0);
     cur.byBranch[r.branch] = (cur.byBranch[r.branch] ?? 0) + stock;
+    const size = r.bottle_size || NO_SIZE_LABEL;
+    cur.bySize[size] = (cur.bySize[size] ?? 0) + stock;
     cur.total += stock;
     map.set(r.medicine_name, cur);
   }
@@ -4140,6 +4151,47 @@ export async function createAppointment(input: NewAppointmentInput) {
   return { success: true, error: null, data };
 }
 
+// Statuses an appointment moves through: Confirmed/Tentative -> Arrived
+// (entered the clinic) -> Started (consultation / call has begun) ->
+// Completed. An online follow-up has no clinic step: Confirmed -> Started.
+export const ACTIVE_APPT_STATUSES = ["Confirmed", "Tentative", "Arrived", "Started"];
+
+// Each patient's next live appointment (today or later, not cancelled or
+// completed), for the Appointment / Reschedule buttons shown next to a
+// patient in Queue, Search and the profile.
+export async function fetchUpcomingAppointmentsByPatient(patientIds: string[]): Promise<Map<string, any>> {
+  const out = new Map<string, any>();
+  const ids = Array.from(new Set(patientIds.filter(Boolean)));
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .in("patient_id", ids.slice(i, i + 200))
+      .in("status", ACTIVE_APPT_STATUSES)
+      .gte("appointment_date", today())
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+    if (error) throw dataLoadError(error);
+    for (const a of data ?? []) if (!out.has((a as any).patient_id)) out.set((a as any).patient_id, a);
+  }
+  return out;
+}
+
+// Whether the patient already has a live visit today (so "Clinic aaya"
+// must not create a second token).
+export async function fetchTodayVisitForPatient(patientId: string) {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("id, token_number, visit_status")
+    .eq("patient_id", patientId)
+    .eq("visit_date", today())
+    .eq("is_deleted", false)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw dataLoadError(error);
+  return data as { id: string; token_number: string | null; visit_status: string } | null;
+}
+
 export async function updateAppointmentStatus(id: string, status: string) {
   const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
   return { success: !error, error: error?.message ?? null };
@@ -4179,7 +4231,9 @@ export type ApptBranch = "BAJAJ_NAGAR" | "JAGATPURA";
 // `hours` every type already uses, with its own slotMinutes/dailyCap.
 export type ApptType = "NEW" | "FOLLOWUP" | "CALL_BACK";
 export const APPT_TYPES: ApptType[] = ["NEW", "FOLLOWUP", "CALL_BACK"];
-export const apptTypeLabel = (t: ApptType) => (t === "NEW" ? "New Case" : t === "FOLLOWUP" ? "Follow-up" : "Call Back");
+// Labels as Dr. Yadav names them (23 Oct 2026): a clinic follow-up is
+// "Offline", the call/online one "Online". The stored codes are unchanged.
+export const apptTypeLabel = (t: ApptType) => (t === "NEW" ? "New Case" : t === "FOLLOWUP" ? "Offline Follow-up" : "Online Follow-up");
 
 export interface TypeSlotConfig {
   slotMinutes: number;

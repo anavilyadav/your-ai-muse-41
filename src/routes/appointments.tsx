@@ -50,6 +50,8 @@ export const apptStatusStyle: Record<string, string> = {
   Tentative: "bg-accent/25 text-accent-foreground border-accent/50",
   Cancelled: "bg-destructive/15 text-destructive border-destructive/40",
   Arrived: "bg-primary/15 text-primary border-primary/40",
+  Started: "bg-success/20 text-success border-success/50",
+  Completed: "bg-muted text-muted-foreground border-border",
 };
 const statusStyle = apptStatusStyle;
 
@@ -573,7 +575,7 @@ function AppointmentsPage() {
   // Shared with the Queue's "today's appointments" section — one real
   // implementation of Arrive/Cancel so the two surfaces can't drift
   // apart on behavior (24 Sep 2026).
-  const { markArrived, cancelAppointment } = useAppointmentActions();
+  const { markArrived, markStarted, markCompleted, cancelAppointment } = useAppointmentActions();
   const [rescheduling, setRescheduling] = useState<any | null>(null);
 
   return (
@@ -701,7 +703,21 @@ function AppointmentsPage() {
               </span>
             </div>
 
-            {a.status !== "Cancelled" && a.status !== "Arrived" && (
+            {(a.status === "Arrived" || a.status === "Started") && (
+              <div className="mt-2.5 flex gap-1.5">
+                {a.status === "Arrived" && (
+                  <button onClick={() => markStarted(a)} className="rounded-lg bg-success text-success-foreground px-3 py-1.5 text-[11px] font-semibold">
+                    ▶ Consultation shuru
+                  </button>
+                )}
+                {a.status === "Started" && (
+                  <button onClick={() => markCompleted(a)} className="rounded-lg border border-success/50 bg-surface text-success px-3 py-1.5 text-[11px] font-semibold">
+                    ✓ Ho gaya
+                  </button>
+                )}
+              </div>
+            )}
+            {a.status !== "Cancelled" && a.status !== "Arrived" && a.status !== "Started" && a.status !== "Completed" && (
               <div className="mt-2.5 grid grid-cols-5 gap-1.5">
                 <a
                   href={`tel:${a.mobile}`}
@@ -718,10 +734,10 @@ function AppointmentsPage() {
                   <MessageCircle className="h-3 w-3" /> WA
                 </a>
                 <button
-                  onClick={() => markArrived(a)}
+                  onClick={() => ((a.appointment_type ?? "FOLLOWUP") === "CALL_BACK" ? markStarted(a) : markArrived(a))}
                   className="rounded-lg bg-primary text-primary-foreground py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
-                  <CheckCircle2 className="h-3 w-3" /> Arrived
+                  <CheckCircle2 className="h-3 w-3" /> {(a.appointment_type ?? "FOLLOWUP") === "CALL_BACK" ? "Call shuru" : "Arrived"}
                 </button>
                 <button
                   onClick={() => setRescheduling(a)}

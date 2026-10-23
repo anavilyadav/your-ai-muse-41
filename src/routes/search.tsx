@@ -5,6 +5,7 @@ import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { searchPatients, displayPatientCode } from "@/lib/db";
+import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
 
 export const Route = createFileRoute("/search")({
   head: () => ({ meta: [{ title: "Search Patients — YHC Jaipur" }] }),
@@ -52,6 +53,8 @@ function SearchPage() {
       clearTimeout(t);
     };
   }, [q, retryTick]);
+
+  const apptMap = usePatientAppointments(results.map((p) => p.id)).data;
 
   return (
     <MobileShell title="Search Patients" showBack>
@@ -122,6 +125,7 @@ function SearchPage() {
                 Online Follow-up
               </Link>
             </div>
+            <PatientApptBar patient={p} appt={apptMap?.get(p.id)} className="mt-2" />
           </li>
         ))}
       </ul>

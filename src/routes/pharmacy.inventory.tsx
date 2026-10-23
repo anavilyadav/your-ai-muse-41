@@ -464,6 +464,7 @@ function InventoryPage() {
       </div>
       <div className="flex gap-2 mt-3">
         <Stat v={rows.length} l={tab === TOTAL ? "Total Items" : `${branchLabel(tab)} Items`} />
+        <Stat v={rows.reduce((sum, r) => sum + Number(r.stock_drams ?? 0), 0)} l="Total Bottles" />
         <Stat v={rows.filter(isLow).length} l="Low Stock" tone="destructive" />
         <Stat v={rows.filter((r) => isExpiringSoon(r) || isExpired(r)).length} l="Expiring" tone="destructive" />
       </div>

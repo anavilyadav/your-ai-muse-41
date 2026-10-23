@@ -5,6 +5,7 @@ import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarC
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
+import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
@@ -62,7 +63,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
     queryFn: () => fetchAppointments(apptDate),
     refetchInterval: 30_000,
   });
-  const { markArrived, cancelAppointment } = useAppointmentActions([["today-queue"]]);
+  const { markArrived, markStarted, markCompleted, cancelAppointment } = useAppointmentActions([["today-queue"]]);
   const [rescheduling, setRescheduling] = useState<any | null>(null);
   // Today's queue (same query/cache the Queue below uses) — to tell which
   // appointment patients already have a token, and where they are now.
@@ -80,7 +81,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   // booked by phone walked in there was nothing to say she is sitting in the
   // waiting area (Dr. Yadav, 23 Oct 2026). They stay, with their token and
   // current stage.
-  const arrived = inScope.filter((a: any) => a.status === "Arrived");
+  const arrived = inScope.filter((a: any) => a.status === "Arrived" || a.status === "Started");
 
   // Already has a token today (e.g. checked in through Register instead of
   // Arrived): just close the appointment — checking in again would give a
@@ -111,8 +112,23 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                   <span className="truncate text-sm font-semibold text-primary">{a.patient_name}</span>
                 </div>
                 <span className="shrink-0 text-[11px] font-bold text-success">
-                  ✅ Aa gaye{v ? ` • ${v.token_number ?? "token"}` : ""}{stage ? ` • ${stage}` : ""}
+                  {a.status === "Started"
+                    ? `▶ ${a.appointment_type === "CALL_BACK" ? "Call" : "Consultation"} chal rahi hai`
+                    : "✅ Aa gaye"}
+                  {v ? ` • ${v.token_number ?? "token"}` : ""}{stage ? ` • ${stage}` : ""}
                 </span>
+              </div>
+              <div className="mt-1.5 flex gap-1.5">
+                {a.status === "Arrived" && (
+                  <button onClick={() => markStarted(a)} className="rounded-full bg-success text-success-foreground px-3 py-1 text-[11px] font-bold">
+                    ▶ Consultation shuru
+                  </button>
+                )}
+                {a.status === "Started" && (
+                  <button onClick={() => markCompleted(a)} className="rounded-full border border-success/50 bg-surface text-success px-3 py-1 text-[11px] font-bold">
+                    ✓ Ho gaya
+                  </button>
+                )}
               </div>
               {stage === "Waiting" && (
                 <div className="text-[11px] text-muted-foreground mt-1">Waiting area me baithe hain — doctor ko bhejna baaki.</div>
@@ -153,9 +169,14 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <MessageCircle className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">WA</span>
               </a>
-              <button onClick={() => (v ? closeWithoutCheckIn(a) : markArrived(a))} className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5">
+              <button
+                onClick={() => (a.appointment_type === "CALL_BACK" ? markStarted(a) : v ? closeWithoutCheckIn(a) : markArrived(a))}
+                className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5"
+              >
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-[9px] font-bold leading-none">{v ? "Done" : "Arrived"}</span>
+                <span className="text-[9px] font-bold leading-none">
+                  {a.appointment_type === "CALL_BACK" ? "Call shuru" : v ? "Done" : "Arrived"}
+                </span>
               </button>
               <button onClick={() => setRescheduling(a)} className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 flex flex-col items-center gap-0.5">
                 <CalendarClock className="h-3.5 w-3.5" />
@@ -253,6 +274,10 @@ function QueuePage() {
   }, [apptToday]);
 
   const rows = data ?? [];
+  // Appointment / Reschedule buttons under each of today's patients.
+  const apptByPatientNext = usePatientAppointments(
+    rows.filter((r) => r.visit_date === todayStr()).map((r) => r.patient_id),
+  ).data;
   const stats = useMemo(() => {
     const day = rows.filter((r) => r.visit_date === date);
     const waiting = day.filter((r) => ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status)).length;
@@ -501,6 +526,15 @@ function QueuePage() {
                     </div>
                   </div>
                 </button>
+                {/* Appointment / Reschedule for every patient of today —
+                    outside the row's button, buttons can't nest. */}
+                {r.visit_date === todayStr() && r.visit_status !== "DONE" && r.patient && (
+                  <PatientApptBar
+                    patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
+                    appt={apptByPatientNext?.get(r.patient_id)}
+                    className="px-1 mt-1.5"
+                  />
+                )}
               </li>
               </Fragment>
             );

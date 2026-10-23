@@ -8,6 +8,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
+import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
@@ -1023,6 +1024,7 @@ function PatientProfilePage() {
   // Effective role: Owner-only controls (merge, delete...) must not show while
   // previewing a staff role, or the preview is not what staff really see.
   const isOwner = useEffectiveRole() === "OWNER";
+  const profileAppt = usePatientAppointments([id]).data?.get(id);
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
@@ -1299,6 +1301,14 @@ function PatientProfilePage() {
 
       <div className="mt-3">
         <DataQualityBanner patient={patient} onEdit={() => setShowEditModal(true)} />
+      </div>
+
+      <div className="mt-3 rounded-xl bg-surface border border-border p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5">Appointment</div>
+        <PatientApptBar
+          patient={{ id: patient.id, name: patient.name, mobile: patient.mobile, branch: patient.branch, wa_consent: patient.wa_consent }}
+          appt={profileAppt}
+        />
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2">

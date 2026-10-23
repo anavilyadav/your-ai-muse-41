@@ -187,7 +187,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isRemovedFromStaff = async (): Promise<boolean> => {
     try {
       const { data, error } = await withTimeout(Promise.resolve(supabase.rpc("my_staff_status")), 8_000, "Staff status");
-      return !error && (data === "REMOVED" || data === "NONE");
+      // Only a definite "REMOVED" counts. "NONE" also comes back while a
+      // session token is being refreshed, and must never sign anyone out.
+      return !error && data === "REMOVED";
     } catch {
       return false;
     }

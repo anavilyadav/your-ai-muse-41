@@ -13,6 +13,7 @@ import {
   setMedicineActive,
   fetchInventory,
   summarizeStockByMedicine,
+  type MedicineStockSummary,
   branchLabel,
   BRANCH_KEYS,
   type DBMedicine,
@@ -84,7 +85,7 @@ function EditRow({
   onSaved,
 }: {
   med: DBMedicine;
-  stockSummary?: { byBranch: Record<string, number>; total: number; potencies: Set<string> };
+  stockSummary?: MedicineStockSummary;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -135,7 +136,13 @@ function EditRow({
             {stockSummary ? (
               <div className="text-[12px] text-muted-foreground mt-0.5">
                 {stockSummary.potencies.size > 0 && `Potencies: ${Array.from(stockSummary.potencies).join(", ")} · `}
-                {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${stockSummary.byBranch[b] ?? 0}`).join(" · ")} · Total: {stockSummary.total}
+                {BRANCH_KEYS.map((b) => `${branchLabel(b)}: ${stockSummary.byBranch[b] ?? 0}`).join(" · ")} · <b className="text-primary">Total: {stockSummary.total} bottle{stockSummary.total === 1 ? "" : "s"}</b>
+                <div className="mt-0.5">
+                  {Object.entries(stockSummary.bySize)
+                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]) || a[0].localeCompare(b[0]))
+                    .map(([size, n]) => `${size}: ${n}`)
+                    .join(" · ")}
+                </div>
               </div>
             ) : (
               <div className="text-[12px] text-muted-foreground mt-0.5">Abhi koi stock nahi — Inventory se "+ Stock" karo</div>

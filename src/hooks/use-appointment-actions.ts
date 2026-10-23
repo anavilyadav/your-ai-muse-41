@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { updateAppointmentStatus, checkInExistingPatient, normalizeBranchKey } from "@/lib/db";
+import { updateAppointmentStatus, checkInExistingPatient, normalizeBranchKey, fetchTodayVisitForPatient } from "@/lib/db";
 
 // Shared between the standalone /appointments page and the Queue's own
 // "today's appointments" section (24 Sep 2026 — Dr. Yadav wanted
@@ -32,6 +32,14 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
     if (a.patient_id) {
       const branch = normalizeBranchKey(a.branch) || "BAJAJ_NAGAR";
       try {
+        // Already in today's queue (e.g. checked in through Register): just
+        // mark the appointment, a second check-in would give a second token.
+        const already = await fetchTodayVisitForPatient(a.patient_id);
+        if (already) {
+          invalidateAll();
+          toast.success(`${a.patient_name} pehle se queue me hain — Token ${already.token_number ?? ""}`);
+          return;
+        }
         const { visit } = await checkInExistingPatient({
           patient_id: a.patient_id,
           branch: branch as "BAJAJ_NAGAR" | "JAGATPURA",
@@ -50,6 +58,21 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
         search: { name: a.patient_name ?? "", mobile: a.mobile ?? "", branch: normalizeBranchKey(a.branch) || "" },
       });
     }
+  };
+
+  // Consultation (or the follow-up call) has begun.
+  const markStarted = async (a: any) => {
+    const res = await updateAppointmentStatus(a.id, "Started");
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    invalidateAll();
+    toast.success(`${a.patient_name} — ${a.appointment_type === "CALL_BACK" ? "call" : "consultation"} shuru`);
+  };
+
+  const markCompleted = async (a: any) => {
+    const res = await updateAppointmentStatus(a.id, "Completed");
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    invalidateAll();
+    toast.success(`${a.patient_name} — ho gaya`);
   };
 
   const cancelAppointment = async (a: any) => {
@@ -73,5 +96,5 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
     });
   };
 
-  return { markArrived, cancelAppointment };
+  return { markArrived, markStarted, markCompleted, cancelAppointment };
 }
