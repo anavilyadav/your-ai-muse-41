@@ -227,6 +227,11 @@ function OwnerDashboard() {
           <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
           <div className="text-[11px] text-muted-foreground">Har change ka record</div>
         </Link>
+        <Link to="/owner/card-index" className="rounded-2xl bg-surface border border-border p-3.5">
+          <BookUser className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Card Registers</div>
+          <div className="text-[11px] text-muted-foreground">Kaun se number gayab hain — register wise</div>
+        </Link>
         <Link to="/owner/trash" className="rounded-2xl bg-surface border border-border p-3.5">
           <Trash2 className="h-5 w-5 text-destructive" />
           <div className="font-bold text-primary text-sm mt-1">Trash{trashCount > 0 ? ` (${trashCount})` : ""}</div>

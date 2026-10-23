@@ -6912,6 +6912,9 @@ export async function fetchCardIndex(): Promise<Record<string, CardIndexPatient[
       .not("card_series", "is", null)
       .not("card_register", "is", null)
       .not("card_number", "is", null)
+      // Stable order — paging with .range() over an unordered query can
+      // skip or repeat rows between pages.
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw dataLoadError(error);
     if (!data || data.length === 0) break;
