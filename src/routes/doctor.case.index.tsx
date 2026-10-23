@@ -3,6 +3,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
+import { FlowBar } from "@/components/yhc/FlowBar";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchQueueForDateCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -121,6 +122,7 @@ function CaseBoardPage() {
 
   return (
     <DoctorShell title="My Cases" subtitle="Contact details hidden" showLogout nav="case">
+      <FlowBar branch={branchScope} />
       <div className="mb-2 flex items-center gap-2">
         <input
           type="date"

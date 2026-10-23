@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { List, Package, BookOpen, Truck } from "lucide-react";
 import { RoleShell, type NavItem } from "@/components/yhc/RoleShell";
+import { FlowBar } from "@/components/yhc/FlowBar";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -42,6 +43,7 @@ function PharmacyQueue() {
 
   return (
     <RoleShell wide title="Pharmacy Queue" subtitle="Today" nav={PHARMACY_NAV}>
+      <FlowBar branch={branchScope} />
       {isLoading ? (
         <LoadingBlock />
       ) : isError ? (

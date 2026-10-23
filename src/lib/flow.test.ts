@@ -1,0 +1,29 @@
+import { describe, expect, it } from "vitest";
+import { summarizeFlow } from "./flow";
+
+const v = (token: string | null, visit_status: string) => ({ token_number: token, visit_status });
+
+describe("summarizeFlow", () => {
+  it("puts each patient in the stage of their status", () => {
+    const s = summarizeFlow([v("T-01", "REGISTERED"), v("T-02", "CASE_TAKING"), v("T-03", "WAITING_DOCTOR"), v("T-04", "PHARMACY"), v("T-05", "PAYMENT"), v("T-06", "DONE")]);
+    expect(s.map((x) => [x.stage.key, x.count])).toEqual([["waiting", 1], ["case", 1], ["doctor", 1], ["pharmacy", 1], ["payment", 1], ["done", 1]]);
+  });
+
+  it("serves the lowest token first, numerically (T-2 before T-10)", () => {
+    const s = summarizeFlow([v("T-10", "REGISTERED"), v("T-02", "REGISTERED"), v("T-03", "WAITING")]);
+    const waiting = s.find((x) => x.stage.key === "waiting")!;
+    expect(waiting.tokens).toEqual(["T-02", "T-03", "T-10"]);
+    expect(waiting.current).toBe("T-02");
+  });
+
+  it("groups WAITING_DOCTOR and PRESCRIBED under the doctor", () => {
+    const doctor = summarizeFlow([v("T-01", "PRESCRIBED"), v("T-02", "WAITING_DOCTOR")]).find((x) => x.stage.key === "doctor")!;
+    expect(doctor.count).toBe(2);
+  });
+
+  it("has no current token for an empty stage and tolerates a missing token", () => {
+    const s = summarizeFlow([v(null, "PHARMACY")]);
+    expect(s.find((x) => x.stage.key === "case")!.current).toBeNull();
+    expect(s.find((x) => x.stage.key === "pharmacy")!.tokens).toEqual(["—"]);
+  });
+});

@@ -2,9 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock } from "lucide-react";
+import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
+import { FlowBar } from "@/components/yhc/FlowBar";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, fetchQueueForDate, fetchAppointments, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
+import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -62,20 +64,65 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   });
   const { markArrived, cancelAppointment } = useAppointmentActions([["today-queue"]]);
   const [rescheduling, setRescheduling] = useState<any | null>(null);
+  // Today's queue (same query/cache the Queue below uses) — to tell which
+  // appointment patients already have a token, and where they are now.
+  const { data: queueToday } = useQuery({
+    queryKey: ["today-queue", branchScope ?? "all"],
+    queryFn: () => fetchTodayQueue(branchScope),
+    refetchInterval: 15_000,
+  });
+  const visitFor = (a: any) =>
+    a.patient_id ? (queueToday ?? []).find((v) => v.patient_id === a.patient_id && v.visit_date === apptDate) : undefined;
 
-  const upcoming = (data?.rows ?? []).filter(
-    (a: any) => (a.status === "Confirmed" || a.status === "Tentative") && (!branchScope || a.branch === branchScope),
-  );
+  const inScope = (data?.rows ?? []).filter((a: any) => !branchScope || a.branch === branchScope);
+  const upcoming = inScope.filter((a: any) => a.status === "Confirmed" || a.status === "Tentative");
+  // Arrived appointments used to vanish from here, so once a patient who
+  // booked by phone walked in there was nothing to say she is sitting in the
+  // waiting area (Dr. Yadav, 23 Oct 2026). They stay, with their token and
+  // current stage.
+  const arrived = inScope.filter((a: any) => a.status === "Arrived");
 
-  if (upcoming.length === 0) return null;
+  // Already has a token today (e.g. checked in through Register instead of
+  // Arrived): just close the appointment — checking in again would give a
+  // second token.
+  const closeWithoutCheckIn = async (a: any) => {
+    const res = await updateAppointmentStatus(a.id, "Arrived");
+    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    qc.invalidateQueries({ queryKey: ["appointments"] });
+  };
+
+  if (upcoming.length === 0 && arrived.length === 0) return null;
 
   return (
     <div className="mt-4">
       <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2 flex items-center gap-1.5">
-        <CalendarClock className="h-3.5 w-3.5" /> Aaj ke Appointments ({upcoming.length})
+        <CalendarClock className="h-3.5 w-3.5" /> Aaj ke Appointments ({upcoming.length + arrived.length})
       </div>
       <ul className="space-y-2">
-        {upcoming.map((a: any) => (
+        {arrived.map((a: any) => {
+          const v = visitFor(a);
+          const stage = v ? statusLabel(v.visit_status) : null;
+          return (
+            <li key={a.id} className="rounded-xl bg-success/10 border border-success/40 p-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="min-w-0 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+                  <span className="shrink-0 text-[11px] font-bold text-primary">{a.appointment_time}</span>
+                  <span className="truncate text-sm font-semibold text-primary">{a.patient_name}</span>
+                </div>
+                <span className="shrink-0 text-[11px] font-bold text-success">
+                  ✅ Aa gaye{v ? ` • ${v.token_number ?? "token"}` : ""}{stage ? ` • ${stage}` : ""}
+                </span>
+              </div>
+              {stage === "Waiting" && (
+                <div className="text-[11px] text-muted-foreground mt-1">Waiting area me baithe hain — doctor ko bhejna baaki.</div>
+              )}
+            </li>
+          );
+        })}
+        {upcoming.map((a: any) => {
+          const v = visitFor(a);
+          return (
           <li key={a.id} className="rounded-xl bg-surface border border-border p-2.5">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="min-w-0 flex items-center gap-1.5">
@@ -88,6 +135,11 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 {apptTypeLabel((a.appointment_type ?? "FOLLOWUP") as ApptType)} • {branchLabel(a.branch)}
               </span>
             </div>
+            {v && (
+              <div className="mt-1 text-[11px] font-semibold text-success">
+                ✅ Queue me pehle se hain — {v.token_number ?? "token"} • {statusLabel(v.visit_status)}
+              </div>
+            )}
             {/* Text labels added (25 Sep 2026) — Dr. Yadav: icon-only
                 buttons here were confusing ("symbol se nahi likh kr
                 batao"). Icon + tiny label, still compact enough for 5
@@ -101,9 +153,9 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <MessageCircle className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">WA</span>
               </a>
-              <button onClick={() => markArrived(a)} className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5">
+              <button onClick={() => (v ? closeWithoutCheckIn(a) : markArrived(a))} className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-[9px] font-bold leading-none">Arrived</span>
+                <span className="text-[9px] font-bold leading-none">{v ? "Done" : "Arrived"}</span>
               </button>
               <button onClick={() => setRescheduling(a)} className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 flex flex-col items-center gap-0.5">
                 <CalendarClock className="h-3.5 w-3.5" />
@@ -118,7 +170,8 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
               </button>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {rescheduling && (
         <RescheduleModal
@@ -159,6 +212,45 @@ function QueuePage() {
     queryFn: () => (isToday ? fetchTodayQueue(branchScope) : fetchQueueForDate(date, branchScope)),
     refetchInterval: isToday ? 15_000 : false,
   });
+
+  // Entries made today/yesterday for OLDER dates ("Purani Tareekh Se Entry")
+  // belong to their real visit date, so they are not in today's list —
+  // Dr. Yadav (23 Oct 2026): "kal aur aaj entry hui hai lekin queue me nahi
+  // dikh rahi". Listed here by the date they were entered, each date one tap away.
+  const yesterdayStr = useMemo(() => {
+    const d = new Date(`${todayStr()}T00:00:00`);
+    d.setDate(d.getDate() - 1);
+    return d.toLocaleDateString("en-CA");
+  }, []);
+  const backfillToday = useQuery({ queryKey: ["backfilled", todayStr()], queryFn: () => fetchBackfilledEntries(todayStr()), staleTime: 60_000 });
+  const backfillYesterday = useQuery({ queryKey: ["backfilled", yesterdayStr], queryFn: () => fetchBackfilledEntries(yesterdayStr), staleTime: 60_000 });
+  const noPayment = useQuery({ queryKey: ["backfill-no-payment"], queryFn: fetchBackfilledWithoutPayment, staleTime: 5 * 60_000 });
+  const noPaymentCount = noPayment.data?.length ?? 0;
+  const backfillGroups = useMemo(() => {
+    const groups: { label: string; total: number; dates: { date: string; n: number }[] }[] = [];
+    for (const [label, rowsB] of [["Aaj", backfillToday.data], ["Kal", backfillYesterday.data]] as const) {
+      if (!rowsB || rowsB.length === 0) continue;
+      const m = new Map<string, number>();
+      for (const r of rowsB) m.set(r.visit_date, (m.get(r.visit_date) ?? 0) + 1);
+      groups.push({ label, total: rowsB.length, dates: Array.from(m, ([d, n]) => ({ date: d, n })).sort((a, b) => b.date.localeCompare(a.date)) });
+    }
+    return groups;
+  }, [backfillToday.data, backfillYesterday.data]);
+
+  // Patients who booked an appointment for today — shown on their queue row
+  // ("📞 Appt 17:00"), so staff can tell who came after a phone booking.
+  const { data: apptToday } = useQuery({
+    queryKey: ["appointments", todayStr()],
+    queryFn: () => fetchAppointments(todayStr()),
+    refetchInterval: 30_000,
+  });
+  const apptByPatient = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const a of apptToday?.rows ?? []) {
+      if (a.patient_id && a.status !== "Cancelled") m.set(a.patient_id, a);
+    }
+    return m;
+  }, [apptToday]);
 
   const rows = data ?? [];
   const stats = useMemo(() => {
@@ -221,6 +313,39 @@ function QueuePage() {
           </button>
         )}
       </div>
+      <FlowBar branch={branchScope} />
+      {noPaymentCount > 0 && (
+        <Link
+          to="/backfill-payments"
+          className="mb-2 block rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 text-[12px] font-semibold text-destructive"
+        >
+          💰 {noPaymentCount} purani entry me payment darj nahi hai — daalne ke liye dabao →
+        </Link>
+      )}
+      {backfillGroups.length > 0 && (
+        <div className="mb-2 rounded-xl bg-accent/20 border border-accent/40 p-2.5">
+          <div className="text-[11px] font-bold text-primary mb-1.5">📝 Purani tareekh ki entries — queue me unki visit ki date pe milengi</div>
+          {backfillGroups.map((g) => (
+            <div key={g.label} className="mb-1 last:mb-0">
+              <div className="text-[11px] text-muted-foreground mb-1">{g.label} {g.total} entry hui:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.dates.map((d) => (
+                  <button
+                    key={d.date}
+                    onClick={() => setDate(d.date)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                      date === d.date ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-primary border-border",
+                    )}
+                  >
+                    {new Date(`${d.date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} • {d.n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">
         {isToday ? "Aaj ke" : new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " ke"} patient
         {isToday && stats.oldPending > 0 ? ` • purane pending alag: ${stats.oldPending}` : ""}
@@ -360,6 +485,11 @@ function QueuePage() {
                       <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", statusStyles[s] ?? "bg-muted text-muted-foreground border-border")}>
                         {s}
                       </span>
+                      {r.visit_date === todayStr() && apptByPatient.get(r.patient_id) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-primary/10 text-primary border-primary/30">
+                          📞 Appt {apptByPatient.get(r.patient_id).appointment_time}
+                        </span>
+                      )}
                       {daysOld > 0 && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
                           {daysOld}d pending

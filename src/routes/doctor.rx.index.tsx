@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
+import { FlowBar } from "@/components/yhc/FlowBar";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -55,6 +56,7 @@ function RxQueue() {
 
   return (
     <DoctorShell title="Rx Queue" subtitle="Today + any pending" showLogout nav="rx">
+      <FlowBar branch={branchScope} />
       {isLoading ? (
         <LoadingBlock />
       ) : isError ? (
