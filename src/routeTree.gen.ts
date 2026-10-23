@@ -20,6 +20,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as OutstandingRouteImport } from './routes/outstanding'
 import { Route as PurchaseOrdersRouteImport } from './routes/purchase-orders'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as ResetRouteImport } from './routes/reset'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as SummaryRouteImport } from './routes/summary'
 import { Route as TasksRouteImport } from './routes/tasks'
@@ -115,6 +116,11 @@ const PurchaseOrdersRoute = PurchaseOrdersRouteImport.update({
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetRoute = ResetRouteImport.update({
+  id: '/reset',
+  path: '/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SearchRoute = SearchRouteImport.update({
@@ -335,6 +341,7 @@ export interface FileRoutesByFullPath {
   '/outstanding': typeof OutstandingRoute
   '/purchase-orders': typeof PurchaseOrdersRoute
   '/register': typeof RegisterRoute
+  '/reset': typeof ResetRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
@@ -389,6 +396,7 @@ export interface FileRoutesByTo {
   '/outstanding': typeof OutstandingRoute
   '/purchase-orders': typeof PurchaseOrdersRoute
   '/register': typeof RegisterRoute
+  '/reset': typeof ResetRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
@@ -444,6 +452,7 @@ export interface FileRoutesById {
   '/outstanding': typeof OutstandingRoute
   '/purchase-orders': typeof PurchaseOrdersRoute
   '/register': typeof RegisterRoute
+  '/reset': typeof ResetRoute
   '/search': typeof SearchRoute
   '/summary': typeof SummaryRoute
   '/tasks': typeof TasksRoute
@@ -500,6 +509,7 @@ export interface FileRouteTypes {
     | '/outstanding'
     | '/purchase-orders'
     | '/register'
+    | '/reset'
     | '/search'
     | '/summary'
     | '/tasks'
@@ -554,6 +564,7 @@ export interface FileRouteTypes {
     | '/outstanding'
     | '/purchase-orders'
     | '/register'
+    | '/reset'
     | '/search'
     | '/summary'
     | '/tasks'
@@ -608,6 +619,7 @@ export interface FileRouteTypes {
     | '/outstanding'
     | '/purchase-orders'
     | '/register'
+    | '/reset'
     | '/search'
     | '/summary'
     | '/tasks'
@@ -663,6 +675,7 @@ export interface RootRouteChildren {
   OutstandingRoute: typeof OutstandingRoute
   PurchaseOrdersRoute: typeof PurchaseOrdersRoute
   RegisterRoute: typeof RegisterRoute
+  ResetRoute: typeof ResetRoute
   SearchRoute: typeof SearchRoute
   SummaryRoute: typeof SummaryRoute
   TasksRoute: typeof TasksRoute
@@ -783,6 +796,13 @@ declare module '@tanstack/react-router' {
       path: '/register'
       fullPath: '/register'
       preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset': {
+      id: '/reset'
+      path: '/reset'
+      fullPath: '/reset'
+      preLoaderRoute: typeof ResetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/search': {
@@ -1087,6 +1107,7 @@ const rootRouteChildren: RootRouteChildren = {
   OutstandingRoute: OutstandingRoute,
   PurchaseOrdersRoute: PurchaseOrdersRoute,
   RegisterRoute: RegisterRoute,
+  ResetRoute: ResetRoute,
   SearchRoute: SearchRoute,
   SummaryRoute: SummaryRoute,
   TasksRoute: TasksRoute,

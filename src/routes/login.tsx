@@ -104,6 +104,9 @@ function LoginPage() {
           <p className="text-center text-[11px] text-muted-foreground pt-2">
             {t("YHC OS • Only registered staff. Bhool gaye PIN? Owner se milein.")}
           </p>
+          <p className="text-center text-[11px] text-muted-foreground">
+            <a href="/reset" className="underline">App atak gaya ya purana dikh raha hai? Reset karo</a>
+          </p>
         </form>
       </div>
     </div>

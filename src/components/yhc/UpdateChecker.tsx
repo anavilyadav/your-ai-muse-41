@@ -43,6 +43,21 @@ export function UpdateChecker() {
     const current = loadedEntry();
     if (!current) return;
 
+    // An app left open for days still holds the old page, whose other
+    // screens' files no longer exist on the server after a deploy (404) —
+    // opening one hangs the app. Vite reports that as "vite:preloadError";
+    // reload once to get the current files (guard: never loop).
+    const onPreloadError = (e: Event) => {
+      e.preventDefault();
+      try {
+        const last = Number(sessionStorage.getItem("yhc_chunk_reload") ?? 0);
+        if (Date.now() - last < 30_000) return;
+        sessionStorage.setItem("yhc_chunk_reload", String(Date.now()));
+      } catch {}
+      window.location.reload();
+    };
+    window.addEventListener("vite:preloadError", onPreloadError);
+
     let hiddenAt: number | null = null;
     let prompted = false;
 
@@ -77,6 +92,7 @@ export function UpdateChecker() {
       if (document.visibilityState === "visible") void check(false);
     }, CHECK_EVERY_MS);
     return () => {
+      window.removeEventListener("vite:preloadError", onPreloadError);
       document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(timer);
     };
