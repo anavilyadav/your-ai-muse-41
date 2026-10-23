@@ -27,12 +27,15 @@ function Row({ row, modes, onSaved }: { row: BackfillPayRow; modes: { code: stri
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState(modes[0]?.code ?? "CASH");
   const [saving, setSaving] = useState(false);
+  // Consultation has not happened yet: the entry goes back to waiting and the
+  // money is kept as an advance, instead of the visit staying closed.
+  const [pending, setPending] = useState(false);
 
   const save = async () => {
     const n = Number(amount);
     if (!n || n <= 0) { toast.error("Amount bharo"); return; }
     setSaving(true);
-    const res = await recordBackfillPayment(row.visit_id, n, mode);
+    const res = await recordBackfillPayment(row.visit_id, n, mode, undefined, pending);
     setSaving(false);
     if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
     toast.success(`${row.patient_name} — ₹${n.toLocaleString("en-IN")} darj ho gaya`);
@@ -82,6 +85,10 @@ function Row({ row, modes, onSaved }: { row: BackfillPayRow; modes: { code: stri
           {saving ? "…" : "Save"}
         </button>
       </div>
+      <label className="mt-2 flex items-center gap-2 text-[11.5px] font-semibold text-primary">
+        <input type="checkbox" checked={pending} onChange={(e) => setPending(e.target.checked)} className="h-4 w-4" />
+        Consultation abhi baaki hai (advance) — visit pending me wapas daalo
+      </label>
     </li>
   );
 }

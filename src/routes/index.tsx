@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
+import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
+import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -278,6 +279,14 @@ function QueuePage() {
   const apptByPatientNext = usePatientAppointments(
     rows.filter((r) => r.visit_date === todayStr()).map((r) => r.patient_id),
   ).data;
+  // Advance already paid by patients still in the queue, and the modal to take one.
+  const advanceByVisit = useQuery({
+    queryKey: ["advance-by-visit", rows.filter((r) => r.visit_status !== "DONE").map((r) => r.id).sort()],
+    queryFn: () => fetchAdvanceByVisit(rows.filter((r) => r.visit_status !== "DONE").map((r) => r.id)),
+    enabled: rows.length > 0,
+    refetchInterval: 30_000,
+  }).data;
+  const [advanceFor, setAdvanceFor] = useState<{ visitId: string; name: string } | null>(null);
   const stats = useMemo(() => {
     const day = rows.filter((r) => r.visit_date === date);
     const waiting = day.filter((r) => ["REGISTERED", "WAITING", "CASE_TAKING", "WAITING_DOCTOR"].includes(r.visit_status)).length;
@@ -535,11 +544,30 @@ function QueuePage() {
                     className="px-1 mt-1.5"
                   />
                 )}
+                {r.visit_status !== "DONE" && (
+                  <div className="px-1 mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    {(advanceByVisit?.get(r.id) ?? 0) > 0 && (
+                      <span className="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">
+                        💰 Advance ₹{(advanceByVisit?.get(r.id) ?? 0).toLocaleString("en-IN")} diya — consultation baaki
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setAdvanceFor({ visitId: r.id, name: r.patient?.name ?? "Patient" })}
+                      className="rounded-full border border-primary/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-primary"
+                    >
+                      💰 Advance payment
+                    </button>
+                  </div>
+                )}
               </li>
               </Fragment>
             );
           })}
         </ul>
+      )}
+      {advanceFor && (
+        <AdvancePaymentModal visitId={advanceFor.visitId} patientName={advanceFor.name} onClose={() => setAdvanceFor(null)} />
       )}
     </MobileShell>
   );

@@ -533,6 +533,10 @@ export async function createPatientWithVisit(input: {
   card_series?: string;
   card_register?: string;
   card_number?: string;
+  // Back-dated entry whose consultation has NOT happened yet (the patient
+  // paid in advance and is still waiting): the visit stays pending instead
+  // of being closed as DONE, and the payment is recorded as an advance.
+  keep_pending?: boolean;
 }, payment?: Omit<Parameters<typeof collectPayment>[0], "visit_id" | "patient_id">): Promise<{
   patient: DBPatient;
   visit: DBVisit;
@@ -630,13 +634,16 @@ export async function createPatientWithVisit(input: {
     if (payment && payment.amount_received > 0) {
       try {
         await collectPayment({ visit_id: visit.id, patient_id: patient.id, ...payment });
+        if (input.keep_pending) {
+          await supabase.from("payments").update({ is_advance: true }).eq("visit_id", visit.id);
+        }
         paymentResult = { collected: true, error: null };
       } catch (e: any) {
         console.error("Inline payment collection failed:", e?.message ?? e);
         paymentResult = { collected: false, error: e?.message ?? String(e) };
       }
     }
-    if (isBackfill) {
+    if (isBackfill && !input.keep_pending) {
       // A backfilled historical visit already happened in real life —
       // leaving it as REGISTERED would surface it in today's live
       // Reception/Doctor/Pharmacy queues (fetchTodayQueue shows any
@@ -4830,7 +4837,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0100_record_backfill_payment";
+export const EXPECTED_SCHEMA_VERSION = "0101_advance_payments";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7824,11 +7831,37 @@ export async function fetchBackfilledWithoutPayment(): Promise<BackfillPayRow[]>
     }));
 }
 
-export async function recordBackfillPayment(visitId: string, amount: number, mode: string, notes?: string) {
+export async function recordBackfillPayment(visitId: string, amount: number, mode: string, notes?: string, keepPending = false) {
   const { error } = await supabase.rpc("record_backfill_payment", {
+    p_visit_id: visitId, p_amount: amount, p_mode: mode, p_notes: notes ?? null, p_keep_pending: keepPending,
+  });
+  return { success: !error, error: error?.message ?? null };
+}
+
+// Advance payment (0101): money taken before the consultation. The visit
+// keeps whatever stage it is in; the Pay screen later deducts the advance.
+export async function recordAdvancePayment(visitId: string, amount: number, mode: string, notes?: string) {
+  const { error } = await supabase.rpc("record_advance_payment", {
     p_visit_id: visitId, p_amount: amount, p_mode: mode, p_notes: notes ?? null,
   });
   return { success: !error, error: error?.message ?? null };
+}
+
+/** Advance already paid per visit: visit id -> rupees. */
+export async function fetchAdvanceByVisit(visitIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = Array.from(new Set(visitIds.filter(Boolean)));
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase
+      .from("payments")
+      .select("visit_id, amount_received")
+      .eq("is_advance", true)
+      .eq("is_deleted", false)
+      .in("visit_id", ids.slice(i, i + 200));
+    if (error) throw dataLoadError(error);
+    for (const r of data ?? []) out.set((r as any).visit_id, (out.get((r as any).visit_id) ?? 0) + Number((r as any).amount_received ?? 0));
+  }
+  return out;
 }
 
 export async function fetchDaySummary(branch?: string, date?: string) {

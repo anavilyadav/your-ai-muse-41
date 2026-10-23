@@ -9,6 +9,7 @@ import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
+import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
@@ -1025,8 +1026,12 @@ function PatientProfilePage() {
   // previewing a staff role, or the preview is not what staff really see.
   const isOwner = useEffectiveRole() === "OWNER";
   const profileAppt = usePatientAppointments([id]).data?.get(id);
+  const [showAdvance, setShowAdvance] = useState(false);
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
+  // The patient's current, not yet finished visit (newest first) — what an
+  // advance payment attaches to.
+  const openVisit = visits.find((v) => v.visit_status && v.visit_status !== "DONE" && !v.is_deleted);
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);
   const [crmInteractions, setCrmInteractions] = useState<Interaction[]>([]);
   const [family, setFamily] = useState<any[]>([]);
@@ -1309,7 +1314,24 @@ function PatientProfilePage() {
           patient={{ id: patient.id, name: patient.name, mobile: patient.mobile, branch: patient.branch, wa_consent: patient.wa_consent }}
           appt={profileAppt}
         />
+        {openVisit && (
+          <button
+            type="button"
+            onClick={() => setShowAdvance(true)}
+            className="mt-2 rounded-full border border-primary/40 bg-background px-2.5 py-1 text-[11px] font-bold text-primary"
+          >
+            💰 Advance payment (consultation baaki)
+          </button>
+        )}
       </div>
+      {showAdvance && openVisit && (
+        <AdvancePaymentModal
+          visitId={openVisit.id}
+          patientName={patient.name}
+          onClose={() => setShowAdvance(false)}
+          onSaved={() => void reload()}
+        />
+      )}
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <Stat icon={Calendar} label="Visits" value={String(patient.lifetime_visits ?? visits.length)} />

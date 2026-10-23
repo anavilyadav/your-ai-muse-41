@@ -6,9 +6,10 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
-import { fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, fetchQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, fetchSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, type DBPatient } from "@/lib/db";
+import { fetchAdvanceByVisit, fetchVisit, collectPayment, branchLabel, fetchAvailableCredit, fetchFeeMaster, feeKindForVisit, FEE_LABELS, DEFAULT_FEE_MASTER, fetchPreviousVisitDate, needsRecaseSurcharge, fetchFeeRules, activeFeeRulesTotal, DEFAULT_FEE_RULES, fetchPaymentModes, updatePatientContactInfo, displayPatientCode, fetchQuickFillAmounts, DEFAULT_QUICK_FILL_AMOUNTS, fetchSlxInstructions, DEFAULT_SLX_INSTRUCTIONS, type DBPatient } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { remainingAfterAdvance } from "@/lib/advance";
 import { Plus, X } from "lucide-react";
 import { enqueueAction, isNetworkError, registerSubmitter } from "@/lib/offlineQueue";
 
@@ -223,6 +224,16 @@ function PayPage() {
     : { total: 0, applied: [] };
   const standardFee = feeKind ? fees[feeKind] + extraTotal : 0;
 
+  // Advance already paid for this visit (Dr. Yadav, 23 Oct 2026): only money
+  // flagged as an advance comes off the final bill — never the registration fee.
+  const { data: advanceMap } = useQuery({
+    queryKey: ["advance-by-visit", "pay", visit?.id],
+    queryFn: () => fetchAdvanceByVisit([visit!.id]),
+    enabled: !!visit?.id,
+  });
+  const advancePaid = advanceMap?.get(visit?.id ?? "") ?? 0;
+  const feeAfterAdvance = remainingAfterAdvance(standardFee, advancePaid);
+
   // Prefill exactly once per visit, and never over something already typed.
   // Gated on previousVisitDate query having settled (not `isLoading`, since
   // `undefined` vs `null` both mean "resolved, no surcharge") so the re-case
@@ -232,13 +243,14 @@ function PayPage() {
   useEffect(() => {
     if (!visit || !standardFee) return;
     if (previousVisitDate === undefined) return; // still loading
+    if (advanceMap === undefined) return; // advance not known yet
     if (prefilledFor === visit.id) return;
     setPrefilledFor(visit.id);
     if (charged === 0 && received === 0) {
-      setCharged(standardFee);
-      setReceived(standardFee);
+      setCharged(feeAfterAdvance);
+      setReceived(feeAfterAdvance);
     }
-  }, [visit, standardFee, prefilledFor, charged, received, previousVisitDate]);
+  }, [visit, standardFee, prefilledFor, charged, received, previousVisitDate, advanceMap, feeAfterAdvance]);
 
   if (isLoading) return <MobileShell title="Collect Payment" showBack><LoadingBlock /></MobileShell>;
   // Was a single "Visit nahi mila" for both a genuine not-found AND a
@@ -266,7 +278,7 @@ function PayPage() {
   const balance = Math.max(0, owedAfterCash - creditToApply);
 
   const doCollect = async () => {
-    if (charged <= 0) return toast.error("Amount daalo");
+    if (charged <= 0 && advancePaid <= 0) return toast.error("Amount daalo");
     if (balance > 0 && !canPartial) {
       return toast.error("Partial payment ki permission nahi hai — Owner/Doctor se poora amount collect karwao.");
     }
@@ -336,6 +348,18 @@ function PayPage() {
           patient={visit.patient}
           onPatientUpdate={(patch) => qc.setQueryData(["visit", id], (old: any) => (old ? { ...old, patient: { ...old.patient, ...patch } } : old))}
         />
+      )}
+
+      {advancePaid > 0 && (
+        <div className="mt-3 rounded-xl bg-success/10 border border-success/40 p-3 text-xs text-success font-semibold">
+          <div className="flex items-center justify-between">
+            <span>💰 Advance pehle se diya</span>
+            <span className="text-sm font-bold">₹{advancePaid.toLocaleString("en-IN")}</span>
+          </div>
+          <div className="mt-1 font-normal text-muted-foreground">
+            Fee ₹{standardFee.toLocaleString("en-IN")} me se ye kat gaya — ab sirf ₹{feeAfterAdvance.toLocaleString("en-IN")} lena hai.
+          </div>
+        </div>
       )}
 
       {existingDue > 0 && (

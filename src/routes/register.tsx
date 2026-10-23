@@ -180,6 +180,9 @@ function RegisterPage() {
     return d.toISOString().slice(0, 10);
   });
   const effectiveVisitDate = dateMode === "manual" && manualDate ? manualDate : undefined;
+  // Back-dated entry, but the consultation has not happened yet (paid in
+  // advance, still waiting): the visit stays pending instead of closing.
+  const [consultPending, setConsultPending] = useState(false);
 
   const [existingPatient, setExistingPatient] = useState<{
     id: string; name: string; mobile: string; patient_code: string | null;
@@ -402,6 +405,7 @@ function RegisterPage() {
       lead_source: f.leadSource,
       idempotency_key: registrationIdempotencyKey,
       visit_date: effectiveVisitDate,
+      keep_pending: !!effectiveVisitDate && consultPending,
     };
     try {
       const amountToCollect = Number(paymentAmount) || 0;
@@ -593,6 +597,7 @@ function RegisterPage() {
                   branch: "", consent: true, caseChannel: "WALK_IN", leadSource: "Walk-in",
                 });
                 setDupWarn(false);
+                setConsultPending(false);
                 setExistingPatient(null);
                 setMobileMatches([]);
                 setPaymentAmount("");
@@ -661,8 +666,14 @@ function RegisterPage() {
                   className="w-full rounded-lg bg-surface border border-input px-3 py-2 text-sm"
                 />
                 <p className="text-[10px] text-accent-foreground">
-                  Is tareekh se ye visit turant "DONE" maana jayega — aaj ki live queue (Doctor/Pharmacy) mein nahi dikhega, sirf record ban jayega.
+                  {consultPending
+                    ? "Visit pending rahegi — queue aur Case-taking doctor ko dikhegi, aur jo payment daaloge wo advance maana jayega."
+                    : "Is tareekh se ye visit turant \"DONE\" maana jayega — aaj ki live queue (Doctor/Pharmacy) mein nahi dikhega, sirf record ban jayega."}
                 </p>
+                <label className="flex items-start gap-2 text-[12px] font-semibold text-primary">
+                  <input type="checkbox" checked={consultPending} onChange={(e) => setConsultPending(e.target.checked)} className="h-4 w-4 mt-0.5" />
+                  <span>Consultation abhi baaki hai — patient ne advance de diya, wait kar raha hai</span>
+                </label>
               </>
             )}
           </div>
