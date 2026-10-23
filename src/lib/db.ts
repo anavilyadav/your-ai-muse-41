@@ -533,7 +533,12 @@ export async function createPatientWithVisit(input: {
   card_series?: string;
   card_register?: string;
   card_number?: string;
-}) {
+}, payment?: Omit<Parameters<typeof collectPayment>[0], "visit_id" | "patient_id">): Promise<{
+  patient: DBPatient;
+  visit: DBVisit;
+  /** Present when `payment` was given: collected here, before a back-dated visit is closed. */
+  payment?: { collected: boolean; error: string | null };
+}> {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
   // Postgres rolls back everything automatically. No phantom-patient
@@ -616,6 +621,21 @@ export async function createPatientWithVisit(input: {
       if (onlineErr) console.error("Marking visit as VIDEO failed:", onlineErr.message);
       if (updatedVisit) visit = updatedVisit as DBVisit;
     }
+    // Registration payment is taken BEFORE a back-dated visit is closed:
+    // collect_payment_atomic refuses a visit that is already DONE, so with
+    // the payment taken afterwards (as register.tsx used to) every
+    // "Purani Tareekh Se Entry" patient was saved with ₹0 — the fee they
+    // really paid on that day was never recorded (Dr. Yadav, 23 Oct 2026).
+    let paymentResult: { collected: boolean; error: string | null } | undefined;
+    if (payment && payment.amount_received > 0) {
+      try {
+        await collectPayment({ visit_id: visit.id, patient_id: patient.id, ...payment });
+        paymentResult = { collected: true, error: null };
+      } catch (e: any) {
+        console.error("Inline payment collection failed:", e?.message ?? e);
+        paymentResult = { collected: false, error: e?.message ?? String(e) };
+      }
+    }
     if (isBackfill) {
       // A backfilled historical visit already happened in real life —
       // leaving it as REGISTERED would surface it in today's live
@@ -633,7 +653,7 @@ export async function createPatientWithVisit(input: {
       if (doneErr) console.error("Marking backfilled visit as DONE failed:", doneErr.message);
       if (doneVisit) visit = doneVisit as DBVisit;
     }
-    return { patient, visit };
+    return { patient, visit, payment: paymentResult };
   }
   // Fall back to the old two-step approach if the RPC isn't deployed yet
   // (SQL migration not run) — registration must never hard-fail just
@@ -866,6 +886,23 @@ export async function fetchQueueForDate(date: string, branch?: string) {
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as (DBVisit & { patient: DBPatient })[];
+}
+
+// Light read for the Live Flow strip: only each of today's visits' token and
+// stage — no patient details, so it is safe to show on every role's screen
+// (Case-DR's Hidden Identity Mode included).
+export async function fetchFlowToday(branch?: string) {
+  let q = supabase
+    .from("visits")
+    .select("token_number, visit_status, created_at")
+    .eq("visit_date", today())
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: true })
+    .limit(500);
+  if (branch) q = q.eq("branch", branch);
+  const { data, error } = await q;
+  if (error) throw dataLoadError(error);
+  return (data ?? []) as { token_number: string | null; visit_status: string; created_at: string }[];
 }
 
 export async function fetchTodayQueue(branch?: string) {
@@ -4739,7 +4776,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0099_edit_inventory_line";
+export const EXPECTED_SCHEMA_VERSION = "0100_record_backfill_payment";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7681,6 +7718,63 @@ export async function fetchBackfilledEntries(date: string): Promise<BackfilledEn
     patient_name: r.patient?.name ?? "—",
     alreadyExisted: earlier.has(`${r.patient_id}|${r.visit_date}`),
   }));
+}
+
+// Back-dated entries saved with no payment at all (see migration 0100):
+// the app-entered visits whose visit_date is before the day they were
+// entered and that have no payment row. Newest visit date first.
+export interface BackfillPayRow {
+  visit_id: string;
+  visit_date: string;
+  entered_on: string;
+  branch: string;
+  patient_id: string;
+  patient_name: string;
+  card: string | null;
+  patient_code: string | null;
+  isNewPatient: boolean;
+}
+export async function fetchBackfilledWithoutPayment(): Promise<BackfillPayRow[]> {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("id, visit_date, created_at, branch, patient_id, patient:patients(name, card_series, card_register, card_number, patient_code, lifetime_visits)")
+    .eq("is_deleted", false)
+    .is("imported_batch", null)
+    .lt("visit_date", today())
+    .order("visit_date", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1000);
+  if (error) throw dataLoadError(error);
+  const rows = ((data ?? []) as any[]).filter((r) => istDateOf(r.created_at) > r.visit_date);
+  if (rows.length === 0) return [];
+  const paid = new Set<string>();
+  const ids = rows.map((r) => r.id as string);
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: pays, error: e2 } = await supabase
+      .from("payments").select("visit_id").eq("is_deleted", false).in("visit_id", ids.slice(i, i + 200));
+    if (e2) throw dataLoadError(e2);
+    for (const p of pays ?? []) paid.add((p as any).visit_id);
+  }
+  return rows
+    .filter((r) => !paid.has(r.id))
+    .map((r) => ({
+      visit_id: r.id,
+      visit_date: r.visit_date,
+      entered_on: istDateOf(r.created_at),
+      branch: r.branch,
+      patient_id: r.patient_id,
+      patient_name: r.patient?.name ?? "—",
+      card: formatCardNumber(r.patient?.card_series, r.patient?.card_register, r.patient?.card_number),
+      patient_code: r.patient?.patient_code ?? null,
+      isNewPatient: (r.patient?.lifetime_visits ?? 1) <= 1,
+    }));
+}
+
+export async function recordBackfillPayment(visitId: string, amount: number, mode: string, notes?: string) {
+  const { error } = await supabase.rpc("record_backfill_payment", {
+    p_visit_id: visitId, p_amount: amount, p_mode: mode, p_notes: notes ?? null,
+  });
+  return { success: !error, error: error?.message ?? null };
 }
 
 export async function fetchDaySummary(branch?: string, date?: string) {

@@ -26,8 +26,9 @@ import { useAuth } from "@/lib/auth";
 // the live/online submit path (a failure there just shows a warning, not
 // a blocked registration) — same treatment here, not worth queuing.
 registerSubmitter("register", async (payload: any) => {
-  const { patient, visit } = await createPatientWithVisit(payload.registration);
-  if (payload.payment) {
+  const { patient, visit, payment } = await createPatientWithVisit(payload.registration, payload.payment);
+  if (payment?.error) throw new Error(payment.error);
+  if (payload.payment && !payment) {
     await collectPayment({ visit_id: visit.id, patient_id: patient.id, ...payload.payment });
   }
   if (payload.familyLink) {
@@ -403,7 +404,20 @@ function RegisterPage() {
       visit_date: effectiveVisitDate,
     };
     try {
-      const { patient, visit } = await createPatientWithVisit(registrationInput);
+      const amountToCollect = Number(paymentAmount) || 0;
+      const paymentInput = amountToCollect > 0
+        ? {
+            amount_charged: amountToCollect,
+            amount_received: amountToCollect,
+            payment_mode: paymentMode,
+            branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
+            notes: f.caseChannel === "ONLINE" ? "Online bundle (reg + consult + courier)" : "Registration fee",
+            idempotency_key: paymentIdempotencyKey,
+          }
+        : undefined;
+      // The payment goes in with the registration so a back-dated entry
+      // takes it before the visit is closed (see createPatientWithVisit).
+      const { patient, visit, payment: paymentRes } = await createPatientWithVisit(registrationInput, paymentInput);
       if (photoFile) {
         // Best-effort, fire-and-forget — a photo upload hiccup must never
         // undo or block a registration that already succeeded.
@@ -411,20 +425,15 @@ function RegisterPage() {
           if (!res.success) toast.warning("Photo save nahi hui — baad mein Patient Profile se try karo: " + res.error);
         });
       }
-      let paymentCollected = false;
-      const amountToCollect = Number(paymentAmount) || 0;
-      if (amountToCollect > 0) {
+      let paymentCollected = !!paymentRes?.collected;
+      if (paymentRes?.collected) qc.invalidateQueries({ queryKey: ["available-credit", patient.id] });
+      if (paymentRes?.error) {
+        toast.warning("Registration ho gaya, par payment save nahi hua — Pay screen se dobara try karo: " + paymentRes.error);
+      } else if (paymentInput && !paymentRes) {
+        // The older two-step registration path (database function missing)
+        // returns no payment result — collect it the old way.
         try {
-          await collectPayment({
-            visit_id: visit.id,
-            patient_id: patient.id,
-            amount_charged: amountToCollect,
-            amount_received: amountToCollect,
-            payment_mode: paymentMode,
-            branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
-            notes: f.caseChannel === "ONLINE" ? "Online bundle (reg + consult + courier)" : "Registration fee",
-            idempotency_key: paymentIdempotencyKey,
-          });
+          await collectPayment({ visit_id: visit.id, patient_id: patient.id, ...paymentInput });
           paymentCollected = true;
           qc.invalidateQueries({ queryKey: ["available-credit", patient.id] });
         } catch (e: any) {
