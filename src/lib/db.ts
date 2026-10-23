@@ -454,6 +454,38 @@ export function secondaryWaMeNumber(p: { secondary_mobile: string | null; second
   return cc + digits;
 }
 
+// Card numbers are kept the way the paper registers print them: series in
+// capitals, register and number zero-padded to 2 digits ("4" -> "04",
+// "26a" -> "26A"), so a typed card matches the imported ones exactly.
+export function normalizeCardParts(series: string, register: string, number: string) {
+  const pad = (digits: string) => (digits.length === 0 ? digits : digits.padStart(2, "0"));
+  const num = number.trim().toUpperCase().replace(/\s+/g, "");
+  const m = num.match(/^(\d+)([A-Z]?)$/);
+  return {
+    series: series.trim().toUpperCase().replace(/\s+/g, ""),
+    register: /^\d+$/.test(register.trim()) ? pad(register.trim()) : register.trim(),
+    number: m ? pad(m[1]) + m[2] : num,
+  };
+}
+
+// Saves a card typed at registration as its own write, after the patient
+// exists — a failure here is logged and never undoes the registration.
+async function saveNewPatientCard(
+  patient: DBPatient,
+  input: { card_series?: string; card_register?: string; card_number?: string },
+): Promise<DBPatient> {
+  if (!input.card_series && !input.card_register && !input.card_number) return patient;
+  const c = normalizeCardParts(input.card_series ?? "", input.card_register ?? "", input.card_number ?? "");
+  const { data, error } = await supabase
+    .from("patients")
+    .update({ card_series: c.series || null, card_register: c.register, card_number: c.number || null })
+    .eq("id", patient.id)
+    .select("*")
+    .maybeSingle();
+  if (error) console.error("card number save failed:", error.message);
+  return (data as DBPatient | null) ?? patient;
+}
+
 export async function createPatientWithVisit(input: {
   name: string;
   mobile: string;
@@ -496,6 +528,11 @@ export async function createPatientWithVisit(input: {
   // it. See the DONE-status follow-up write below for why this can't just
   // be "pass a different date and nothing else changes."
   visit_date?: string;
+  // Paper card number (Series-Register-Number, e.g. B-78-50) typed at
+  // registration. Optional so a registration is never blocked for want of it.
+  card_series?: string;
+  card_register?: string;
+  card_number?: string;
 }) {
   // Both inserts (patient + visit) happen inside one Postgres function
   // call, which runs as a single transaction — if either insert fails,
@@ -550,6 +587,7 @@ export async function createPatientWithVisit(input: {
         .maybeSingle();
       if (updated) patient = updated as DBPatient;
     }
+    patient = await saveNewPatientCard(patient, input);
     // TASK 5 — kept as its own write on purpose: lead_source only exists
     // after migration 0018, and folding it into the block above would make
     // an un-migrated DB reject the whole update and silently lose the
@@ -607,6 +645,7 @@ export async function createPatientWithVisit(input: {
   if (!isMissingFunction) throw error ?? new Error("Registration fail hui");
   logDegradedModeAlert("register_patient_with_visit", { mobile: input.mobile });
   const legacy = await createPatientWithVisitLegacy(input);
+  legacy.patient = await saveNewPatientCard(legacy.patient, input);
   if (input.lead_source) {
     // Best-effort, same reasoning as the atomic path above.
     const { data: srcUpdated, error: srcErr } = await supabase
@@ -3425,16 +3464,16 @@ export async function isDuplicateCardNumber(
   cardNumber: string,
   excludePatientId?: string,
 ): Promise<boolean> {
-  const series = cardSeries.trim().toUpperCase();
-  const reg = cardRegister.trim();
-  const num = cardNumber.trim();
-  if (!series || !reg || !num) return false;
+  const c = normalizeCardParts(cardSeries, cardRegister, cardNumber);
+  if (!c.series || !c.number) return false;
   let q = supabase
     .from("patients")
     .select("id", { count: "exact", head: true })
-    .eq("card_series", series)
-    .eq("card_register", reg)
-    .eq("card_number", num);
+    .eq("is_deleted", false)
+    .eq("card_series", c.series)
+    .eq("card_number", c.number);
+  // 1T-5T cards have no register — those rows hold "" (or null).
+  q = c.register ? q.eq("card_register", c.register) : q.or("card_register.is.null,card_register.eq.");
   if (excludePatientId) q = q.neq("id", excludePatientId);
   const { count } = await q;
   return (count ?? 0) > 0;

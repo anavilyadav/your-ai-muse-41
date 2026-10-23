@@ -7,7 +7,7 @@ import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode, isDuplicateCardNumber, normalizeCardParts } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -131,7 +131,9 @@ function RegisterPage() {
     dob: "",
     anniversary: "",
     profession: "",
-    annualIncome: "",
+    cardSeries: "",
+    cardRegister: "",
+    cardNumber: "",
     branch: (normalizeBranchKey(search.branch) || "") as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
     // Online-case tracking (Dr. Yadav, 29 Jul 2026)
@@ -338,13 +340,28 @@ function RegisterPage() {
       if (f.waNumber.length < waMinLen) errs.push("WhatsApp Number");
       if (f.waCountryCode === "other" && !f.waCountryCodeCustom.trim()) errs.push("WhatsApp Country Code");
     }
-    if (!f.age || Number(f.age) <= 0) errs.push("Age");
+    // Only what the paper card always has is required (Dr. Yadav, 23 Oct
+    // 2026): name, mobile, sex (+ the card number, which is checked below
+    // for duplicates but never blocks when left empty). Age, blood group,
+    // address, income etc. were stopping registrations whenever the paper
+    // form didn't have them — they can be filled in later from the profile.
     if (!f.gender) errs.push("Gender");
     if (!f.branch) errs.push("Branch");
-    if (!f.consent) errs.push("WhatsApp Consent");
     if (errs.length) {
       toast.error(`Missing: ${errs.join(", ")}`);
       return;
+    }
+    const hasCard = !!(f.cardSeries.trim() || f.cardRegister.trim() || f.cardNumber.trim());
+    if (hasCard) {
+      if (!f.cardSeries.trim() || !f.cardNumber.trim()) {
+        toast.error("Card number poora bharo — Series aur Number dono chahiye (ya teeno khaali chhodo)");
+        return;
+      }
+      if (await isDuplicateCardNumber(f.cardSeries, f.cardRegister, f.cardNumber)) {
+        const c = normalizeCardParts(f.cardSeries, f.cardRegister, f.cardNumber);
+        toast.error(`Card ${[c.series, c.register, c.number].filter(Boolean).join("-")} kisi aur patient ka hai — number dobara dekho`);
+        return;
+      }
     }
     // Was a hard block here — one mobile number could only ever have ONE
     // patient in the whole system, so any family sharing a single phone
@@ -364,7 +381,7 @@ function RegisterPage() {
       whatsapp_country_code: f.waSameAsMobile ? undefined : effectiveWaCountryCode,
       whatsapp_number: f.waSameAsMobile ? undefined : f.waNumber,
       whatsapp_confirmed: f.waSameAsMobile ? f.mobileConfirmed : f.waConfirmed,
-      age: Number(f.age),
+      age: f.age && Number(f.age) > 0 ? Number(f.age) : undefined,
       gender: f.gender || undefined,
       blood_group: f.blood || undefined,
       city: f.city || undefined,
@@ -375,7 +392,9 @@ function RegisterPage() {
       dob: f.dob || undefined,
       anniversary_date: f.anniversary || undefined,
       profession: f.profession.trim() || undefined,
-      annual_income: f.annualIncome ? Number(f.annualIncome) : undefined,
+      card_series: hasCard ? f.cardSeries : undefined,
+      card_register: hasCard ? f.cardRegister : undefined,
+      card_number: hasCard ? f.cardNumber : undefined,
       branch: f.branch as "BAJAJ_NAGAR" | "JAGATPURA",
       chief_complaint: f.chief.trim() || undefined,
       case_channel: f.caseChannel,
@@ -561,7 +580,7 @@ function RegisterPage() {
                   waSameAsMobile: true, waNumber: "", waConfirmed: false, waCountryCode: "+91", waCountryCodeCustom: "",
                   age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "",
-                  dob: "", anniversary: "", profession: "", annualIncome: "",
+                  dob: "", anniversary: "", profession: "", cardSeries: "", cardRegister: "", cardNumber: "",
                   branch: "", consent: true, caseChannel: "WALK_IN", leadSource: "Walk-in",
                 });
                 setDupWarn(false);
@@ -668,6 +687,36 @@ function RegisterPage() {
 
         <Section label="Full Name *">
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
+        </Section>
+
+        <Section
+          label="Card Number (paper card se)"
+          hint="Card pe jo likha hai wahi daalo, jaise B-78-50 (Series - Register - Number). Khaali bhi chhod sakte ho."
+        >
+          <div className="flex gap-2">
+            <Field
+              placeholder="Series"
+              value={f.cardSeries}
+              onChange={(e) => set("cardSeries", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3))}
+              className="w-20 shrink-0 uppercase"
+              aria-label="Card series"
+            />
+            <Field
+              inputMode="numeric"
+              placeholder="Register"
+              value={f.cardRegister}
+              onChange={(e) => set("cardRegister", e.target.value.replace(/\D/g, "").slice(0, 3))}
+              className="flex-1 min-w-0"
+              aria-label="Card register"
+            />
+            <Field
+              placeholder="Number"
+              value={f.cardNumber}
+              onChange={(e) => set("cardNumber", e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 4))}
+              className="flex-1 min-w-0"
+              aria-label="Card number"
+            />
+          </div>
         </Section>
 
         <Section label="Mobile Number *" hint={dupWarn ? t("⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho.") : isIndia ? "10 digits" : t("Country code chunkar number likho")}>
@@ -892,7 +941,7 @@ function RegisterPage() {
         </Section>
 
         <div className="grid grid-cols-2 gap-3">
-          <Section label="Age *">
+          <Section label="Age">
             <Field inputMode="numeric" placeholder="e.g. 32" value={f.age} onChange={(e) => set("age", e.target.value.replace(/\D/g, ""))} />
           </Section>
           <Section label="Blood Group">
@@ -1001,14 +1050,9 @@ function RegisterPage() {
           <DMYDateField value={f.anniversary} onChange={(v) => set("anniversary", v)} />
         </Section>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Section label="Profession">
-            <PillOrOtherField options={professionOptions} value={f.profession} onChange={(v) => set("profession", v)} otherPlaceholder="Profession likho" />
-          </Section>
-          <Section label="Annual Income (₹)">
-            <Field inputMode="numeric" placeholder="e.g. 600000" value={f.annualIncome} onChange={(e) => set("annualIncome", e.target.value.replace(/\D/g, ""))} />
-          </Section>
-        </div>
+        <Section label="Profession">
+          <PillOrOtherField options={professionOptions} value={f.profession} onChange={(v) => set("profession", v)} otherPlaceholder="Profession likho" />
+        </Section>
 
         <Section label="Case Type * (Naya Patient)">
           <div className="flex gap-2">
@@ -1063,7 +1107,7 @@ function RegisterPage() {
 
         <div className="flex items-center justify-between rounded-xl bg-surface border border-border p-3">
           <div className="min-w-0 pr-3">
-            <p className="text-sm font-semibold text-primary">WhatsApp Consent *</p>
+            <p className="text-sm font-semibold text-primary">WhatsApp Consent</p>
             <p className="text-[11px] text-muted-foreground">Updates & reminders on WhatsApp</p>
           </div>
           <button
