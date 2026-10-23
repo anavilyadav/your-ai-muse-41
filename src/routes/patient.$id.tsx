@@ -8,7 +8,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
@@ -1020,7 +1020,9 @@ export const Route = createFileRoute("/patient/$id")({
 function PatientProfilePage() {
   const { id } = Route.useParams();
   const { user } = useAuth();
-  const isOwner = user?.role === "OWNER";
+  // Effective role: Owner-only controls (merge, delete...) must not show while
+  // previewing a staff role, or the preview is not what staff really see.
+  const isOwner = useEffectiveRole() === "OWNER";
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [interactions, setInteractions] = useState<PatientInteraction[]>([]);

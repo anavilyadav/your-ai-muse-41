@@ -8,7 +8,8 @@ const PREVIEW_ROLES: { role: Role; label: string }[] = [
   { role: "DOCTOR", label: "Doctor (Prescribing)" },
   { role: "CASE_DR", label: "Case-Taking Doctor" },
   { role: "PHARMA", label: "Pharmacy" },
-  { role: "RECP1", label: "Reception" },
+  { role: "RECP1", label: "Reception 1" },
+  { role: "RECP2", label: "Reception 2" },
   { role: "CALLING", label: "Calling Team" },
 ];
 

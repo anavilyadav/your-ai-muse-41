@@ -2,7 +2,7 @@ import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-ro
 import { ArrowLeft, ClipboardList, ListChecks, LogOut, PhoneCall, Search, UserPlus, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { LanguageToggle } from "./LanguageToggle";
 
@@ -71,7 +71,10 @@ export function MobileShell({ title, subtitle, showBack, right, children }: Prop
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, signOut } = useAuth();
   const t = useT();
-  const navItems = user?.role === "CALLING" ? CALLING_NAV_ITEMS : RECEPTION_NAV_ITEMS;
+  // Effective role, not the account's own: Owner previewing "Calling Team"
+  // must see the Calling nav, exactly what that staff member sees.
+  const effectiveRole = useEffectiveRole();
+  const navItems = effectiveRole === "CALLING" ? CALLING_NAV_ITEMS : RECEPTION_NAV_ITEMS;
 
   const doLogout = async () => {
     await signOut();

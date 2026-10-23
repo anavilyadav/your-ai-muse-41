@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { fetchPatientDataQualityFlags, type PatientDataQualityFlags } from "@/lib/db";
 
 // Inline Data Quality warning (25 Sep 2026, Dr. Yadav) — shows up wherever
@@ -30,7 +30,8 @@ export function DataQualityBanner({
   onEdit?: () => void;
 }) {
   const { user } = useAuth();
-  const isOwner = user?.role === "OWNER";
+  // Owner-only options stay off while the Owner previews another role.
+  const isOwner = useEffectiveRole() === "OWNER";
   const [flags, setFlags] = useState<PatientDataQualityFlags | null>(null);
 
   useEffect(() => {
