@@ -7,7 +7,7 @@ import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode, isDuplicateCardNumber, normalizeCardParts } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode, isDuplicateCardNumber, normalizeCardParts, linkAppointmentArrived } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -42,11 +42,13 @@ export const Route = createFileRoute("/register")({
   // record has nothing to check in against, so Arrived sends staff here
   // instead of making them retype the name/mobile that was already
   // collected at booking time.
-  validateSearch: (search: Record<string, unknown>): { name?: string; mobile?: string; branch?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { name?: string; mobile?: string; branch?: string; appointmentId?: string } => ({
     name: typeof search.name === "string" ? search.name : undefined,
     // A bare number in the URL parses as a number, not a string.
     mobile: typeof search.mobile === "string" || typeof search.mobile === "number" ? String(search.mobile) : undefined,
     branch: typeof search.branch === "string" ? search.branch : undefined,
+    // Set when this registration comes from an appointment's Arrived.
+    appointmentId: typeof search.appointmentId === "string" ? search.appointmentId : undefined,
   }),
   head: () => ({ meta: [{ title: "Register / Check-in — YHC Jaipur" }, { name: "robots", content: "noindex" }] }),
   component: () => (
@@ -324,6 +326,10 @@ function RegisterPage() {
         paymentAmount: 0,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      if (search.appointmentId) {
+        await linkAppointmentArrived(search.appointmentId, existingPatient.id);
+        qc.invalidateQueries({ queryKey: ["appointments"] });
+      }
       toast.success(`${existingPatient.name} check-in ho gaye`);
     } catch (e: any) {
       toast.error(e?.message || "Check-in fail hui");
@@ -456,6 +462,13 @@ function RegisterPage() {
         paymentAmount: amountToCollect,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
+      if (search.appointmentId) {
+        // Registration came from an appointment's Arrived: tie it to the new
+        // patient and mark them arrived, so the queue shows token and stage.
+        const linkRes = await linkAppointmentArrived(search.appointmentId, patient.id);
+        if (!linkRes.success) toast.warning("Registration ho gaya, par appointment link nahi hui: " + linkRes.error);
+        qc.invalidateQueries({ queryKey: ["appointments"] });
+      }
       if (existingPatient && familyRelationship) {
         const finalRelationship = familyRelationship === "Other" ? customFamilyRelationship.trim() || "Other" : familyRelationship;
         try {

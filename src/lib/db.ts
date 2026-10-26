@@ -4199,6 +4199,17 @@ export async function fetchTodayVisitForPatient(patientId: string) {
   return data as { id: string; token_number: string | null; visit_status: string } | null;
 }
 
+// An appointment booked for someone not yet registered: once registration
+// (or check-in) is done, tie it to the patient and mark them Arrived — so the
+// queue can show the token and stage against the appointment.
+export async function linkAppointmentArrived(appointmentId: string, patientId: string) {
+  const { error } = await supabase
+    .from("appointments")
+    .update({ patient_id: patientId, status: "Arrived" })
+    .eq("id", appointmentId);
+  return { success: !error, error: error?.message ?? null };
+}
+
 export async function updateAppointmentStatus(id: string, status: string) {
   const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
   return { success: !error, error: error?.message ?? null };

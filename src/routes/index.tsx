@@ -73,8 +73,15 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
     queryFn: () => fetchTodayQueue(branchScope),
     refetchInterval: 15_000,
   });
+  const digits = (m: unknown) => String(m ?? "").replace(/\D/g, "").slice(-10);
+  // An appointment not tied to a patient (booked for a new caller) is matched
+  // to today's visit by mobile number, so it still shows token and stage.
   const visitFor = (a: any) =>
-    a.patient_id ? (queueToday ?? []).find((v) => v.patient_id === a.patient_id && v.visit_date === apptDate) : undefined;
+    (queueToday ?? []).find(
+      (v) =>
+        v.visit_date === apptDate &&
+        (a.patient_id ? v.patient_id === a.patient_id : digits(a.mobile).length === 10 && digits((v as any).patient?.mobile) === digits(a.mobile)),
+    );
 
   const inScope = (data?.rows ?? []).filter((a: any) => !branchScope || a.branch === branchScope);
   const upcoming = inScope.filter((a: any) => a.status === "Confirmed" || a.status === "Tentative");
@@ -269,10 +276,15 @@ function QueuePage() {
   const apptByPatient = useMemo(() => {
     const m = new Map<string, any>();
     for (const a of apptToday?.rows ?? []) {
-      if (a.patient_id && a.status !== "Cancelled") m.set(a.patient_id, a);
+      if (a.status === "Cancelled") continue;
+      // Linked appointments by patient; unlinked ones (new callers) by mobile.
+      if (a.patient_id) m.set(a.patient_id, a);
+      else if (String(a.mobile ?? "").replace(/\D/g, "").length >= 10) m.set("m:" + String(a.mobile).replace(/\D/g, "").slice(-10), a);
     }
     return m;
   }, [apptToday]);
+  const apptForRow = (r: any) =>
+    apptByPatient.get(r.patient_id) ?? apptByPatient.get("m:" + String(r.patient?.mobile ?? "").replace(/\D/g, "").slice(-10));
 
   const rows = data ?? [];
   // Appointment / Reschedule buttons under each of today's patients.
@@ -519,9 +531,9 @@ function QueuePage() {
                       <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border", statusStyles[s] ?? "bg-muted text-muted-foreground border-border")}>
                         {s}
                       </span>
-                      {r.visit_date === todayStr() && apptByPatient.get(r.patient_id) && (
+                      {r.visit_date === todayStr() && apptForRow(r) && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-primary/10 text-primary border-primary/30">
-                          📞 Appt {apptByPatient.get(r.patient_id).appointment_time}
+                          📞 Appt {apptForRow(r).appointment_time}
                         </span>
                       )}
                       {daysOld > 0 && (

@@ -25,9 +25,14 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
   // here and then separately redid the whole check-in in Register from
   // scratch. Now it performs the actual check-in.
   const markArrived = async (a: any) => {
-    const res = await updateAppointmentStatus(a.id, "Arrived");
-    if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
-    invalidateAll();
+    // Someone not registered yet is only marked Arrived once their
+    // registration is actually done (Register links it) — marking now left a
+    // phantom "arrived" with no patient in the queue.
+    if (a.patient_id) {
+      const res = await updateAppointmentStatus(a.id, "Arrived");
+      if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+      invalidateAll();
+    }
 
     if (a.patient_id) {
       const branch = normalizeBranchKey(a.branch) || "BAJAJ_NAGAR";
@@ -52,10 +57,10 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
         toast.warning(`${a.patient_name} arrived mark ho gaya, par check-in nahi hua: ${e?.message ?? e} — Register se manually check-in karo`);
       }
     } else {
-      toast.success(`${a.patient_name} arrived — registration poora karo`);
+      toast.success(`${a.patient_name} — registration poora karo, phir wo Arrived ho jayenge`);
       navigate({
         to: "/register",
-        search: { name: a.patient_name ?? "", mobile: a.mobile ?? "", branch: normalizeBranchKey(a.branch) || "" },
+        search: { name: a.patient_name ?? "", mobile: a.mobile ?? "", branch: normalizeBranchKey(a.branch) || "", appointmentId: a.id },
       });
     }
   };
