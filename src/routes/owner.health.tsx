@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RoleShell, Badge } from "@/components/yhc/RoleShell";
-import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits, fetchSystemAlerts, resolveSystemAlert, fetchSchemaVersionStatus } from "@/lib/db";
+import { runHealthChecks, fetchStockIssues, fetchStaleOpenVisits, fetchSystemAlerts, resolveSystemAlert, fetchSchemaVersionStatus, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/health")({
@@ -170,7 +170,7 @@ function HealthPage() {
             {stale.data.map((v: any) => (
               <li key={v.id} className="rounded-xl bg-surface border border-border p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[13px] font-semibold text-primary">{v.patient?.name ?? "—"} <span className="text-muted-foreground font-normal">({v.patient?.patient_code ?? "—"})</span></div>
+                  <div className="text-[13px] font-semibold text-primary">{v.patient?.name ?? "—"} <span className="text-muted-foreground font-normal">({systemIdLabel(v.patient?.patient_code) || "—"})</span></div>
                   <div className="text-[11px] text-muted-foreground">{v.visit_date} • Token {v.token_number ?? "—"} • {v.visit_status}</div>
                 </div>
                 <Badge tone="destructive">{v.visit_status}</Badge>

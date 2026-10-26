@@ -8,7 +8,7 @@ import { FlowBar } from "@/components/yhc/FlowBar";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
 import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType } from "@/lib/db";
+import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType, systemIdLabel } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -126,11 +126,35 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                   {v ? ` • ${v.token_number ?? "token"}` : ""}{stage ? ` • ${stage}` : ""}
                 </span>
               </div>
-              <div className="mt-1.5 flex gap-1.5">
+              <div className="mt-1.5 flex gap-1.5 flex-wrap">
                 {a.status === "Arrived" && (
                   <button onClick={() => markStarted(a)} className="rounded-full bg-success text-success-foreground px-3 py-1 text-[11px] font-bold">
                     ▶ Consultation shuru
                   </button>
+                )}
+                {a.status === "Arrived" && (
+                  <>
+                    <button onClick={() => setRescheduling(a)} className="rounded-full border border-primary/40 bg-surface text-primary px-3 py-1 text-[11px] font-bold">
+                      🔁 Reschedule
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(`${a.patient_name ?? "Ye"} ka Arrived galti se mark hua? Wapas "Confirmed" kar dein?`)) return;
+                        const res = await updateAppointmentStatus(a.id, "Confirmed");
+                        if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+                        qc.invalidateQueries({ queryKey: ["appointments"] });
+                      }}
+                      className="rounded-full border border-border bg-surface text-muted-foreground px-3 py-1 text-[11px] font-bold"
+                    >
+                      ↩ Galti se Arrived
+                    </button>
+                    <button
+                      onClick={() => { if (window.confirm(`${a.patient_name ?? "Ye"} appointment cancel karein?`)) cancelAppointment(a); }}
+                      className="rounded-full border border-destructive/40 bg-surface text-destructive px-3 py-1 text-[11px] font-bold"
+                    >
+                      ✖ Cancel
+                    </button>
+                  </>
                 )}
                 {a.status === "Started" && (
                   <button onClick={() => markCompleted(a)} className="rounded-full border border-success/50 bg-surface text-success px-3 py-1 text-[11px] font-bold">
@@ -522,7 +546,7 @@ function QueuePage() {
                         // "MERE WALE NUMBER HI CARD NUMBER HAI") — the
                         // auto-generated YHC-code only ever shows as a
                         // fallback for the few patients with no card yet.
-                        <span className="shrink-0 text-[10px] text-muted-foreground">{r.patient?.patient_code ?? ""}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{systemIdLabel(r.patient?.patient_code)}</span>
                       )}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{r.chief_complaint || "—"}</p>

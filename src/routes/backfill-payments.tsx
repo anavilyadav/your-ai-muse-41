@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchBackfilledWithoutPayment, recordBackfillPayment, fetchPaymentModes, branchLabel, type BackfillPayRow } from "@/lib/db";
+import { fetchBackfilledWithoutPayment, recordBackfillPayment, fetchPaymentModes, branchLabel, type BackfillPayRow, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/backfill-payments")({
@@ -47,7 +47,7 @@ function Row({ row, modes, onSaved }: { row: BackfillPayRow; modes: { code: stri
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-semibold text-sm text-primary">{row.patient_name}</span>
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
-          {row.card ?? row.patient_code ?? "—"}
+          {row.card ?? (row.patient_code ? systemIdLabel(row.patient_code) : "—")}
         </span>
         {row.isNewPatient && <span className="text-[10px] font-semibold text-success">Naya patient</span>}
         <span className="text-[10px] text-muted-foreground">{branchLabel(row.branch)}</span>

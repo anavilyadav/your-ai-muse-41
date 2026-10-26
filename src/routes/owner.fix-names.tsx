@@ -6,7 +6,7 @@ import { Check, Search, UserX } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock, EmptyBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
-import { fetchDataQualityReport, updatePatientContactInfo, formatCardNumber, compareByName, compareByCardNumber, type DQPatientRef } from "@/lib/db";
+import { fetchDataQualityReport, updatePatientContactInfo, formatCardNumber, compareByName, compareByCardNumber, type DQPatientRef, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { SortToggle, applyDirection, type SortMode, type SortDirection } from "./owner.data-quality";
 
@@ -60,7 +60,7 @@ function NameRow({
         <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
           {p.mobile && <span>{p.mobile}</span>}
           {card && <span>Card: {card}</span>}
-          {p.patient_code && <span>{p.patient_code}</span>}
+          {p.patient_code && <span>{systemIdLabel(p.patient_code)}</span>}
         </div>
       </div>
       <button

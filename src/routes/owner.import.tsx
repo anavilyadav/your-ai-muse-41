@@ -28,8 +28,7 @@ import {
   branchLabel,
   type ImportLeadRow,
   type ImportPatientRow,
-  type ImportVisitRow,
-} from "@/lib/db";
+  type ImportVisitRow, systemIdLabel } from "@/lib/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/owner/import")({
@@ -642,7 +641,7 @@ function VisitHistoryImportTab() {
             <ul className="mt-2 space-y-1">
               {failedPatients.map((p) => (
                 <li key={p.id} className="text-[12px] text-primary">
-                  {p.name} {p.patient_code && <span className="text-muted-foreground">({p.patient_code})</span>}
+                  {p.name} {p.patient_code && <span className="text-muted-foreground">({systemIdLabel(p.patient_code)})</span>}
                 </li>
               ))}
             </ul>

@@ -2166,7 +2166,8 @@ export type LeadQuality = (typeof LEAD_QUALITIES)[number];
 // most-recent-first) can't be how anyone finds an older lead — this is
 // the server-side search that makes that possible regardless of table size.
 export async function searchLeads(term: string) {
-  const t = sanitizeOrFilterTerm(term);
+  // Staff see the app number as "SYS-13217" but it is stored as "YHC-13217".
+  const t = sanitizeOrFilterTerm(term).replace(/^sys-/i, "YHC-");
   if (!t) return [];
   const like = `%${t}%`;
   const { data, error } = await supabase
@@ -3480,9 +3481,20 @@ export function formatCardNumber(series: string | null | undefined, register: st
 // number isn't entered yet — see the Data Quality "Adhoora card number"
 // tool) — this only changes what staff SEE as the ID, preferring the card
 // number whenever one is set.
+// The auto-generated app number ("YHC-13217") kept getting mixed up with the
+// real card number (Dr. Yadav, 26 Oct 2026), so it is shown as "SYS-13217".
+// Only the label changes — the stored value and old searches stay the same.
+export function systemIdLabel(code: string | null | undefined): string {
+  return code ? code.replace(/^YHC-/i, "SYS-") : "";
+}
+
+// The card series Dr. Yadav makes; registration always picks from these (or
+// types a new one). 1T-5T have no register number.
+export const CARD_SERIES = ["A", "AA", "AB", "B", "K", "S", "1T", "2T", "3T", "4T", "5T"];
+
 export function displayPatientCode(p: { patient_code?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null } | null | undefined): string {
   if (!p) return "—";
-  return formatCardNumber(p.card_series, p.card_register, p.card_number) ?? p.patient_code ?? "—";
+  return formatCardNumber(p.card_series, p.card_register, p.card_number) ?? (p.patient_code ? systemIdLabel(p.patient_code) : "—");
 }
 
 // Sorts patients the way the PHYSICAL card register books are organized
@@ -6910,7 +6922,7 @@ export async function fetchPatientsPage(limit: number, search?: string, remote?:
   if (remote === "ONLINE") q = q.eq("is_online", true);
   else if (remote === "COURIER") q = q.eq("uses_courier", true);
   else if (remote === "ANY") q = q.or("is_online.eq.true,uses_courier.eq.true");
-  const t = search ? sanitizeOrFilterTerm(search) : "";
+  const t = search ? sanitizeOrFilterTerm(search).replace(/^sys-/i, "YHC-") : "";
   if (t) {
     const like = `%${t}%`;
     const orParts = [

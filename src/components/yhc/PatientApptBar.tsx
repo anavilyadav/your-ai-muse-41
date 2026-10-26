@@ -97,7 +97,7 @@ export function PatientApptBar({ patient, appt, className }: { patient: PatientL
           <CalendarClock className="h-3.5 w-3.5" /> Reschedule
         </button>
       )}
-      {(appt.status === "Confirmed" || appt.status === "Tentative") && (
+      {(appt.status === "Confirmed" || appt.status === "Tentative" || appt.status === "Arrived") && (
         <button
           type="button"
           onClick={() => { if (window.confirm(`${appt.patient_name ?? "Ye"} appointment cancel karein?`)) cancelAppointment(appt); }}

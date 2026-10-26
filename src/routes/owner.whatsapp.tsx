@@ -17,8 +17,7 @@ import {
   WHATSAPP_CAMPAIGNS,
   DEFAULT_WHATSAPP_CONTROLS,
   type WhatsAppControls,
-  type WhatsAppForecastPatient,
-} from "@/lib/db";
+  type WhatsAppForecastPatient, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/whatsapp")({
@@ -370,7 +369,7 @@ function WhatsAppForecastPanel() {
                 {openCell.patients.map((p) => (
                   <li key={p.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center justify-between">
                     <span className="text-[13px] font-semibold text-primary">{p.name}</span>
-                    <span className="text-[11px] text-muted-foreground">{p.mobile} {p.patient_code && `• ${p.patient_code}`}</span>
+                    <span className="text-[11px] text-muted-foreground">{p.mobile} {p.patient_code && `• ${systemIdLabel(p.patient_code)}`}</span>
                   </li>
                 ))}
               </ul>

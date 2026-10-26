@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchPendingPaymentAdjustments, resolvePaymentAdjustment } from "@/lib/db";
+import { fetchPendingPaymentAdjustments, resolvePaymentAdjustment, systemIdLabel } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/owner/payment-adjustments")({
@@ -59,7 +59,7 @@ function PaymentAdjustmentsPage() {
                 <div>
                   <div className="text-sm font-bold text-primary">{it.patient?.name ?? "—"}</div>
                   <div className="text-[11px] text-muted-foreground">
-                    {it.patient?.patient_code} • {it.patient?.mobile}
+                    {systemIdLabel(it.patient?.patient_code)} • {it.patient?.mobile}
                   </div>
                 </div>
                 <div className="text-lg font-extrabold text-accent-foreground">

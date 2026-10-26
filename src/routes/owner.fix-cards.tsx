@@ -9,8 +9,7 @@ import { OWNER_NAV } from "./owner.index";
 import { SortToggle, applyDirection, type SortMode, type SortDirection } from "./owner.data-quality";
 import {
   fetchDataQualityReport, isDuplicateCardNumber, savePatientCardNumber,
-  compareByName, compareByCardNumber, type DQPatientRef,
-} from "@/lib/db";
+  compareByName, compareByCardNumber, type DQPatientRef, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/fix-cards")({
@@ -68,7 +67,7 @@ function CardRow({
   return (
     <div className="rounded-xl bg-surface border border-border p-3">
       <div className="text-[13px] font-semibold text-primary mb-2">
-        {p.name} <span className="text-[11px] font-normal text-muted-foreground">{p.patient_code}</span>
+        {p.name} <span className="text-[11px] font-normal text-muted-foreground">{systemIdLabel(p.patient_code)}</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
         <input

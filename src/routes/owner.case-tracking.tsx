@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchPendingCases, fetchCaseFunnelStats, branchLabel, type PendingCase } from "@/lib/db";
+import { fetchPendingCases, fetchCaseFunnelStats, branchLabel, type PendingCase, systemIdLabel } from "@/lib/db";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/owner/case-tracking")({
@@ -128,7 +128,7 @@ function CaseList({ cases }: { cases: PendingCase[] }) {
               <div className="min-w-0">
                 <div className="text-sm font-bold text-primary truncate">{v.patient?.name ?? "—"}</div>
                 <div className="text-[11px] text-muted-foreground">
-                  {v.patient?.patient_code} • {v.patient?.mobile} • {branchLabel(v.branch)}
+                  {systemIdLabel(v.patient?.patient_code)} • {v.patient?.mobile} • {branchLabel(v.branch)}
                 </div>
               </div>
               <div

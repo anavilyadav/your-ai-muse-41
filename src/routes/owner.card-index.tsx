@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronLeft, Download } from "lucide-react";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { fetchCardIndex, type CardIndexPatient } from "@/lib/db";
+import { fetchCardIndex, type CardIndexPatient, systemIdLabel } from "@/lib/db";
 import { registerGaps, formatNumberRanges } from "@/lib/cardGaps";
 
 export const Route = createFileRoute("/owner/card-index")({
@@ -131,7 +131,7 @@ function CardIndexPage() {
                     {series}-{register}-{p.card_number} <span className="font-normal text-muted-foreground">— {p.name}</span>
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5">
-                    {p.mobile} {p.patient_code && `• ${p.patient_code}`} • {p.lifetime_visits} visits
+                    {p.mobile} {p.patient_code && `• ${systemIdLabel(p.patient_code)}`} • {p.lifetime_visits} visits
                   </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
