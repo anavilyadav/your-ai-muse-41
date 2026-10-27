@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { List, Package, BookOpen, Truck } from "lucide-react";
 import { RoleShell, type NavItem } from "@/components/yhc/RoleShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -66,6 +67,7 @@ function PharmacyQueue() {
                       {r.token_number ?? "—"}
                     </span>
                     <span className="font-bold text-[15px] text-primary">{r.patient?.name}</span>
+                    <PatientIdChip patient={r.patient} />
                   </div>
                   <span className="text-[11px] text-muted-foreground">{branchLabel(r.branch)}</span>
                 </div>

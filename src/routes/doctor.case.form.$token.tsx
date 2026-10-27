@@ -315,13 +315,30 @@ function CaseFormPage() {
 
       <div className="mt-4 rounded-xl bg-surface border border-border p-3">
         <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-          Card Number
+          Card Number (aap dete ho)
+        </div>
+        {/* The case-taking doctor gives the card number (Dr. Yadav, 26 Oct
+            2026): series are the ones he makes — A, AA, B, K. */}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {["A", "AA", "B", "K"].map((sr) => (
+            <button
+              key={sr}
+              type="button"
+              onClick={() => onCardSeriesChange(cardSeries === sr ? "" : sr)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-bold border",
+                cardSeries === sr ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border",
+              )}
+            >
+              {sr}
+            </button>
+          ))}
         </div>
         <div className="grid grid-cols-3 gap-2">
           <input
             placeholder="Series (e.g. B)"
             value={cardSeries}
-            maxLength={2}
+            maxLength={3}
             onChange={(e) => onCardSeriesChange(e.target.value.toUpperCase())}
             className={cn(
               "rounded-lg bg-background border px-3 py-2.5 text-sm uppercase",

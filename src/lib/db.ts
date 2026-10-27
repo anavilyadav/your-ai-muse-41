@@ -106,6 +106,8 @@ export interface DBPatient {
 
 export interface DBVisit {
   id: string;
+  /** When reception marked the patient as arrived (queue "Aa gaya"). */
+  arrived_at?: string | null;
   patient_id: string;
   visit_date: string;
   visit_type: string;
@@ -3547,12 +3549,14 @@ export async function isDuplicateCardNumber(
 }
 
 export async function savePatientCardNumber(patientId: string, cardSeries: string, cardRegister: string, cardNumber: string) {
+  // Same 2-digit format as every imported card ("7" -> "07").
+  const c = normalizeCardParts(cardSeries, cardRegister, cardNumber);
   const { error } = await supabase
     .from("patients")
     .update({
-      card_series: cardSeries.trim().toUpperCase() || null,
-      card_register: cardRegister.trim() || null,
-      card_number: cardNumber.trim() || null,
+      card_series: c.series || null,
+      card_register: c.register || null,
+      card_number: c.number || null,
     })
     .eq("id", patientId);
   return { success: !error, error: error?.message ?? null };
@@ -4222,6 +4226,22 @@ export async function linkAppointmentArrived(appointmentId: string, patientId: s
   return { success: !error, error: error?.message ?? null };
 }
 
+// Queue actions on a visit (0102). Cancel takes the patient out of the queue
+// (refused when a payment was taken); reschedule moves the patient to another
+// day; arrived just records that reception saw the patient arrive.
+export async function cancelVisit(visitId: string, reason?: string) {
+  const { error } = await supabase.rpc("cancel_visit", { p_visit_id: visitId, p_reason: reason ?? null });
+  return { success: !error, error: error?.message ?? null };
+}
+export async function rescheduleVisit(visitId: string, newDate: string) {
+  const { data, error } = await supabase.rpc("reschedule_visit", { p_visit_id: visitId, p_new_date: newDate });
+  return { success: !error, error: error?.message ?? null, moved: !!(data as any)?.moved, token: ((data as any)?.token as string | undefined) ?? null };
+}
+export async function markVisitArrived(visitId: string, arrived = true) {
+  const { error } = await supabase.from("visits").update({ arrived_at: arrived ? new Date().toISOString() : null }).eq("id", visitId);
+  return { success: !error, error: error?.message ?? null };
+}
+
 export async function updateAppointmentStatus(id: string, status: string) {
   const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
   return { success: !error, error: error?.message ?? null };
@@ -4860,7 +4880,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0101_advance_payments";
+export const EXPECTED_SCHEMA_VERSION = "0102_visit_status_actions";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7022,6 +7042,23 @@ export interface CardIndexPatient {
   card_number: string;
   lifetime_visits: number;
 }
+// Card numbers still held by deleted / merged patients — taken, but not
+// visible in the register's list (shown as "hidden" in Card Registers).
+export interface HiddenCard { series: string; register: string; number: string; name: string }
+export async function fetchHiddenCardNumbers(): Promise<HiddenCard[]> {
+  const { data, error } = await supabase
+    .from("patients")
+    .select("name, card_series, card_register, card_number")
+    .eq("is_deleted", true)
+    .not("card_series", "is", null)
+    .not("card_number", "is", null)
+    .limit(2000);
+  if (error) throw dataLoadError(error);
+  return ((data ?? []) as any[]).map((r) => ({
+    series: r.card_series, register: r.card_register ?? "", number: r.card_number, name: r.name,
+  }));
+}
+
 export async function fetchCardIndex(): Promise<Record<string, CardIndexPatient[]>> {
   const PAGE = 1000;
   const bySeries: Record<string, CardIndexPatient[]> = {};

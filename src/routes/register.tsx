@@ -7,7 +7,7 @@ import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { PillOrOtherField } from "@/components/yhc/PillOrOtherField";
 import { DataQualityBanner } from "@/components/yhc/DataQualityBanner";
 import { DMYDateField } from "@/components/yhc/DMYDateField";
-import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode, isDuplicateCardNumber, normalizeCardParts, linkAppointmentArrived, CARD_SERIES } from "@/lib/db";
+import { createPatientWithVisit, isDuplicateMobile, patientWhatsAppTarget, findPatientsByMobile, type MobileMatch, checkInExistingPatient, autoConvertMatchingLead, branchLabel, BRANCH_KEYS, normalizeBranchKey, LEAD_SOURCES, linkFamilyMember, RELATIONSHIPS, fetchFeeMaster, DEFAULT_FEE_MASTER, fetchPaymentModes, collectPayment, uploadPatientPhoto, fetchManualDateEntryEnabled, formatCardNumber, displayPatientCode, isDuplicateCardNumber, normalizeCardParts, linkAppointmentArrived } from "@/lib/db";
 import { today } from "@/lib/supabase";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -137,8 +137,6 @@ function RegisterPage() {
     cardSeries: "",
     cardRegister: "",
     cardNumber: "",
-    // Card not at hand yet — registration goes ahead, the card is filled in later.
-    cardLater: false,
     branch: (normalizeBranchKey(search.branch) || "") as "" | "BAJAJ_NAGAR" | "JAGATPURA",
     consent: true,
     // Online-case tracking (Dr. Yadav, 29 Jul 2026)
@@ -364,14 +362,9 @@ function RegisterPage() {
       return;
     }
     const hasCard = !!(f.cardSeries.trim() || f.cardRegister.trim() || f.cardNumber.trim());
-    // The card number is the patient's real ID (Dr. Yadav, 26 Oct 2026): a new
-    // registration always carries it — series from his own list (A, AA, B, K
-    // ...), register and number — unless "card abhi nahi mila" is ticked.
-    const noRegisterSeries = /T$/i.test(f.cardSeries.trim()); // 1T-5T have no register
-    if (!f.cardLater && (!f.cardSeries.trim() || !f.cardNumber.trim() || (!f.cardRegister.trim() && !noRegisterSeries))) {
-      toast.error("Card number bharo — Series (A / AA / B / K ...), Register aur Number. Card abhi nahi mila to 'Card baad me bharunga' tick karo");
-      return;
-    }
+    // The card number is given by the case-taking doctor (Dr. Yadav, 26 Oct
+    // 2026), so registration never needs it. It stays here only for a patient
+    // who already has a card in hand.
     if (hasCard) {
       if (!f.cardSeries.trim() || !f.cardNumber.trim()) {
         toast.error("Card number poora bharo — Series aur Number dono chahiye");
@@ -616,7 +609,7 @@ function RegisterPage() {
                   waSameAsMobile: true, waNumber: "", waConfirmed: false, waCountryCode: "+91", waCountryCodeCustom: "",
                   age: "", gender: "", blood: "",
                   address: "", city: "Jaipur", pincode: "", chief: "",
-                  dob: "", anniversary: "", profession: "", cardSeries: "", cardRegister: "", cardNumber: "", cardLater: false,
+                  dob: "", anniversary: "", profession: "", cardSeries: "", cardRegister: "", cardNumber: "",
                   branch: "", consent: true, caseChannel: "WALK_IN", leadSource: "Walk-in",
                 });
                 setDupWarn(false);
@@ -732,30 +725,15 @@ function RegisterPage() {
           <Field placeholder="e.g. Ramesh Sharma" value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Section>
 
-        <Section
-          label="Card Number *"
-          hint="Paper card pe jo likha hai wahi: Series (A / AA / B / K ...) - Register - Number, jaise B-78-50. Ye hi patient ki asli ID hai."
-        >
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {CARD_SERIES.map((sr) => (
-              <button
-                key={sr}
-                type="button"
-                onClick={() => { set("cardSeries", f.cardSeries === sr ? "" : sr); set("cardLater", false); }}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs font-bold border transition",
-                  f.cardSeries === sr ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-foreground border-border",
-                )}
-              >
-                {sr}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2">
+        <details className="rounded-xl bg-surface border border-border p-3">
+          <summary className="cursor-pointer text-[12px] font-bold text-muted-foreground">
+            Purana card number hai? (zaroori nahi — card number case-taking doctor dete hain)
+          </summary>
+          <div className="mt-2 flex gap-2">
             <Field
               placeholder="Series"
               value={f.cardSeries}
-              onChange={(e) => { set("cardSeries", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3)); set("cardLater", false); }}
+              onChange={(e) => set("cardSeries", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3))}
               className="w-20 shrink-0 uppercase"
               aria-label="Card series"
             />
@@ -775,19 +753,7 @@ function RegisterPage() {
               aria-label="Card number"
             />
           </div>
-          <label className="mt-2 flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={f.cardLater}
-              onChange={(e) => {
-                set("cardLater", e.target.checked);
-                if (e.target.checked) { set("cardSeries", ""); set("cardRegister", ""); set("cardNumber", ""); }
-              }}
-              className="h-4 w-4"
-            />
-            Card abhi nahi mila — baad me bharunga
-          </label>
-        </Section>
+        </details>
 
         <Section label="Mobile Number *" hint={dupWarn ? t("⚠ Yeh number pehle se ek patient ke naam hai — neeche dekho.") : isIndia ? "10 digits" : t("Country code chunkar number likho")}>
           <div className="flex gap-2">

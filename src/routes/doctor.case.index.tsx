@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchQueueForDateCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -44,6 +45,7 @@ function CaseBoardPage() {
   // date-wise). Today also lists still-pending cases from the last 30 days.
   const [date, setDate] = useState(() => today());
   const isToday = date === today();
+  const [filterDate, setFilterDate] = useState<string | null>(null);
   const { data, isLoading, isError, error, refetch } = useQuery({
     // A dedicated "casedr" segment, not just branchScope, is deliberate:
     // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,
@@ -94,21 +96,7 @@ function CaseBoardPage() {
   // Totals are for the chosen day only; older still-pending cases (shown on
   // today's list) are counted separately so they don't inflate the day.
   const dayRows = rows.filter((r) => r.visit_date === date);
-  const assigned = dayRows.length;
-  const submitted = dayRows.filter((r) => r.visit_status === "WAITING_DOCTOR").length;
-  const remaining = assigned - submitted;
   const oldPending = rows.length - dayRows.length;
-  const countsByDate = useMemo(() => {
-    const m = new Map<string, { total: number; submitted: number }>();
-    for (const r of rows) {
-      const c = m.get(r.visit_date) ?? { total: 0, submitted: 0 };
-      c.total++;
-      if (r.visit_status === "WAITING_DOCTOR") c.submitted++;
-      m.set(r.visit_date, c);
-    }
-    return m;
-  }, [rows]);
-
   const markComplex = async (visitId: string, current: string) => {
     const next = current === "Complex" ? "Simple" : "Complex";
     const res = await updateCaseComplexity(visitId, next as "Simple" | "Complex");
@@ -120,39 +108,167 @@ function CaseBoardPage() {
     }
   };
 
+  // Clear split (Dr. Yadav, 26 Oct 2026): cases still to be taken vs cases
+  // already sent to the prescribing doctor, and one tap per date.
+  const pendingRows = rows.filter((r: any) => mapStatus(r.visit_status) !== "Submitted");
+  const doneRows = rows.filter((r: any) => mapStatus(r.visit_status) === "Submitted");
+  const pendingByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of pendingRows) m.set(r.visit_date, (m.get(r.visit_date) ?? 0) + 1);
+    return Array.from(m).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [pendingRows]);
+  const shownPending = filterDate ? pendingRows.filter((r: any) => r.visit_date === filterDate) : pendingRows;
+  const shownDone = filterDate ? doneRows.filter((r: any) => r.visit_date === filterDate) : doneRows;
+  const dateLabel = (d: string) =>
+    d === today() ? "Aaj" : new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+
+  const renderCard = (c: any) => {
+    const status = mapStatus(c.visit_status);
+    const clickable = status !== "Submitted";
+    const complexity = c.case_complexity ?? "Simple";
+    const daysWaiting = Math.max(0, Math.floor((Date.parse(today()) - Date.parse(c.visit_date)) / 86_400_000));
+    return (
+      <li key={c.id}>
+        <div
+          className={
+            "rounded-2xl bg-surface border border-border p-3.5 shadow-sm transition " +
+            (clickable ? "hover:border-primary/40" : "opacity-70")
+          }
+        >
+          <button
+            disabled={!clickable}
+            onClick={() => navigate({ to: "/doctor/case/form/$token", params: { token: c.id } })}
+            className={"w-full text-left " + (clickable ? "active:scale-[0.99]" : "cursor-not-allowed")}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-2.5 py-1">
+                  {c.token_number ?? "—"}
+                </span>
+                <span className="font-bold text-[15px] text-primary">{c.patient?.name}</span>
+                <PatientIdChip patient={c.patient} />
+              </div>
+              <span className={"rounded-full text-[11px] font-bold px-2.5 py-1 border " + statusStyle[status]}>
+                {status}
+              </span>
+            </div>
+            <div className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-2 flex-wrap">
+              <span>{c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}</span>
+              {daysWaiting > 0 && status !== "Submitted" && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
+                  {daysWaiting}d pending
+                </span>
+              )}
+              {(c.recased_at || c.needs_recase) && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-accent/25 text-accent-foreground border-accent/50">
+                  🔁 Recase
+                </span>
+              )}
+            </div>
+            <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
+            {c.recase_reason && <div className="text-[11px] text-destructive mt-0.5">Reason: {c.recase_reason}</div>}
+          </button>
+          {!isJunior && clickable && (
+            <button
+              onClick={() => markComplex(c.id, complexity)}
+              className={
+                "mt-2 rounded-full text-[10px] font-bold px-2.5 py-1 border " +
+                (complexity === "Complex"
+                  ? "bg-destructive/15 text-destructive border-destructive/40"
+                  : "bg-muted text-muted-foreground border-border")
+              }
+            >
+              {complexity === "Complex" ? "🔴 Complex — sirf Senior" : "Mark as Complex"}
+            </button>
+          )}
+        </div>
+      </li>
+    );
+  };
+
+  // A list grouped under a header per date (newest first).
+  const renderGroups = (list: any[]) => (
+    <ul className="space-y-2.5">
+      {list.map((c: any, i: number) => {
+        const first = i === 0 || list[i - 1].visit_date !== c.visit_date;
+        const inDate = list.filter((x: any) => x.visit_date === c.visit_date).length;
+        return (
+          <Fragment key={c.id}>
+            {first && (
+              <li className="pt-1 first:pt-0">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
+                  📅 {c.visit_date === today() ? "Aaj" : new Date(`${c.visit_date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} • {inDate} case
+                </div>
+              </li>
+            )}
+            {renderCard(c)}
+          </Fragment>
+        );
+      })}
+    </ul>
+  );
+
   return (
     <DoctorShell title="My Cases" subtitle="Contact details hidden" showLogout nav="case">
       <FlowBar branch={branchScope} />
-      <div className="mb-2 flex items-center gap-2">
+
+      <div className="rounded-2xl bg-primary text-primary-foreground p-3.5 flex items-center justify-between">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide opacity-80">Case lena baaki</div>
+          <div className="text-3xl font-black leading-tight">{pendingRows.length}</div>
+          <div className="text-[11px] opacity-80 mt-0.5">
+            {isToday ? `Aaj ${pendingRows.filter((r: any) => r.visit_date === date).length} • purane ${oldPending > 0 ? pendingRows.filter((r: any) => r.visit_date !== date).length : 0}` : `${dateLabel(date)} ke`}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[11px] uppercase tracking-wide opacity-80">Case ho gaya</div>
+          <div className="text-3xl font-black leading-tight">{doneRows.length}</div>
+          <div className="text-[11px] opacity-80 mt-0.5">doctor ko bheje</div>
+        </div>
+      </div>
+
+      {/* One tap per date, each with how many cases are still to be taken. */}
+      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+        {isToday && (
+          <button
+            onClick={() => setFilterDate(null)}
+            className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold " + (filterDate === null ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-primary border-border")}
+          >
+            Sab ({pendingRows.length})
+          </button>
+        )}
+        {isToday && pendingByDate.map(([d, n]) => (
+          <button
+            key={d}
+            onClick={() => setFilterDate(filterDate === d ? null : d)}
+            className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold " + (filterDate === d ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-primary border-border")}
+          >
+            {dateLabel(d)} ({n})
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <label className="text-[11px] font-semibold text-muted-foreground shrink-0">Koi aur din:</label>
         <input
           type="date"
           value={date}
           max={today()}
-          onChange={(e) => e.target.value && setDate(e.target.value)}
+          onChange={(e) => { if (e.target.value) { setDate(e.target.value); setFilterDate(null); } }}
           className="flex-1 rounded-lg bg-surface border border-input px-3 py-2 text-sm"
           aria-label="Kis din ke case dekhne hain"
         />
         {!isToday && (
-          <button onClick={() => setDate(today())} className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary">
+          <button onClick={() => { setDate(today()); setFilterDate(null); }} className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary">
             Aaj
           </button>
         )}
-      </div>
-      <div className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">
-        {isToday ? "Aaj ke" : new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " ke"} case
-        {isToday && oldPending > 0 ? ` • purane pending alag: ${oldPending}` : ""}
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Stat v={assigned} l="Assigned" />
-        <Stat v={submitted} l="Submitted" tone="success" />
-        <Stat v={remaining} l="Remaining" tone="accent" />
       </div>
 
       <div className="mt-3 rounded-xl bg-accent/20 border border-accent/40 p-3 text-[12px] text-primary flex gap-2">
         <Lock className="h-4 w-4 shrink-0 mt-0.5" />
         <span>
-          Mobile aur contact details hidden hain. Name, age, gender visible. Fresh case lo — previous prescriptions
-          nahi dikhengi.
+          Mobile aur contact details hidden hain. Name, age, gender aur card number visible. Fresh case lo — card number aap yahin se dete ho.
         </span>
       </div>
 
@@ -170,109 +286,18 @@ function CaseBoardPage() {
       ) : rows.length === 0 ? (
         <EmptyBlock label={isToday ? "Koi case pending nahi." : "Is din koi case nahi mila."} />
       ) : (
-        <ul className="mt-3 space-y-2.5">
-          {rows.map((c: any, i: number) => {
-            const status = mapStatus(c.visit_status);
-            const clickable = status !== "Submitted";
-            const complexity = c.case_complexity ?? "Simple";
-            const daysWaiting = Math.max(0, Math.floor((Date.parse(today()) - Date.parse(c.visit_date)) / 86_400_000));
-            // Date headers — same as the reception queue: newest date first,
-            // each group labelled with its calendar date.
-            const showDateHeader = i === 0 || rows[i - 1].visit_date !== c.visit_date;
-            const dayCounts = countsByDate.get(c.visit_date);
-            return (
-              <Fragment key={c.id}>
-              {showDateHeader && (
-                <li className="pt-1 first:pt-0">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
-                    {c.visit_date === today()
-                      ? "Aaj"
-                      : new Date(c.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                    {dayCounts
-                      ? c.visit_date === date
-                        ? ` • ${dayCounts.total} case • ${dayCounts.submitted} submit`
-                        : ` • ${dayCounts.total - dayCounts.submitted} pending`
-                      : ""}
-                  </div>
-                </li>
-              )}
-              <li>
-                <div
-                  className={
-                    "rounded-2xl bg-surface border border-border p-3.5 shadow-sm transition " +
-                    (clickable ? "hover:border-primary/40" : "opacity-60")
-                  }
-                >
-                  <button
-                    disabled={!clickable}
-                    onClick={() => navigate({ to: "/doctor/case/form/$token", params: { token: c.id } })}
-                    className={"w-full text-left " + (clickable ? "active:scale-[0.99]" : "cursor-not-allowed")}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-2.5 py-1">
-                          {c.token_number ?? "—"}
-                        </span>
-                        <span className="font-bold text-[15px] text-primary">{c.patient?.name}</span>
-                      </div>
-                      <span className={"rounded-full text-[11px] font-bold px-2.5 py-1 border " + statusStyle[status]}>
-                        {status}
-                      </span>
-                    </div>
-                    <div className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-2 flex-wrap">
-                      <span>{c.patient?.age ? `${c.patient.age}y` : "—"} • {c.patient?.gender ?? "—"}</span>
-                      {daysWaiting > 0 && status !== "Submitted" && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-destructive/10 text-destructive border-destructive/30">
-                          {daysWaiting}d pending
-                        </span>
-                      )}
-                      {(c.recased_at || c.needs_recase) && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-accent/25 text-accent-foreground border-accent/50">
-                          🔁 Recase
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
-                    {c.recase_reason && (
-                      <div className="text-[11px] text-destructive mt-0.5">Reason: {c.recase_reason}</div>
-                    )}
-                  </button>
-                  {!isJunior && (
-                    <button
-                      onClick={() => markComplex(c.id, complexity)}
-                      className={
-                        "mt-2 rounded-full text-[10px] font-bold px-2.5 py-1 border " +
-                        (complexity === "Complex"
-                          ? "bg-destructive/15 text-destructive border-destructive/40"
-                          : "bg-muted text-muted-foreground border-border")
-                      }
-                    >
-                      {complexity === "Complex" ? "🔴 Complex — sirf Senior" : "Mark as Complex"}
-                    </button>
-                  )}
-                </div>
-              </li>
-              </Fragment>
-            );
-          })}
-        </ul>
+        <>
+          <h3 className="mt-4 mb-2 text-sm font-extrabold text-primary">⏳ Case lena baaki ({shownPending.length})</h3>
+          {shownPending.length === 0 ? <EmptyBlock label="Koi case baaki nahi." /> : renderGroups(shownPending)}
+
+          {shownDone.length > 0 && (
+            <>
+              <h3 className="mt-5 mb-2 text-sm font-extrabold text-success">✅ Case ho gaya — doctor ko bhej diya ({shownDone.length})</h3>
+              {renderGroups(shownDone)}
+            </>
+          )}
+        </>
       )}
     </DoctorShell>
-  );
-}
-
-function Stat({ v, l, tone }: { v: number | string; l: string; tone?: "success" | "accent" }) {
-  return (
-    <div className="rounded-xl bg-surface border border-border px-2 py-2.5 text-center">
-      <div
-        className={
-          "text-base font-bold leading-tight " +
-          (tone === "success" ? "text-success" : tone === "accent" ? "text-accent-foreground" : "text-primary")
-        }
-      >
-        {v}
-      </div>
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">{l}</div>
-    </div>
   );
 }

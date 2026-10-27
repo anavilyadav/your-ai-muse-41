@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronLeft, Download } from "lucide-react";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
-import { fetchCardIndex, type CardIndexPatient, systemIdLabel } from "@/lib/db";
+import { fetchCardIndex, fetchHiddenCardNumbers, type CardIndexPatient, systemIdLabel } from "@/lib/db";
 import { registerGaps, formatNumberRanges } from "@/lib/cardGaps";
 
 export const Route = createFileRoute("/owner/card-index")({
@@ -33,6 +33,11 @@ function CardIndexPage() {
     staleTime: 60_000,
   });
 
+  // Numbers still held by deleted patients: counted as taken ("hidden"), not missing.
+  const { data: hiddenCards } = useQuery({ queryKey: ["card-index-hidden"], queryFn: fetchHiddenCardNumbers, staleTime: 60_000 });
+  const hiddenFor = (s: string, r: string) =>
+    (hiddenCards ?? []).filter((h) => h.series === s && h.register === r);
+
   const seriesList = useMemo(() => {
     if (!data) return [];
     return Object.keys(data)
@@ -48,8 +53,9 @@ function CardIndexPage() {
     }
     return Array.from(byRegister.entries())
       .sort((a, b) => Number(a[0]) - Number(b[0]))
-      .map(([register, patients]) => ({ register, patients, gaps: registerGaps(patients.map((p) => p.card_number)) }));
-  }, [data, series]);
+      .map(([register, patients]) => ({ register, patients, gaps: registerGaps(patients.map((p) => p.card_number), hiddenFor(series, register).map((h) => h.number)) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, series, hiddenCards]);
 
   // Every series/register with its missing numbers — the totals on the
   // first screen and the CSV download both come from this.
@@ -59,11 +65,12 @@ function CardIndexPage() {
     for (const s of Object.keys(data)) {
       const byRegister = new Map<string, string[]>();
       for (const p of data[s]) (byRegister.get(p.card_register) ?? byRegister.set(p.card_register, []).get(p.card_register)!).push(p.card_number);
-      for (const [r, nums] of byRegister) rows.push({ series: s, register: r, patients: nums.length, gaps: registerGaps(nums) });
+      for (const [r, nums] of byRegister) rows.push({ series: s, register: r, patients: nums.length, gaps: registerGaps(nums, hiddenFor(s, r).map((h) => h.number)) });
     }
     return rows.sort((a, b) =>
       a.series.length !== b.series.length ? a.series.length - b.series.length : a.series !== b.series ? a.series.localeCompare(b.series) : Number(a.register) - Number(b.register));
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, hiddenCards]);
   const missingBySeries = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of allGaps) m.set(r.series, (m.get(r.series) ?? 0) + r.gaps.missing.length);
@@ -73,8 +80,8 @@ function CardIndexPage() {
   const downloadCsv = () => {
     const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
     const lines = [
-      ["Series", "Register", "Patients", "Sabse bada number", "Gayab kitne", "Gayab numbers"].map(esc).join(","),
-      ...allGaps.map((r) => [r.series, r.register, r.patients, r.gaps.highest, r.gaps.missing.length, formatNumberRanges(r.gaps.missing)].map(esc).join(",")),
+      ["Series", "Register", "Patients", "Sabse bada number", "Kaha tak check kiya", "Gayab kitne", "Gayab numbers", "Hidden (delete hue patient ke paas)"].map(esc).join(","),
+      ...allGaps.map((r) => [r.series, r.register, r.patients, r.gaps.highest, r.gaps.checkedUpTo, r.gaps.missing.length, formatNumberRanges(r.gaps.missing), formatNumberRanges(r.gaps.hidden)].map(esc).join(",")),
     ];
     const url = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
@@ -106,7 +113,8 @@ function CardIndexPage() {
 
   // Level 3: patients within one register, sorted by card_number.
   if (series && register) {
-    const gaps = registerGaps(patientsInRegister.map((p) => p.card_number));
+    const hiddenHere = hiddenFor(series, register);
+    const gaps = registerGaps(patientsInRegister.map((p) => p.card_number), hiddenHere.map((h) => h.number));
     return (
       <RoleShell wide title={`${series}-${register}`} subtitle={`${patientsInRegister.length} patients is register mein`} showBack>
         <button onClick={() => setRegister(null)} className="inline-flex items-center gap-1 text-sm text-primary font-semibold mb-2">
@@ -114,8 +122,13 @@ function CardIndexPage() {
         </button>
         <div className={"rounded-xl border p-3 mb-3 text-[12px] " + (gaps.missing.length ? "bg-destructive/10 border-destructive/30 text-destructive" : "bg-success/10 border-success/30 text-success")}>
           {gaps.missing.length
-            ? <>⚠️ <b>{gaps.missing.length} number gayab</b> (1 se {gaps.highest} ke beech): {formatNumberRanges(gaps.missing)}</>
-            : <>✓ 1 se {gaps.highest} tak koi number gayab nahi.</>}
+            ? <>⚠️ <b>{gaps.missing.length} number gayab</b> (1 se {gaps.checkedUpTo} tak check kiya): {formatNumberRanges(gaps.missing)}</>
+            : <>✓ 1 se {gaps.checkedUpTo} tak koi number gayab nahi.</>}
+          {hiddenHere.length > 0 && (
+            <div className="text-muted-foreground mt-0.5">
+              🔒 Hidden (delete hue patient ke paas): {hiddenHere.map((h) => `${h.number} (${h.name})`).join(", ")}
+            </div>
+          )}
           {gaps.doubles > 0 && <div className="text-muted-foreground mt-0.5">{gaps.doubles} number A/B wale double hain (ek number pe 2 patient).</div>}
         </div>
         <ul className="space-y-2">
@@ -178,8 +191,11 @@ function CardIndexPage() {
                   </div>
                   {gaps.missing.length > 0 && (
                     <div className="text-[11.5px] text-destructive mt-1 leading-snug">
-                      {gaps.missing.length} gayab: {formatNumberRanges(gaps.missing)}
+                      {gaps.missing.length} gayab (1–{gaps.checkedUpTo}): {formatNumberRanges(gaps.missing)}
                     </div>
+                  )}
+                  {gaps.hidden.length > 0 && (
+                    <div className="text-[11px] text-muted-foreground mt-0.5">🔒 Hidden: {formatNumberRanges(gaps.hidden)}</div>
                   )}
                 </button>
               </li>

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, MessageCircle, CheckCircle2, History, TrendingUp, TrendingDown, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { InteractionHistoryModal } from "@/components/yhc/InteractionHistoryModal";
@@ -201,7 +202,7 @@ function FollowUpPage() {
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <div className="font-semibold text-sm text-primary truncate">{r.patient?.name ?? "—"}</div>
+                      <div className="font-semibold text-sm text-primary truncate flex items-center gap-1.5">{r.patient?.name ?? "—"} <PatientIdChip patient={r.patient} /></div>
                       <RemoteBadges patient={r.patient} className="shrink-0" />
                       {r.channel && (
                         <span

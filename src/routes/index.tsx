@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
+import { VisitStatusBar } from "@/components/yhc/VisitStatusBar";
 import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType, systemIdLabel } from "@/lib/db";
@@ -571,14 +572,24 @@ function QueuePage() {
                     </div>
                   </div>
                 </button>
-                {/* Appointment / Reschedule for every patient of today —
-                    outside the row's button, buttons can't nest. */}
-                {r.visit_date === todayStr() && r.visit_status !== "DONE" && r.patient && (
-                  <PatientApptBar
-                    patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
-                    appt={apptByPatientNext?.get(r.patient_id)}
-                    className="px-1 mt-1.5"
-                  />
+                {/* Aa gaya / Reschedule / Cancel under EVERY patient entry, plus the
+                    appointment's own steps (call / consultation shuru) when there
+                    is one — outside the row's button, buttons can't nest. */}
+                {r.visit_status !== "DONE" && r.patient && (
+                  <div className="px-1 mt-1.5 space-y-1.5">
+                    <VisitStatusBar
+                      visit={r}
+                      patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
+                      appt={apptByPatientNext?.get(r.patient_id)}
+                    />
+                    {r.visit_date === todayStr() && (
+                      <PatientApptBar
+                        hideCommon
+                        patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
+                        appt={apptByPatientNext?.get(r.patient_id)}
+                      />
+                    )}
+                  </div>
                 )}
                 {r.visit_status !== "DONE" && (
                   <div className="px-1 mt-1.5 flex items-center gap-1.5 flex-wrap">

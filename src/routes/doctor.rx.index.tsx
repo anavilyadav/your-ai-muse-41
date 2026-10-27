@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueue, branchLabel, normalizeBranchKey } from "@/lib/db";
 import { today } from "@/lib/supabase";
@@ -94,6 +95,7 @@ function RxQueue() {
                       {r.token_number ?? "—"}
                     </span>
                     <span className="font-bold text-[15px] text-primary">{r.patient?.name}</span>
+                    <PatientIdChip patient={r.patient} />
                   </div>
                   <span className="text-[11px] text-muted-foreground">
                     {r.patient?.age ? `${r.patient.age}y` : ""} {r.patient?.gender ?? ""}

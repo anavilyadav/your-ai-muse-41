@@ -31,7 +31,7 @@ type PatientLite = { id: string; name: string; mobile?: string | null; branch?: 
 //   booked          -> clinic aaya / call shuru, Reschedule, Cancel
 //   arrived         -> consultation shuru
 //   started         -> ho gaya
-export function PatientApptBar({ patient, appt, className }: { patient: PatientLite; appt?: any; className?: string }) {
+export function PatientApptBar({ patient, appt, className, hideCommon }: { patient: PatientLite; appt?: any; className?: string; hideCommon?: boolean }) {
   const qc = useQueryClient();
   const [booking, setBooking] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -70,7 +70,7 @@ export function PatientApptBar({ patient, appt, className }: { patient: PatientL
         📅 {dayLabel} {appt.appointment_time} • {apptTypeLabel(type)} • {appt.status === "Arrived" ? "Clinic me aaye" : appt.status === "Started" ? (online ? "Call chal rahi hai" : "Consultation chal rahi hai") : appt.status}
       </span>
 
-      {(appt.status === "Confirmed" || appt.status === "Tentative") && isToday && (
+      {(appt.status === "Confirmed" || appt.status === "Tentative") && isToday && (online || !hideCommon) && (
         online ? (
           <button type="button" onClick={() => markStarted(appt)} className={cn(btn, "bg-success text-success-foreground border-success")}>
             <PhoneCall className="h-3.5 w-3.5" /> Call shuru
@@ -92,12 +92,12 @@ export function PatientApptBar({ patient, appt, className }: { patient: PatientL
         </button>
       )}
 
-      {appt.status !== "Started" && (
+      {appt.status !== "Started" && !hideCommon && (
         <button type="button" onClick={() => setRescheduling(true)} className={cn(btn, "bg-surface border-primary/40 text-primary")}>
           <CalendarClock className="h-3.5 w-3.5" /> Reschedule
         </button>
       )}
-      {(appt.status === "Confirmed" || appt.status === "Tentative" || appt.status === "Arrived") && (
+      {(appt.status === "Confirmed" || appt.status === "Tentative" || appt.status === "Arrived") && !hideCommon && (
         <button
           type="button"
           onClick={() => { if (window.confirm(`${appt.patient_name ?? "Ye"} appointment cancel karein?`)) cancelAppointment(appt); }}

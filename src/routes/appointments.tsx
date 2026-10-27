@@ -121,7 +121,7 @@ export function NewAppointmentModal({
   initialPatient,
 }: {
   onClose: () => void;
-  onAdded: () => void;
+  onAdded: (info?: { date: string; time: string }) => void;
   initialType?: ApptType;
   initialPatient?: { id: string; name: string; mobile?: string | null; branch?: string | null; wa_consent?: boolean | null };
 }) {
@@ -177,7 +177,7 @@ export function NewAppointmentModal({
       // WhatsApp message didn't go out, not a reason to undo the booking.
       if (!waRes.success) toast.warning("Appointment ban gaya, par WhatsApp reminder nahi bheja ja saka");
     }
-    onAdded();
+    onAdded({ date, time });
     onClose();
   };
 
@@ -272,7 +272,7 @@ export function NewAppointmentModal({
 // cancel + recreate, which would have dropped the patient_id link.
 // Exported so both the standalone Appointments page and the Queue's
 // "today's appointments" section use the exact same flow.
-export function RescheduleModal({ appt, onClose, onRescheduled }: { appt: any; onClose: () => void; onRescheduled: () => void }) {
+export function RescheduleModal({ appt, onClose, onRescheduled }: { appt: any; onClose: () => void; onRescheduled: (info: { date: string; time: string }) => void }) {
   const role = useEffectiveRole();
   const isOwner = role === "OWNER";
   const [date, setDate] = useState(appt.appointment_date);
@@ -295,7 +295,7 @@ export function RescheduleModal({ appt, onClose, onRescheduled }: { appt: any; o
     setSaving(false);
     if (!res.success) { toast.error("Reschedule nahi hua: " + res.error); return; }
     toast.success(`${appt.patient_name} ka appointment reschedule ho gaya`);
-    onRescheduled();
+    onRescheduled({ date, time });
     onClose();
   };
 
