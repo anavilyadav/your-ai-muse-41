@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePatientCards } from "@/hooks/use-patient-cards";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
 import {
@@ -556,6 +558,7 @@ function AppointmentsPage() {
   const queryClient = useQueryClient();
   const appts = (data?.rows ?? []) as any[];
   const apptsTruncated = data?.truncated ?? false;
+  const cards = usePatientCards(appts.map((x) => x.patient_id));
   const [branch, setBranch] = useState<(typeof branches)[number]>("All");
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -679,6 +682,7 @@ function AppointmentsPage() {
                 </div>
                 <div className="mt-1 flex items-center gap-1.5 min-w-0">
                   <span className="font-semibold text-sm truncate">{a.patient_name}</span>
+                  <PatientIdChip patient={cards[a.patient_id]} />
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold",

@@ -5,7 +5,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MapPin, Package, Plus, Truck, X } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
-import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, displayPatientCode, type PatientAddress } from "@/lib/db";
+import { usePatientCards } from "@/hooks/use-patient-cards";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
+import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, displayPatientCode, type PatientAddress, type PatientCardFields } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { toast } from "sonner";
 
@@ -30,6 +32,7 @@ const partnerIcon: Record<string, typeof Truck> = {
 function DeliveryPage() {
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["deliveries"], queryFn: fetchDeliveries });
   const deliveries = (data ?? []) as any[];
+  const cards = usePatientCards(deliveries.map((x) => x.patient_id));
   const [showNew, setShowNew] = useState(false);
   const qc = useQueryClient();
 
@@ -79,7 +82,7 @@ function DeliveryPage() {
       ) : (
         <ul className="mt-4 space-y-3">
           {deliveries.map((d) => (
-            <DeliveryCard key={d.id} d={d} allDeliveries={deliveries} />
+            <DeliveryCard key={d.id} d={d} allDeliveries={deliveries} card={cards[d.patient_id]} />
           ))}
         </ul>
       )}
@@ -291,7 +294,7 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
-function DeliveryCard({ d, allDeliveries }: { d: any; allDeliveries: any[] }) {
+function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]; card?: PatientCardFields }) {
   // Family courier combine (Part B) — a delivery pointing at another via
   // combined_with_delivery_id shares one physical parcel; resolve the
   // other patient's name from the already-fetched list so Pharmacy knows
@@ -325,6 +328,7 @@ function DeliveryCard({ d, allDeliveries }: { d: any; allDeliveries: any[] }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm truncate">{d.patient_name}</span>
+            <PatientIdChip patient={card} />
             {d.token && (
               <span className="text-[10px] font-bold text-accent-foreground bg-accent rounded-full px-1.5 py-0.5">
                 {d.token}

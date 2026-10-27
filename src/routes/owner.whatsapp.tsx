@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -368,7 +369,7 @@ function WhatsAppForecastPanel() {
               <ul className="space-y-1.5">
                 {openCell.patients.map((p) => (
                   <li key={p.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center justify-between">
-                    <span className="text-[13px] font-semibold text-primary">{p.name}</span>
+                    <span className="text-[13px] font-semibold text-primary">{p.name} <PatientIdChip patient={p} /></span>
                     <span className="text-[11px] text-muted-foreground">{p.mobile} {p.patient_code && `• ${systemIdLabel(p.patient_code)}`}</span>
                   </li>
                 ))}
@@ -454,7 +455,7 @@ function WhatsAppDashboard() {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold text-primary truncate">
-                  {entry.patient?.name ?? entry.destination ?? "—"}
+                  {entry.patient?.name ?? entry.destination ?? "—"} <PatientIdChip patient={entry.patient} />
                 </div>
                 <div className="text-[11px] text-muted-foreground">{CAMPAIGN_LABEL[entry.campaign_name] ?? entry.campaign_name}</div>
               </div>
@@ -483,7 +484,7 @@ function WhatsAppDashboard() {
           <ul className="space-y-1.5">
             {consentChanges.data.map((c) => (
               <li key={c.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center justify-between">
-                <span className="text-[13px] text-primary">{c.patient?.name ?? "—"}</span>
+                <span className="text-[13px] text-primary">{c.patient?.name ?? "—"} <PatientIdChip patient={c.patient} /></span>
                 <span className="text-[11px] text-muted-foreground">
                   {c.old_value ? "ON" : "OFF"} → {c.new_value ? "ON" : "OFF"} • {new Date(c.changed_at).toLocaleDateString("en-IN")}
                 </span>

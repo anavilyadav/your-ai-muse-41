@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -244,6 +245,12 @@ function CaseFormPage() {
     const notes = notesText;
     setBusy(true);
     try {
+      // The card number is saved with a draft too — it must not wait for the
+      // whole case to be submitted.
+      if (visit?.patient?.id && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
+        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber);
+        qc.invalidateQueries({ queryKey: ["today-queue"] });
+      }
       await saveCaseNotes(visitId, {
         notes,
         draft: true,
@@ -306,7 +313,7 @@ function CaseFormPage() {
         <span className="inline-block rounded-full bg-accent text-accent-foreground text-[11px] font-bold px-2.5 py-1">
           {visit.token_number ?? "—"}
         </span>
-        <div className="text-lg font-extrabold mt-2">{p?.name}</div>
+        <div className="text-lg font-extrabold mt-2">{p?.name} <PatientIdChip patient={p} onDark /></div>
         <div className="text-[12px] text-primary-foreground/70 mt-0.5">
           {p?.age ? `${p.age}y` : "—"} • {p?.gender ?? "—"}
         </div>

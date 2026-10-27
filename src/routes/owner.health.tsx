@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useState } from "react";
@@ -170,7 +171,7 @@ function HealthPage() {
             {stale.data.map((v: any) => (
               <li key={v.id} className="rounded-xl bg-surface border border-border p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[13px] font-semibold text-primary">{v.patient?.name ?? "—"} <span className="text-muted-foreground font-normal">({systemIdLabel(v.patient?.patient_code) || "—"})</span></div>
+                  <div className="text-[13px] font-semibold text-primary">{v.patient?.name ?? "—"} <PatientIdChip patient={v.patient} /></div>
                   <div className="text-[11px] text-muted-foreground">{v.visit_date} • Token {v.token_number ?? "—"} • {v.visit_status}</div>
                 </div>
                 <Badge tone="destructive">{v.visit_status}</Badge>

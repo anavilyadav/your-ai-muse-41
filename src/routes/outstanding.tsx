@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Phone, MessageCircle, IndianRupee } from "lucide-react";

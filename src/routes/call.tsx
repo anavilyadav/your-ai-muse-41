@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,7 +129,7 @@ function CallDeskPage() {
               <li key={r.id} className="rounded-xl bg-surface border border-accent/40 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-primary truncate">{r.patient?.name ?? "—"}</div>
+                    <div className="text-[13px] font-semibold text-primary truncate">{r.patient?.name ?? "—"} <PatientIdChip patient={r.patient} /></div>
                     <div className="text-[11px] text-muted-foreground">
                       {r.patient?.mobile} • {DELIVERY_METHOD_LABELS[r.delivery_method]} • ₹{r.amount_expected}
                     </div>
@@ -709,7 +710,7 @@ function ConfirmPaymentModal({
         </div>
         <div className="flex flex-col gap-3">
           <div className="rounded-xl bg-accent/15 border border-accent/40 p-3">
-            <div className="text-sm font-bold text-primary">{request.patient?.name}</div>
+            <div className="text-sm font-bold text-primary">{request.patient?.name} <PatientIdChip patient={request.patient} /></div>
             <div className="text-[11px] text-muted-foreground">{request.note}</div>
           </div>
 

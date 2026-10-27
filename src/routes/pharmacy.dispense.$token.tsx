@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -112,7 +113,7 @@ function DispensePage() {
     <RoleShell wide title="Dispense Medicines" showBack>
       <div className="rounded-2xl bg-primary text-primary-foreground p-4">
         <div className="flex justify-between items-center">
-          <span className="font-extrabold text-base">{visit.patient?.name}</span>
+          <span className="font-extrabold text-base">{visit.patient?.name} <PatientIdChip patient={visit.patient} onDark /></span>
           <Badge tone="warn">{visit.token_number ?? "—"}</Badge>
         </div>
         <div className="text-[12px] text-primary-foreground/70 mt-1">{branchLabel(visit.branch)}</div>

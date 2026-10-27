@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
 import { PatientIdChip } from "@/components/yhc/PatientIdChip";
+import { CardNumberModal } from "@/components/yhc/CardNumberModal";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchTodayQueueCaseDR, fetchQueueForDateCaseDR, fetchCaseDrLevels, updateCaseComplexity, normalizeBranchKey } from "@/lib/db";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -46,6 +47,7 @@ function CaseBoardPage() {
   const [date, setDate] = useState(() => today());
   const isToday = date === today();
   const [filterDate, setFilterDate] = useState<string | null>(null);
+  const [cardFor, setCardFor] = useState<any | null>(null);
   const { data, isLoading, isError, error, refetch } = useQuery({
     // A dedicated "casedr" segment, not just branchScope, is deliberate:
     // this fetcher returns CASE_DR_SAFE_PATIENT_FIELDS only (no mobile,
@@ -167,6 +169,12 @@ function CaseBoardPage() {
             </div>
             <div className="text-[13px] text-primary mt-0.5">{c.chief_complaint || "—"}</div>
             {c.recase_reason && <div className="text-[11px] text-destructive mt-0.5">Reason: {c.recase_reason}</div>}
+          </button>
+          <button
+            onClick={() => setCardFor(c.patient ? { ...c.patient } : null)}
+            className="mt-2 mr-2 rounded-full text-[11px] font-bold px-2.5 py-1 border bg-accent/20 text-accent-foreground border-accent/50"
+          >
+            🪪 {c.patient?.card_number ? "Card badlo" : "Card number do"}
           </button>
           {!isJunior && clickable && (
             <button
@@ -297,6 +305,13 @@ function CaseBoardPage() {
             </>
           )}
         </>
+      )}
+      {cardFor && (
+        <CardNumberModal
+          patient={cardFor}
+          onClose={() => setCardFor(null)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["today-queue"] })}
+        />
       )}
     </DoctorShell>
   );

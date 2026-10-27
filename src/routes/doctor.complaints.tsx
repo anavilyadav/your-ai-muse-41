@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,6 +77,7 @@ function ComplaintsPage() {
                 >
                   {r.patient?.name ?? "—"}
                 </Link>
+                <PatientIdChip patient={r.patient} className="ml-1.5" />
                 <span className="shrink-0 rounded-full bg-destructive/15 text-destructive text-[11px] font-bold px-2 py-0.5">
                   {daysAgo(r.created_at)}
                 </span>

@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -334,7 +335,7 @@ function PayPage() {
             <div className="text-2xl font-black">{visit.token_number ?? "—"}</div>
           </div>
           <div className="text-right">
-            <div className="text-sm font-bold">{visit.patient?.name}</div>
+            <div className="text-sm font-bold">{visit.patient?.name} <PatientIdChip patient={visit.patient} onDark /></div>
             <div className="text-[10px] opacity-70">{displayPatientCode(visit.patient)} • {branchLabel(visit.branch)}</div>
           </div>
         </div>

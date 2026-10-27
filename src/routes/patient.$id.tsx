@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
@@ -1230,7 +1231,7 @@ function PatientProfilePage() {
             />
           </label>
           <div className="min-w-0 flex-1">
-            <div className="font-bold truncate">{patient.name}</div>
+            <div className="font-bold truncate">{patient.name} <PatientIdChip patient={patient} onDark /></div>
             <div className="text-[11px] opacity-80">
               {patient.age ?? "?"} yrs • {patient.gender ?? "—"} • {branchLabel}
             </div>

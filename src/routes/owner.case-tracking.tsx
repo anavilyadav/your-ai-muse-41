@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { RoleShell } from "@/components/yhc/RoleShell";
@@ -126,7 +127,7 @@ function CaseList({ cases }: { cases: PendingCase[] }) {
           <div key={v.id} className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <div className="text-sm font-bold text-primary truncate">{v.patient?.name ?? "—"}</div>
+                <div className="text-sm font-bold text-primary truncate">{v.patient?.name ?? "—"} <PatientIdChip patient={v.patient} /></div>
                 <div className="text-[11px] text-muted-foreground">
                   {systemIdLabel(v.patient?.patient_code)} • {v.patient?.mobile} • {branchLabel(v.branch)}
                 </div>

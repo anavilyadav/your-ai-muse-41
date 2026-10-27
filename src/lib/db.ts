@@ -1237,13 +1237,13 @@ export interface PaymentAdjustment {
   applied_amount: number | null;
   notes: string | null;
   created_at: string;
-  patient?: { name: string; mobile: string; patient_code: string | null };
+  patient?: { name: string; mobile: string; patient_code: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null };
 }
 
 export async function fetchPendingPaymentAdjustments(): Promise<PaymentAdjustment[]> {
   const { data, error } = await supabase
     .from("payment_adjustments")
-    .select("*, patient:patients(name, mobile, patient_code)")
+    .select("*, patient:patients(name, mobile, patient_code, card_series, card_register, card_number)")
     .eq("status", "PENDING")
     .order("created_at", { ascending: true });
   if (error) throw dataLoadError(error);
@@ -1600,7 +1600,7 @@ export interface PendingCase {
   token_number: string | null;
   branch: string;
   created_at: string;
-  patient?: { name: string; mobile: string; patient_code: string | null };
+  patient?: { name: string; mobile: string; patient_code: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null };
 }
 
 // Deliberately NO 30-day floor like fetchTodayQueue has — a case that's
@@ -1609,7 +1609,7 @@ export interface PendingCase {
 export async function fetchPendingCases(): Promise<PendingCase[]> {
   const { data, error } = await supabase
     .from("visits")
-    .select("*, patient:patients(name, mobile, patient_code)")
+    .select("*, patient:patients(name, mobile, patient_code, card_series, card_register, card_number)")
     .is("case_discussed_at", null)
     .order("created_at", { ascending: true })
     .limit(500);
@@ -4630,7 +4630,7 @@ export async function updateStaffProfile(input: UpdateStaffInput) {
 export async function fetchStaleOpenVisits() {
   const { data, error } = await supabase
     .from("visits")
-    .select("id,visit_date,visit_status,token_number,branch,patient:patients(name,mobile,patient_code)")
+    .select("id,visit_date,visit_status,token_number,branch,patient:patients(name,mobile,patient_code,card_series,card_register,card_number)")
     .neq("visit_status", "DONE")
     .lt("visit_date", thirtyDaysAgo())
     .order("visit_date", { ascending: true })
@@ -4724,7 +4724,7 @@ export interface OnlineFollowupRequest {
   created_at: string;
   confirmed_by: string | null;
   confirmed_at: string | null;
-  patient?: { name: string; mobile: string; patient_code: string | null } | null;
+  patient?: { name: string; mobile: string; patient_code: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null } | null;
 }
 
 // Owner-editable, same settings-key pattern as appointment_slot_config —
@@ -4772,7 +4772,7 @@ export function onlineFollowupAmountFor(method: OnlineFollowupDeliveryMethod, pr
 export async function fetchOnlineFollowupRequests(status?: OnlineFollowupStatus): Promise<OnlineFollowupRequest[]> {
   let q = supabase
     .from("online_followup_requests")
-    .select("*, patient:patients(name, mobile, patient_code)")
+    .select("*, patient:patients(name, mobile, patient_code, card_series, card_register, card_number)")
     .order("created_at", { ascending: true });
   if (status) q = q.eq("status", status);
   const { data, error } = await q.limit(200);
@@ -7016,6 +7016,31 @@ export async function fetchPatientById(id: string) {
   return data as DBPatient | null;
 }
 
+export interface PatientCardFields {
+  id: string;
+  patient_code: string | null;
+  card_series: string | null;
+  card_register: string | null;
+  card_number: string | null;
+}
+
+// Card number + app number for a list of patients, so a screen whose rows only
+// carry patient_id / patient_name (appointments, deliveries, day summary) can
+// still show the card next to the name (Dr. Yadav, 27 Oct 2026).
+export async function fetchPatientCards(ids: string[]): Promise<Record<string, PatientCardFields>> {
+  const uniq = Array.from(new Set(ids.filter(Boolean)));
+  const out: Record<string, PatientCardFields> = {};
+  for (let i = 0; i < uniq.length; i += 300) {
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id,patient_code,card_series,card_register,card_number")
+      .in("id", uniq.slice(i, i + 300));
+    if (error) throw dataLoadError(error);
+    for (const r of (data ?? []) as PatientCardFields[]) out[r.id] = r;
+  }
+  return out;
+}
+
 export async function fetchPatientsByIds(ids: string[]): Promise<{ id: string; name: string; patient_code: string | null }[]> {
   if (ids.length === 0) return [];
   const { data, error } = await supabase.from("patients").select("id,name,patient_code").in("id", ids);
@@ -8120,7 +8145,7 @@ export interface WhatsAppLogEntry {
   status: "sent" | "failed" | "skipped_consent" | "skipped_disabled" | "skipped_cap";
   error_message: string | null;
   created_at: string;
-  patient?: { name: string; patient_code?: string | null } | null;
+  patient?: { name: string; patient_code?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null } | null;
 }
 
 // ─── WhatsApp master/module switches + daily caps (10 Aug 2026) ────────────
@@ -8307,7 +8332,7 @@ export async function fetchWhatsAppLog(opts?: {
 }): Promise<WhatsAppLogEntry[]> {
   let q = supabase
     .from("whatsapp_log")
-    .select("id, patient_id, campaign_name, destination, status, error_message, created_at, patients(name, patient_code)")
+    .select("id, patient_id, campaign_name, destination, status, error_message, created_at, patients(name, patient_code, card_series, card_register, card_number)")
     .order("created_at", { ascending: false })
     .limit(opts?.limit ?? 100);
   if (opts?.status) q = q.eq("status", opts.status);
@@ -8398,13 +8423,13 @@ export interface ConsentChange {
   old_value: boolean | null;
   new_value: boolean;
   changed_at: string;
-  patient?: { name: string } | null;
+  patient?: { name: string; patient_code?: string | null; card_series?: string | null; card_register?: string | null; card_number?: string | null } | null;
 }
 
 export async function fetchRecentConsentChanges(limit = 20): Promise<ConsentChange[]> {
   const { data, error } = await supabase
     .from("wa_consent_log")
-    .select("id, patient_id, old_value, new_value, changed_at, patients(name)")
+    .select("id, patient_id, old_value, new_value, changed_at, patients(name, patient_code, card_series, card_register, card_number)")
     .order("changed_at", { ascending: false })
     .limit(limit);
   if (error) throw dataLoadError(error);

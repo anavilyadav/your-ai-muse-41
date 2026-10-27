@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -57,7 +58,7 @@ function PaymentAdjustmentsPage() {
             <div key={it.id} className="rounded-xl border border-border bg-surface p-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-bold text-primary">{it.patient?.name ?? "—"}</div>
+                  <div className="text-sm font-bold text-primary">{it.patient?.name ?? "—"} <PatientIdChip patient={it.patient} /></div>
                   <div className="text-[11px] text-muted-foreground">
                     {systemIdLabel(it.patient?.patient_code)} • {it.patient?.mobile}
                   </div>

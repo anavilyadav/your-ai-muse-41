@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { BarChart3, IndianRupee, TrendingUp, UserCheck, Users, PhoneCall, Clock } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { cn } from "@/lib/utils";
+import { usePatientCards } from "@/hooks/use-patient-cards";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { fetchDaySummary, fetchBackfilledEntries, type BackfilledEntry } from "@/lib/db";
 import { today as todayIso } from "@/lib/supabase";
 
@@ -228,6 +230,7 @@ function PayBar({ label, amount, total, color }: { label: string; amount: number
 // could see what was back-entered today.
 function BackfilledList({ entries, isToday }: { entries: BackfilledEntry[]; isToday: boolean }) {
   const [open, setOpen] = useState(false);
+  const cards = usePatientCards(open ? entries.map((e) => e.patient_id) : []);
   const dupes = entries.filter((e) => e.alreadyExisted).length;
   const byDate = new Map<string, BackfilledEntry[]>();
   for (const e of entries) byDate.set(e.visit_date, [...(byDate.get(e.visit_date) ?? []), e]);
@@ -256,7 +259,7 @@ function BackfilledList({ entries, isToday }: { entries: BackfilledEntry[]; isTo
               <ul className="mt-0.5 space-y-0.5">
                 {list.map((e) => (
                   <li key={e.id} className="text-[12px] flex items-center justify-between gap-2">
-                    <span className="truncate">{e.patient_name}</span>
+                    <span className="truncate">{e.patient_name} <PatientIdChip patient={cards[e.patient_id]} /></span>
                     {e.alreadyExisted && <span className="shrink-0 text-[10px] font-semibold text-destructive">pehle se thi</span>}
                   </li>
                 ))}

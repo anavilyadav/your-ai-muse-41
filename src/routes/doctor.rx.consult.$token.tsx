@@ -1,3 +1,4 @@
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -458,6 +459,7 @@ function RxWrite() {
             <div className="text-xs opacity-70">Token {visit.token_number}</div>
             <div className="flex items-center gap-2">
               <div className="text-xl font-black">{visit.patient?.name}</div>
+              <PatientIdChip patient={visit.patient} onDark />
               {visit.patient_id && (
                 <button
                   onClick={() => setShowEditName(true)}
