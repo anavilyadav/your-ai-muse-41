@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchFlowToday } from "@/lib/db";
+import { fetchFlowToday, fetchAppointments } from "@/lib/db";
+import { today } from "@/lib/supabase";
 import { summarizeFlow } from "@/lib/flow";
 import { cn } from "@/lib/utils";
 
@@ -14,8 +15,21 @@ export function FlowBar({ branch }: { branch?: string }) {
     queryFn: () => fetchFlowToday(branch),
     refetchInterval: 15_000,
   });
-  const stages = useMemo(() => summarizeFlow(data ?? []), [data]);
-  if (!data || data.length === 0) return null;
+  // Same key as the Appointments board, so the list is shared, not fetched twice.
+  const { data: appts } = useQuery({
+    queryKey: ["appointments", today()],
+    queryFn: () => fetchAppointments(today()),
+    refetchInterval: 30_000,
+  });
+  const booked = useMemo(
+    () =>
+      (appts?.rows ?? []).filter(
+        (a: any) => (a.status === "Confirmed" || a.status === "Tentative") && (!branch || a.branch === branch),
+      ),
+    [appts, branch],
+  );
+  const stages = useMemo(() => summarizeFlow(data ?? [], booked), [data, booked]);
+  if ((!data || data.length === 0) && booked.length === 0) return null;
 
   return (
     <section aria-label="Live flow" className="mb-3">
@@ -39,12 +53,12 @@ export function FlowBar({ branch }: { branch?: string }) {
               </div>
               {!done && current && (
                 <div className="mt-1 text-[11px] font-bold text-accent-foreground bg-accent/30 rounded px-1.5 py-0.5 inline-block">
-                  Now: {current}
+                  {stage.key === "booked" ? "First" : "Now"}: {current}
                 </div>
               )}
               {!done && tokens.length > 1 && (
                 <div className="mt-1 text-[10.5px] text-muted-foreground leading-snug">
-                  Next: {tokens.slice(1, 5).join(", ")}{tokens.length > 5 ? ` +${tokens.length - 5}` : ""}
+                  {stage.key === "booked" ? "Then" : "Next"}: {tokens.slice(1, 5).join(", ")}{tokens.length > 5 ? ` +${tokens.length - 5}` : ""}
                 </div>
               )}
             </div>

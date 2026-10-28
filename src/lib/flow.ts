@@ -18,7 +18,10 @@ export interface FlowStage {
 // "Arrived" = reception has marked the patient as arrived (arrived_at set);
 // "Waiting Area" = registered and token given, not yet marked arrived. Both
 // are before case taking, so both use the REGISTERED / WAITING statuses.
+// "Booked" comes first: today's appointments (Confirmed/Tentative) whose
+// patient has not arrived yet. They have no token, so the time is shown.
 export const FLOW_STAGES: FlowStage[] = [
+  { key: "booked", label: "Booked", owner: "Reception", statuses: [] },
   { key: "arrived", label: "Arrived", owner: "Reception / Case-DR", statuses: ["REGISTERED", "WAITING"] },
   { key: "waiting", label: "Waiting Area", owner: "Reception / Case-DR", statuses: ["REGISTERED", "WAITING"] },
   { key: "case", label: "Case Taking", owner: "Case-DR", statuses: ["CASE_TAKING"] },
@@ -49,8 +52,16 @@ function tokenOrder(t: string | null): number {
   return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-export function summarizeFlow(visits: FlowVisit[]): FlowStageSummary[] {
+export interface FlowBooking {
+  appointment_time: string | null;
+}
+
+export function summarizeFlow(visits: FlowVisit[], booked: FlowBooking[] = []): FlowStageSummary[] {
   return FLOW_STAGES.map((stage) => {
+    if (stage.key === "booked") {
+      const times = booked.map((b) => b.appointment_time ?? "—").sort();
+      return { stage, count: times.length, tokens: times, current: times[0] ?? null };
+    }
     const inStage = visits
       .filter((v) => stage.statuses.includes(v.visit_status))
       .filter((v) => (stage.key === "arrived" ? !!v.arrived_at : stage.key === "waiting" ? !v.arrived_at : true))
