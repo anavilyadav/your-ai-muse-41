@@ -5,7 +5,7 @@ import { Search as SearchIcon, AlertTriangle } from "lucide-react";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { toast } from "sonner";
-import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags, fetchRemotePatients, type RemoteFilter } from "@/lib/db";
+import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags, fetchListSharingFlags, fetchRemotePatients, type RemoteFilter } from "@/lib/db";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,8 @@ const FLAG_LABELS: Record<string, string> = {
   missingCard: "Card nahi hai",
   partialCard: "Card adhoora",
   unconfirmedNumber: "Number unconfirmed",
+  sharedMobile: "Mobile kisi aur ke saath bhi",
+  possibleDuplicate: "Same naam+mobile ka doosra record",
 };
 
 export const Route = createFileRoute("/owner/patients")({
@@ -81,6 +83,12 @@ function PatientsPage() {
   };
 
   const rows = list.data?.rows ?? [];
+  const { data: sharing } = useQuery({
+    queryKey: ["list-sharing-flags", rows.map((r: any) => r.id).join(",")],
+    queryFn: () => fetchListSharingFlags(rows as any[]),
+    enabled: rows.length > 0,
+    staleTime: 60_000,
+  });
   const hasMore = list.data?.hasMore ?? false;
 
   return (
@@ -164,7 +172,8 @@ function PatientsPage() {
             // so every visible patient's gaps are legible while just
             // scanning/searching this list. Tapping the row already opens
             // the profile, where the fix actually happens.
-            const flags = computeLocalDataQualityFlags(p);
+            const flags = { ...computeLocalDataQualityFlags(p), ...(sharing?.[p.id] ?? {}) } as Record<string, boolean>;
+            const flagLabels = Object.entries(FLAG_LABELS).filter(([k]) => flags[k]).map(([, label]) => label);
             return (
             <li key={p.id}>
               <Link
@@ -198,11 +207,17 @@ function PatientsPage() {
                     {p.lifetime_visits} visit{p.lifetime_visits === 1 ? "" : "s"}
                     {p.last_visit_date ? ` • Last: ${p.last_visit_date}` : ""}
                   </p>
-                  {flags.hasAny && (
-                    <p className="truncate text-[11px] font-semibold text-destructive mt-0.5 flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3 shrink-0" />
-                      {Object.entries(FLAG_LABELS).filter(([k]) => (flags as any)[k]).map(([, label]) => label).join(" • ")}
-                    </p>
+                  {/* Every gap of this profile, spelled out on the row itself so
+                      nobody has to open each profile to check (28 Oct 2026). */}
+                  {flagLabels.length > 0 && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
+                      {flagLabels.map((label) => (
+                        <span key={label} className="rounded-full border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </Link>

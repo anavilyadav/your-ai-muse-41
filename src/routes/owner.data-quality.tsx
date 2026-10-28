@@ -197,7 +197,7 @@ function DataQualityPage() {
     || r.duplicate_cards.length > 0 || r.possible_duplicate_patients.length > 0 || r.invalid_mobile_total > 0 || r.invalid_email_total > 0;
 
   return (
-    <RoleShell wide title="Data Quality" subtitle="Nayi entries ki kamiyan + sab ke card number" nav={OWNER_NAV}>
+    <RoleShell wide title="Data Quality" subtitle="Har patient ki profile ki kamiyan" nav={OWNER_NAV}>
       <div className={cn(
         "rounded-2xl p-3.5 flex items-start gap-2 mb-3",
         !anyIssues ? "bg-success/10 text-success" : "bg-primary text-primary-foreground",
@@ -211,7 +211,7 @@ function DataQualityPage() {
       </div>
 
       <p className="text-[11px] text-muted-foreground mb-2 px-0.5">
-        Purani (import ki hui) entries pass maani gayi hain. Card number ka check sab patients par lagta hai (1T–5T cards me register nahi hota, wo theek hain).
+        Surname (adhoora naam) ka check hata diya hai. 1T–5T cards me register nahi hota — wo theek maane jaate hain.
       </p>
 
       <div className="flex items-center justify-between mb-3 px-0.5">
@@ -364,7 +364,7 @@ function DataQualityPage() {
         </Section>
 
         <Section
-          icon={Phone} title="Mobile number nahi hai" hint="Nayi entries jinme mobile number nahi hai ya 10 digit ka nahi hai"
+          icon={Phone} title="Mobile number nahi hai" hint="Mobile number khaali hai (ya 10 digit ka nahi hai)"
           count={r.invalid_mobile.length} total={r.invalid_mobile_total}
           open={!!open.badMobile} onToggle={() => toggle("badMobile")}
           onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "mobile_number_nahi_hai.csv")}

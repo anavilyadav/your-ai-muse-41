@@ -26,7 +26,6 @@ export function DataQualityBanner({
     mobile_confirmed?: boolean | null;
     whatsapp_confirmed?: boolean | null;
     whatsapp_number?: string | null;
-    imported_batch?: string | null;
   } | null | undefined;
   onEdit?: () => void;
 }) {

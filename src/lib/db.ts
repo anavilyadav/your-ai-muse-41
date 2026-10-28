@@ -4894,7 +4894,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0103_data_quality_old_entries_pass";
+export const EXPECTED_SCHEMA_VERSION = "0104_data_quality_all_entries";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7550,6 +7550,34 @@ export async function fetchDataQualityReport(): Promise<DataQualityReport> {
 // request that came with this feature.
 const DISMISSED_SHARED_MOBILES_KEY = "dq_dismissed_shared_mobiles";
 
+// For a list of patients (Master Patient List page): which mobiles are on
+// more than one patient, and which name+mobile pairs repeat — so the list can
+// show those two flags on every row without opening each profile (Dr. Yadav,
+// 28 Oct 2026). Dismissed shared mobiles (family) are left out.
+export async function fetchListSharingFlags(rows: { id: string; name?: string | null; mobile?: string | null }[]): Promise<Record<string, { sharedMobile: boolean; possibleDuplicate: boolean }>> {
+  const mobiles = Array.from(new Set(rows.map((r) => (r.mobile ?? "").trim()).filter(Boolean)));
+  const out: Record<string, { sharedMobile: boolean; possibleDuplicate: boolean }> = {};
+  if (mobiles.length === 0) return out;
+  const others: { id: string; name: string | null; mobile: string }[] = [];
+  for (let i = 0; i < mobiles.length; i += 200) {
+    const { data, error } = await supabase.from("patients").select("id, name, mobile").eq("is_deleted", false).in("mobile", mobiles.slice(i, i + 200));
+    if (error) throw dataLoadError(error);
+    others.push(...((data ?? []) as any[]));
+  }
+  const dismissed = new Set(await fetchDismissedSharedMobiles());
+  const norm = (n: string | null | undefined) => (n ?? "").trim().toLowerCase();
+  for (const r of rows) {
+    const m = (r.mobile ?? "").trim();
+    if (!m) continue;
+    const same = others.filter((o) => o.mobile === m && o.id !== r.id);
+    out[r.id] = {
+      sharedMobile: same.length > 0 && !dismissed.has(m),
+      possibleDuplicate: same.some((o) => norm(o.name) === norm(r.name)),
+    };
+  }
+  return out;
+}
+
 export async function fetchDismissedSharedMobiles(): Promise<string[]> {
   const { data, error } = await supabase.from("settings").select("value").eq("key", DISMISSED_SHARED_MOBILES_KEY).maybeSingle();
   if (error) throw dataLoadError(error);
@@ -7624,18 +7652,15 @@ export function computeLocalDataQualityFlags(patient: {
   mobile_confirmed?: boolean | null;
   whatsapp_confirmed?: boolean | null;
   whatsapp_number?: string | null;
-  /** Set for entries imported from the old registers — they pass every check except the card ones. */
-  imported_batch?: string | null;
 }): { incompleteName: boolean; missingMobile: boolean; missingCard: boolean; partialCard: boolean; unconfirmedNumber: boolean; hasAny: boolean } {
   const s = (v: string | null | undefined) => (v ?? "").trim();
   const name = s(patient.name);
   const mobile = s(patient.mobile);
 
-  // The surname check is gone (Dr. Yadav, 28 Oct 2026), and old (imported)
-  // entries pass everything except the card number, which stays important.
+  // The surname check is gone (Dr. Yadav, 28 Oct 2026). Every other check
+  // still covers every patient, old (imported) entries included.
   const incompleteName = false;
-  const isOld = !!patient.imported_batch;
-  const missingMobile = mobile === "" && !isOld;
+  const missingMobile = mobile === "";
   // Register is legitimately optional on its own now (25 Sep 2026,
   // "master LIST 1T-a99" sheet) — an older numbering scheme ("1T-1",
   // "3T-37") has no register segment at all, a real, complete card, not
@@ -7647,9 +7672,8 @@ export function computeLocalDataQualityFlags(patient: {
   const missingCard = !seriesFilled && !numberFilled;
   const partialCard = !missingCard && seriesFilled !== numberFilled;
   const unconfirmedNumber =
-    !isOld &&
-    ((!missingMobile && patient.mobile_confirmed === false) ||
-      (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false));
+    (!missingMobile && patient.mobile_confirmed === false) ||
+    (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
 
   return {
     incompleteName,
@@ -7671,7 +7695,6 @@ export async function fetchPatientDataQualityFlags(patient: {
   mobile_confirmed?: boolean | null;
   whatsapp_confirmed?: boolean | null;
   whatsapp_number?: string | null;
-  imported_batch?: string | null;
 }): Promise<PatientDataQualityFlags> {
   const s = (v: string | null | undefined) => (v ?? "").trim();
   const name = s(patient.name);
@@ -7681,7 +7704,7 @@ export async function fetchPatientDataQualityFlags(patient: {
 
   let sharedMobile = false;
   let possibleDuplicate = false;
-  if (mobile && !patient.imported_batch) {
+  if (mobile) {
     const { count: mobileCount, error: mErr } = await supabase
       .from("patients")
       .select("id", { count: "exact", head: true })

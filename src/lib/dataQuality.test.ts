@@ -10,15 +10,13 @@ describe("computeLocalDataQualityFlags", () => {
     expect(f.hasAny).toBe(false);
   });
 
-  it("lets an old (imported) entry pass a missing mobile", () => {
-    expect(computeLocalDataQualityFlags({ ...base, mobile: "", imported_batch: "sheet-1" }).missingMobile).toBe(false);
+  it("flags a missing mobile", () => {
     expect(computeLocalDataQualityFlags({ ...base, mobile: "" }).missingMobile).toBe(true);
   });
 
-  it("still flags a missing or half-filled card on an old entry", () => {
-    const old = { ...base, imported_batch: "sheet-1" };
-    expect(computeLocalDataQualityFlags({ ...old, card_series: "", card_register: "", card_number: "" }).missingCard).toBe(true);
-    expect(computeLocalDataQualityFlags({ ...old, card_number: "" }).partialCard).toBe(true);
+  it("flags a missing or half-filled card", () => {
+    expect(computeLocalDataQualityFlags({ ...base, card_series: "", card_register: "", card_number: "" }).missingCard).toBe(true);
+    expect(computeLocalDataQualityFlags({ ...base, card_number: "" }).partialCard).toBe(true);
   });
 
   it("treats a 1T-5T card without a register as complete", () => {
