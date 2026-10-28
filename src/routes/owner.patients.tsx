@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 // DataQualityBanner's fuller Hinglish sentences, shortened to fit one
 // line per patient row without wrapping the whole card.
 const FLAG_LABELS: Record<string, string> = {
-  incompleteName: "Naam adhoora",
   missingMobile: "Mobile nahi hai",
   missingCard: "Card nahi hai",
   partialCard: "Card adhoora",

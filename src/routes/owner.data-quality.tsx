@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, UserX, CreditCard, Copy, Phone, Mail, Download, PhoneCall, EyeOff, RotateCcw } from "lucide-react";
+import { RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Users, CreditCard, Copy, Phone, Mail, Download, PhoneCall, EyeOff, RotateCcw } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
@@ -193,11 +193,11 @@ function DataQualityPage() {
   const sharedMobilePatients = activeMobileGroups.reduce((s, g) => s + g.count, 0);
   const dupCardPatients = r.duplicate_cards.reduce((s, d) => s + d.count, 0);
   const dupPatientRecords = r.possible_duplicate_patients.reduce((s, d) => s + d.count, 0);
-  const anyIssues = r.incomplete_names_total > 0 || activeMobileGroups.length > 0 || r.partial_card_total > 0
+  const anyIssues = activeMobileGroups.length > 0 || r.partial_card_total > 0
     || r.duplicate_cards.length > 0 || r.possible_duplicate_patients.length > 0 || r.invalid_mobile_total > 0 || r.invalid_email_total > 0;
 
   return (
-    <RoleShell wide title="Data Quality" subtitle="Bulk import se pehle saaf karo" nav={OWNER_NAV}>
+    <RoleShell wide title="Data Quality" subtitle="Nayi entries ki kamiyan + sab ke card number" nav={OWNER_NAV}>
       <div className={cn(
         "rounded-2xl p-3.5 flex items-start gap-2 mb-3",
         !anyIssues ? "bg-success/10 text-success" : "bg-primary text-primary-foreground",
@@ -206,9 +206,13 @@ function DataQualityPage() {
         <span className="text-[12px]">
           {!anyIssues
             ? "Koi data-quality mistake nahi mili — abhi ke patients records saaf hain."
-            : `Neeche category-wise list hai — ${r.incomplete_names_total} adhoore naam, ${sharedMobilePatients} patients ek shared mobile number pe (${activeMobileGroups.length} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe, ${dupPatientRecords} records same naam+mobile pe alag-alag ban gaye (${r.possible_duplicate_patients.length} groups). Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
+            : `Neeche category-wise list hai — ${sharedMobilePatients} patients ek shared mobile number pe (${activeMobileGroups.length} groups), ${r.partial_card_total} adhoora card number, ${dupCardPatients} patients duplicate card number pe, ${dupPatientRecords} records same naam+mobile pe alag-alag ban gaye (${r.possible_duplicate_patients.length} groups). Har entry ko tap karke us patient ke profile pe jaakar theek karo (naam edit / card number update / merge).`}
         </span>
       </div>
+
+      <p className="text-[11px] text-muted-foreground mb-2 px-0.5">
+        Purani (import ki hui) entries pass maani gayi hain. Card number ka check sab patients par lagta hai (1T–5T cards me register nahi hota, wo theek hain).
+      </p>
 
       <div className="flex items-center justify-between mb-3 px-0.5">
         <div className="text-[11px] text-muted-foreground">
@@ -226,28 +230,6 @@ function DataQualityPage() {
       <SortToggle mode={sortMode} onChange={setSortMode} direction={sortDirection} onDirectionChange={setSortDirection} />
 
       <div className="space-y-2.5">
-        <Section
-          icon={UserX} title="Adhoora naam" hint="Poora naam nahi hai (ek hi word)"
-          count={r.incomplete_names.length} total={r.incomplete_names_total}
-          open={!!open.names} onToggle={() => toggle("names")}
-          onExport={() => downloadCSV(r.incomplete_names.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "adhoore_naam.csv")}
-        >
-          {r.incomplete_names_total > 5 && (
-            <Link
-              to="/owner/fix-names"
-              className="block w-full text-center rounded-lg bg-primary text-primary-foreground py-2 text-[12px] font-bold"
-            >
-              Bulk mein theek karo ({r.incomplete_names_total}) →
-            </Link>
-          )}
-          {applySort(r.incomplete_names, (p) => p).map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2">
-              <PatientChip p={p} />
-              {p.mobile && <span className="text-[11px] text-muted-foreground shrink-0">{p.mobile}</span>}
-            </div>
-          ))}
-        </Section>
-
         <Section
           icon={Users} title="Ek mobile number, kai patients" hint="Family ho sakti hai — ya galat entry, check karo"
           count={activeMobileGroups.length} total={activeMobileGroups.length}
@@ -382,10 +364,10 @@ function DataQualityPage() {
         </Section>
 
         <Section
-          icon={Phone} title="Galat mobile number" hint="10-digit number nahi hai ya khaali hai"
+          icon={Phone} title="Mobile number nahi hai" hint="Nayi entries jinme mobile number nahi hai ya 10 digit ka nahi hai"
           count={r.invalid_mobile.length} total={r.invalid_mobile_total}
           open={!!open.badMobile} onToggle={() => toggle("badMobile")}
-          onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "galat_mobile_number.csv")}
+          onExport={() => downloadCSV(r.invalid_mobile.map((p) => ({ Name: p.name, Mobile: p.mobile ?? "", Card: formatCardNumber(p.card_series, p.card_register, p.card_number) ?? "", "Patient Code": p.patient_code ?? "" })), "mobile_number_nahi_hai.csv")}
         >
           {applySort(r.invalid_mobile, (p) => p).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2">

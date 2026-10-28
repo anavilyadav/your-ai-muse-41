@@ -4894,7 +4894,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0102_visit_status_actions";
+export const EXPECTED_SCHEMA_VERSION = "0103_data_quality_old_entries_pass";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7624,13 +7624,18 @@ export function computeLocalDataQualityFlags(patient: {
   mobile_confirmed?: boolean | null;
   whatsapp_confirmed?: boolean | null;
   whatsapp_number?: string | null;
+  /** Set for entries imported from the old registers — they pass every check except the card ones. */
+  imported_batch?: string | null;
 }): { incompleteName: boolean; missingMobile: boolean; missingCard: boolean; partialCard: boolean; unconfirmedNumber: boolean; hasAny: boolean } {
   const s = (v: string | null | undefined) => (v ?? "").trim();
   const name = s(patient.name);
   const mobile = s(patient.mobile);
 
-  const incompleteName = name === "" || !name.includes(" ");
-  const missingMobile = mobile === "";
+  // The surname check is gone (Dr. Yadav, 28 Oct 2026), and old (imported)
+  // entries pass everything except the card number, which stays important.
+  const incompleteName = false;
+  const isOld = !!patient.imported_batch;
+  const missingMobile = mobile === "" && !isOld;
   // Register is legitimately optional on its own now (25 Sep 2026,
   // "master LIST 1T-a99" sheet) — an older numbering scheme ("1T-1",
   // "3T-37") has no register segment at all, a real, complete card, not
@@ -7642,8 +7647,9 @@ export function computeLocalDataQualityFlags(patient: {
   const missingCard = !seriesFilled && !numberFilled;
   const partialCard = !missingCard && seriesFilled !== numberFilled;
   const unconfirmedNumber =
-    (!missingMobile && patient.mobile_confirmed === false) ||
-    (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false);
+    !isOld &&
+    ((!missingMobile && patient.mobile_confirmed === false) ||
+      (s(patient.whatsapp_number) !== "" && patient.whatsapp_confirmed === false));
 
   return {
     incompleteName,
@@ -7665,6 +7671,7 @@ export async function fetchPatientDataQualityFlags(patient: {
   mobile_confirmed?: boolean | null;
   whatsapp_confirmed?: boolean | null;
   whatsapp_number?: string | null;
+  imported_batch?: string | null;
 }): Promise<PatientDataQualityFlags> {
   const s = (v: string | null | undefined) => (v ?? "").trim();
   const name = s(patient.name);
@@ -7674,7 +7681,7 @@ export async function fetchPatientDataQualityFlags(patient: {
 
   let sharedMobile = false;
   let possibleDuplicate = false;
-  if (mobile) {
+  if (mobile && !patient.imported_batch) {
     const { count: mobileCount, error: mErr } = await supabase
       .from("patients")
       .select("id", { count: "exact", head: true })

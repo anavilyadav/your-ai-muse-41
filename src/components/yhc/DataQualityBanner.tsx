@@ -26,6 +26,7 @@ export function DataQualityBanner({
     mobile_confirmed?: boolean | null;
     whatsapp_confirmed?: boolean | null;
     whatsapp_number?: string | null;
+    imported_batch?: string | null;
   } | null | undefined;
   onEdit?: () => void;
 }) {
@@ -46,7 +47,6 @@ export function DataQualityBanner({
   if (!flags || !flags.hasAny) return null;
 
   const items: string[] = [];
-  if (flags.incompleteName) items.push("Naam adhoora hai");
   if (flags.missingMobile) items.push("Mobile number nahi hai — patient khud aaye ya call kare tab bhar dena");
   if (flags.missingCard) items.push("Card number nahi hai");
   if (flags.partialCard) items.push("Card number adhoora hai");
@@ -58,7 +58,7 @@ export function DataQualityBanner({
   // fixable from here — shared-mobile and possible-duplicate need the
   // Owner's family-link/merge tools, so those two stay informational for
   // non-Owner staff.
-  const selfFixable = flags.incompleteName || flags.partialCard || flags.unconfirmedNumber || flags.missingMobile || flags.missingCard;
+  const selfFixable = flags.partialCard || flags.unconfirmedNumber || flags.missingMobile || flags.missingCard;
 
   return (
     <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 mb-3">
