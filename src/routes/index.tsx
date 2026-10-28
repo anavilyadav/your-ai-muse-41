@@ -123,15 +123,15 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 </div>
                 <span className="shrink-0 text-[11px] font-bold text-success">
                   {a.status === "Started"
-                    ? `▶ ${a.appointment_type === "CALL_BACK" ? "Call" : "Consultation"} chal rahi hai`
-                    : "✅ Aa gaye"}
+                    ? `▶ ${a.appointment_type === "CALL_BACK" ? "Online Consultation" : "Consultation"} in progress`
+                    : "✅ Arrived"}
                   {v ? ` • ${v.token_number ?? "token"}` : ""}{stage ? ` • ${stage}` : ""}
                 </span>
               </div>
               <div className="mt-1.5 flex gap-1.5 flex-wrap">
                 {a.status === "Arrived" && (
                   <button onClick={() => markStarted(a)} className="rounded-full bg-success text-success-foreground px-3 py-1 text-[11px] font-bold">
-                    ▶ Consultation shuru
+                    ▶ Start Consultation
                   </button>
                 )}
                 {a.status === "Arrived" && (
@@ -160,12 +160,12 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 )}
                 {a.status === "Started" && (
                   <button onClick={() => markCompleted(a)} className="rounded-full border border-success/50 bg-surface text-success px-3 py-1 text-[11px] font-bold">
-                    ✓ Ho gaya
+                    ✓ Done
                   </button>
                 )}
               </div>
               {stage === "Waiting" && (
-                <div className="text-[11px] text-muted-foreground mt-1">Waiting area me baithe hain — doctor ko bhejna baaki.</div>
+                <div className="text-[11px] text-muted-foreground mt-1">Waiting Area — doctor ko bhejna baaki.</div>
               )}
             </li>
           );
@@ -209,7 +209,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">
-                  {a.appointment_type === "CALL_BACK" ? "Call shuru" : v ? "Done" : "Arrived"}
+                  {a.appointment_type === "CALL_BACK" ? "Online Consultation" : v ? "Done" : "Arrived"}
                 </span>
               </button>
               <button onClick={() => setRescheduling(a)} className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 flex flex-col items-center gap-0.5">
@@ -571,7 +571,7 @@ function QueuePage() {
                     </div>
                   </div>
                 </button>
-                {/* Aa gaya / Reschedule / Cancel under EVERY patient entry, plus the
+                {/* Arrived / Reschedule / Cancel under EVERY patient entry, plus the
                     appointment's own steps (call / consultation shuru) when there
                     is one — outside the row's button, buttons can't nest. */}
                 {r.visit_status !== "DONE" && r.patient && (

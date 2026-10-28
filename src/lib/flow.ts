@@ -15,19 +15,24 @@ export interface FlowStage {
   statuses: string[];
 }
 
+// "Arrived" = reception has marked the patient as arrived (arrived_at set);
+// "Waiting Area" = registered and token given, not yet marked arrived. Both
+// are before case taking, so both use the REGISTERED / WAITING statuses.
 export const FLOW_STAGES: FlowStage[] = [
-  { key: "waiting", label: "Waiting area", owner: "Reception / Case-DR", statuses: ["REGISTERED", "WAITING"] },
+  { key: "arrived", label: "Arrived", owner: "Reception / Case-DR", statuses: ["REGISTERED", "WAITING"] },
+  { key: "waiting", label: "Waiting Area", owner: "Reception / Case-DR", statuses: ["REGISTERED", "WAITING"] },
   { key: "case", label: "Case Taking", owner: "Case-DR", statuses: ["CASE_TAKING"] },
   { key: "doctor", label: "Doctor", owner: "Doctor", statuses: ["WAITING_DOCTOR", "PRESCRIBED"] },
   { key: "pharmacy", label: "Pharmacy", owner: "Pharmacy", statuses: ["PHARMACY"] },
   { key: "payment", label: "Payment", owner: "Reception", statuses: ["PAYMENT"] },
-  { key: "done", label: "Ho gaya", owner: "", statuses: ["DONE"] },
+  { key: "done", label: "Done", owner: "", statuses: ["DONE"] },
 ];
 
 export interface FlowVisit {
   token_number: string | null;
   visit_status: string;
   created_at?: string | null;
+  arrived_at?: string | null;
 }
 
 export interface FlowStageSummary {
@@ -48,6 +53,7 @@ export function summarizeFlow(visits: FlowVisit[]): FlowStageSummary[] {
   return FLOW_STAGES.map((stage) => {
     const inStage = visits
       .filter((v) => stage.statuses.includes(v.visit_status))
+      .filter((v) => (stage.key === "arrived" ? !!v.arrived_at : stage.key === "waiting" ? !v.arrived_at : true))
       .sort((a, b) => tokenOrder(a.token_number) - tokenOrder(b.token_number));
     const tokens = inStage.map((v) => v.token_number ?? "—");
     return { stage, count: inStage.length, tokens, current: tokens[0] ?? null };

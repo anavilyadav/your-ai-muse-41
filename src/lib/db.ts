@@ -106,7 +106,7 @@ export interface DBPatient {
 
 export interface DBVisit {
   id: string;
-  /** When reception marked the patient as arrived (queue "Aa gaya"). */
+  /** When reception marked the patient as arrived (queue "Arrived"). */
   arrived_at?: string | null;
   patient_id: string;
   visit_date: string;
@@ -903,7 +903,7 @@ export async function fetchQueueForDate(date: string, branch?: string) {
 export async function fetchFlowToday(branch?: string) {
   let q = supabase
     .from("visits")
-    .select("token_number, visit_status, created_at")
+    .select("token_number, visit_status, created_at, arrived_at")
     .eq("visit_date", today())
     .eq("is_deleted", false)
     .order("created_at", { ascending: true })
@@ -911,7 +911,7 @@ export async function fetchFlowToday(branch?: string) {
   if (branch) q = q.eq("branch", branch);
   const { data, error } = await q;
   if (error) throw dataLoadError(error);
-  return (data ?? []) as { token_number: string | null; visit_status: string; created_at: string }[];
+  return (data ?? []) as { token_number: string | null; visit_status: string; created_at: string; arrived_at: string | null }[];
 }
 
 export async function fetchTodayQueue(branch?: string) {

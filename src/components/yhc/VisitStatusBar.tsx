@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 type PatientLite = { id: string; name: string; mobile?: string | null; branch?: string | null; wa_consent?: boolean | null };
 
 // The same three status buttons under EVERY patient entry of the reception
-// queue (Dr. Yadav, 26 Oct 2026): Aa gaya, Reschedule, Cancel.
-//  - Aa gaya    -> records the arrival time (and the patient's appointment as
+// queue (Dr. Yadav, 26 Oct 2026): Arrived, Reschedule, Cancel.
+//  - Arrived    -> records the arrival time (and the patient's appointment as
 //                  Arrived, if they had one).
 //  - Reschedule -> pick the new day/time; the visit leaves today's queue (or,
 //                  if a payment/advance is on it, moves to the new date).
@@ -50,7 +50,7 @@ export function VisitStatusBar({
     }
     setBusy(false);
     if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
-    toast.success(`${patient.name} — aa gaye mark ho gaya`);
+    toast.success(`${patient.name} — marked Arrived`);
     refresh();
   };
 
@@ -94,11 +94,11 @@ export function VisitStatusBar({
     <div className={cn("flex items-center gap-1.5 flex-wrap", className)}>
       {arrivedTime ? (
         <button type="button" disabled={busy} onClick={unarrive} title="Galti se mark hua ho to dabao" className={cn(btn, "bg-success/10 border-success/40 text-success")}>
-          <CheckCircle2 className="h-3.5 w-3.5" /> Aa gaya {arrivedTime}
+          <CheckCircle2 className="h-3.5 w-3.5" /> Arrived {arrivedTime}
         </button>
       ) : (
         <button type="button" disabled={busy} onClick={arrive} className={cn(btn, "bg-primary text-primary-foreground border-primary")}>
-          <CheckCircle2 className="h-3.5 w-3.5" /> Aa gaya
+          <CheckCircle2 className="h-3.5 w-3.5" /> Arrived
         </button>
       )}
       <button type="button" disabled={busy} onClick={() => setRescheduling(true)} className={cn(btn, "bg-surface border-primary/40 text-primary")}>

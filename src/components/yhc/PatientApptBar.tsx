@@ -67,28 +67,28 @@ export function PatientApptBar({ patient, appt, className, hideCommon }: { patie
   return (
     <div className={cn("flex items-center gap-1.5 flex-wrap", className)}>
       <span className={cn("rounded-full border px-2 py-0.5 text-[10.5px] font-bold", apptStatusStyle[appt.status] ?? apptStatusStyle.Confirmed)}>
-        📅 {dayLabel} {appt.appointment_time} • {apptTypeLabel(type)} • {appt.status === "Arrived" ? "Clinic me aaye" : appt.status === "Started" ? (online ? "Call chal rahi hai" : "Consultation chal rahi hai") : appt.status}
+        📅 {dayLabel} {appt.appointment_time} • {apptTypeLabel(type)} • {appt.status === "Arrived" ? "Arrived" : appt.status === "Started" ? (online ? "Online Consultation in progress" : "Consultation in progress") : appt.status}
       </span>
 
       {(appt.status === "Confirmed" || appt.status === "Tentative") && isToday && (online || !hideCommon) && (
         online ? (
           <button type="button" onClick={() => markStarted(appt)} className={cn(btn, "bg-success text-success-foreground border-success")}>
-            <PhoneCall className="h-3.5 w-3.5" /> Call shuru
+            <PhoneCall className="h-3.5 w-3.5" /> Online Consultation
           </button>
         ) : (
           <button type="button" onClick={() => markArrived(appt)} className={cn(btn, "bg-primary text-primary-foreground border-primary")}>
-            <DoorOpen className="h-3.5 w-3.5" /> Clinic aaya
+            <DoorOpen className="h-3.5 w-3.5" /> Arrived
           </button>
         )
       )}
       {appt.status === "Arrived" && (
         <button type="button" onClick={() => markStarted(appt)} className={cn(btn, "bg-success text-success-foreground border-success")}>
-          <Play className="h-3.5 w-3.5" /> Consultation shuru
+          <Play className="h-3.5 w-3.5" /> Start Consultation
         </button>
       )}
       {appt.status === "Started" && (
         <button type="button" onClick={() => markCompleted(appt)} className={cn(btn, "bg-surface border-success/50 text-success")}>
-          <CheckCircle2 className="h-3.5 w-3.5" /> Ho gaya
+          <CheckCircle2 className="h-3.5 w-3.5" /> Done
         </button>
       )}
 

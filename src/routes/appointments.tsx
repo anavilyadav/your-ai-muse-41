@@ -711,12 +711,12 @@ function AppointmentsPage() {
               <div className="mt-2.5 flex gap-1.5">
                 {a.status === "Arrived" && (
                   <button onClick={() => markStarted(a)} className="rounded-lg bg-success text-success-foreground px-3 py-1.5 text-[11px] font-semibold">
-                    ▶ Consultation shuru
+                    ▶ Start Consultation
                   </button>
                 )}
                 {a.status === "Started" && (
                   <button onClick={() => markCompleted(a)} className="rounded-lg border border-success/50 bg-surface text-success px-3 py-1.5 text-[11px] font-semibold">
-                    ✓ Ho gaya
+                    ✓ Done
                   </button>
                 )}
               </div>

@@ -70,14 +70,14 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
     const res = await updateAppointmentStatus(a.id, "Started");
     if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
     invalidateAll();
-    toast.success(`${a.patient_name} — ${a.appointment_type === "CALL_BACK" ? "call" : "consultation"} shuru`);
+    toast.success(`${a.patient_name} — ${a.appointment_type === "CALL_BACK" ? "Online Consultation" : "Consultation"} started`);
   };
 
   const markCompleted = async (a: any) => {
     const res = await updateAppointmentStatus(a.id, "Completed");
     if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
     invalidateAll();
-    toast.success(`${a.patient_name} — ho gaya`);
+    toast.success(`${a.patient_name} — Done`);
   };
 
   const cancelAppointment = async (a: any) => {

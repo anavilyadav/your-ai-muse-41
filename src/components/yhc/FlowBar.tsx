@@ -20,7 +20,7 @@ export function FlowBar({ branch }: { branch?: string }) {
   return (
     <section aria-label="Live flow" className="mb-3">
       <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1 mb-1.5">
-        Live Flow — aaj kaun kahan hai
+        Live Flow — where everyone is today
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         {stages.map(({ stage, count, tokens, current }) => {
@@ -39,12 +39,12 @@ export function FlowBar({ branch }: { branch?: string }) {
               </div>
               {!done && current && (
                 <div className="mt-1 text-[11px] font-bold text-accent-foreground bg-accent/30 rounded px-1.5 py-0.5 inline-block">
-                  Abhi: {current}
+                  Now: {current}
                 </div>
               )}
               {!done && tokens.length > 1 && (
                 <div className="mt-1 text-[10.5px] text-muted-foreground leading-snug">
-                  Aage: {tokens.slice(1, 5).join(", ")}{tokens.length > 5 ? ` +${tokens.length - 5}` : ""}
+                  Next: {tokens.slice(1, 5).join(", ")}{tokens.length > 5 ? ` +${tokens.length - 5}` : ""}
                 </div>
               )}
             </div>
