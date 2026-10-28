@@ -17,6 +17,23 @@ function LoginPage() {
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Gets the newest version of the app before signing in (Dr. Yadav, 28 Oct
+  // 2026): drops the old cached copy and reloads. Nobody is signed in on this
+  // page, so nothing of the user's is touched.
+  const refreshApp = async () => {
+    setRefreshing(true);
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.();
+      await Promise.all((regs ?? []).map((r) => r.unregister()));
+    } catch {}
+    try {
+      const keys = await caches?.keys?.();
+      await Promise.all((keys ?? []).map((k) => caches.delete(k)));
+    } catch {}
+    window.location.reload();
+  };
 
   useEffect(() => {
     if (!loading && user) navigate({ to: roleHome(user.role), replace: true });
@@ -104,6 +121,14 @@ function LoginPage() {
           <p className="text-center text-[11px] text-muted-foreground pt-2">
             {t("YHC OS • Only registered staff. Bhool gaye PIN? Owner se milein.")}
           </p>
+          <button
+            type="button"
+            onClick={refreshApp}
+            disabled={refreshing}
+            className="w-full rounded-xl border border-primary/40 bg-surface text-primary py-3 text-sm font-bold active:scale-[0.99] transition disabled:opacity-60"
+          >
+            {refreshing ? "Refreshing…" : "🔄 Refresh app"}
+          </button>
           <p className="text-center text-[11px] text-muted-foreground">
             <a href="/reset" className="underline">App atak gaya ya purana dikh raha hai? Reset karo</a>
           </p>
