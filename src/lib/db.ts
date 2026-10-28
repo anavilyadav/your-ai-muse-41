@@ -4223,6 +4223,20 @@ export async function linkAppointmentArrived(appointmentId: string, patientId: s
     .from("appointments")
     .update({ patient_id: patientId, status: "Arrived" })
     .eq("id", appointmentId);
+  if (!error) await markTodayVisitArrived(patientId);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// An appointment's Arrived also counts as the visit's arrival (Live Flow
+// "Arrived" stage): stamps today's not-yet-arrived visit of this patient.
+export async function markTodayVisitArrived(patientId: string) {
+  const { error } = await supabase
+    .from("visits")
+    .update({ arrived_at: new Date().toISOString() })
+    .eq("patient_id", patientId)
+    .eq("visit_date", today())
+    .eq("is_deleted", false)
+    .is("arrived_at", null);
   return { success: !error, error: error?.message ?? null };
 }
 

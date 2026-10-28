@@ -1,3 +1,5 @@
+import { usePatientCards } from "@/hooks/use-patient-cards";
+import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useMemo, useState, useEffect } from "react";
@@ -10,7 +12,7 @@ import { PatientApptBar, usePatientAppointments } from "@/components/yhc/Patient
 import { VisitStatusBar } from "@/components/yhc/VisitStatusBar";
 import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { AuthGate, LoadingBlock, EmptyBlock, ErrorBlock } from "@/components/yhc/AuthGate";
-import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType, systemIdLabel } from "@/lib/db";
+import { fetchTodayQueue, fetchQueueForDate, fetchBackfilledEntries, fetchBackfilledWithoutPayment, fetchAdvanceByVisit, fetchAppointments, updateAppointmentStatus, markVisitArrived, branchLabel, statusLabel, normalizeBranchKey, formatCardNumber, apptTypeLabel, type ApptType, systemIdLabel } from "@/lib/db";
 import { today as todayStr } from "@/lib/supabase";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -86,6 +88,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
     );
 
   const inScope = (data?.rows ?? []).filter((a: any) => !branchScope || a.branch === branchScope);
+  const cards = usePatientCards(inScope.map((x: any) => x.patient_id));
   const upcoming = inScope.filter((a: any) => a.status === "Confirmed" || a.status === "Tentative");
   // Arrived appointments used to vanish from here, so once a patient who
   // booked by phone walked in there was nothing to say she is sitting in the
@@ -96,10 +99,13 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   // Already has a token today (e.g. checked in through Register instead of
   // Arrived): just close the appointment — checking in again would give a
   // second token.
-  const closeWithoutCheckIn = async (a: any) => {
+  const closeWithoutCheckIn = async (a: any, v: any) => {
     const res = await updateAppointmentStatus(a.id, "Arrived");
     if (!res.success) { toast.error("Update nahi hua: " + res.error); return; }
+    await markVisitArrived(v.id);
     qc.invalidateQueries({ queryKey: ["appointments"] });
+    qc.invalidateQueries({ queryKey: ["today-queue"] });
+    qc.invalidateQueries({ queryKey: ["flow-today"] });
   };
 
   if (upcoming.length === 0 && arrived.length === 0) return null;
@@ -120,6 +126,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
                   <span className="shrink-0 text-[11px] font-bold text-primary">{a.appointment_time}</span>
                   <span className="truncate text-sm font-semibold text-primary">{a.patient_name}</span>
+                  <PatientIdChip patient={cards[a.patient_id]} />
                 </div>
                 <span className="shrink-0 text-[11px] font-bold text-success">
                   {a.status === "Started"
@@ -180,6 +187,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                   <Clock className="h-3 w-3" /> {a.appointment_time}
                 </span>
                 <span className="truncate text-sm font-semibold text-primary">{a.patient_name}</span>
+                  <PatientIdChip patient={cards[a.patient_id]} />
               </div>
               <span className="shrink-0 text-[10px] text-muted-foreground">
                 {apptTypeLabel((a.appointment_type ?? "FOLLOWUP") as ApptType)} • {branchLabel(a.branch)}
@@ -204,7 +212,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <span className="text-[9px] font-bold leading-none">WA</span>
               </a>
               <button
-                onClick={() => (a.appointment_type === "CALL_BACK" ? markStarted(a) : v ? closeWithoutCheckIn(a) : markArrived(a))}
+                onClick={() => (a.appointment_type === "CALL_BACK" ? markStarted(a) : v ? closeWithoutCheckIn(a, v) : markArrived(a))}
                 className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />

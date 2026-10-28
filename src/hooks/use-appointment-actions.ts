@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { updateAppointmentStatus, checkInExistingPatient, normalizeBranchKey, fetchTodayVisitForPatient } from "@/lib/db";
+import { updateAppointmentStatus, checkInExistingPatient, normalizeBranchKey, fetchTodayVisitForPatient, markTodayVisitArrived } from "@/lib/db";
 
 // Shared between the standalone /appointments page and the Queue's own
 // "today's appointments" section (24 Sep 2026 — Dr. Yadav wanted
@@ -17,6 +17,7 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["appointments"] });
+    qc.invalidateQueries({ queryKey: ["flow-today"] });
     for (const k of extraInvalidateKeys) qc.invalidateQueries({ queryKey: k });
   };
 
@@ -41,6 +42,7 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
         // mark the appointment, a second check-in would give a second token.
         const already = await fetchTodayVisitForPatient(a.patient_id);
         if (already) {
+          await markTodayVisitArrived(a.patient_id);
           invalidateAll();
           toast.success(`${a.patient_name} pehle se queue me hain — Token ${already.token_number ?? ""}`);
           return;
@@ -51,6 +53,7 @@ export function useAppointmentActions(extraInvalidateKeys: unknown[][] = []) {
           chief_complaint: a.reason || undefined,
           case_channel: "WALK_IN",
         });
+        await markTodayVisitArrived(a.patient_id);
         invalidateAll();
         toast.success(`${a.patient_name} check-in ho gaya — Token ${visit.token_number}`);
       } catch (e: any) {
