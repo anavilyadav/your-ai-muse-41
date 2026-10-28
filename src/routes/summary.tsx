@@ -1,3 +1,4 @@
+import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffect, useState } from "react";
@@ -255,7 +256,7 @@ function BackfilledList({ entries, isToday }: { entries: BackfilledEntry[]; isTo
         <div className="mt-2 space-y-2">
           {Array.from(byDate.entries()).map(([d, list]) => (
             <div key={d}>
-              <div className="text-[11px] font-bold text-muted-foreground">{fmt(d)} ki visit</div>
+              <DayHeader date={d} label={`${list.length} entry`} className="mt-0" />
               <ul className="mt-0.5 space-y-0.5">
                 {list.map((e) => (
                   <li key={e.id} className="text-[12px] flex items-center justify-between gap-2">

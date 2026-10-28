@@ -1,3 +1,4 @@
+import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -500,19 +501,17 @@ function QueuePage() {
             return (
               <Fragment key={r.id}>
                 {showDateHeader && (
-                  <li className="pt-1 first:pt-0">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
-                      {r.visit_date === todayStr()
-                        ? "Aaj"
-                        : new Date(r.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                      {(() => {
+                  <li className="first:pt-0">
+                    <DayHeader
+                      date={r.visit_date}
+                      label={(() => {
                         const c = countsByDate.get(r.visit_date);
-                        if (!c) return null;
+                        if (!c) return undefined;
                         return r.visit_date === date
-                          ? ` • ${c.total} patient • ${c.done} done`
-                          : ` • ${c.total - c.done} pending`;
+                          ? `${c.total} patient • ${c.done} done`
+                          : `${c.total - c.done} pending`;
                       })()}
-                    </div>
+                    />
                   </li>
                 )}
               <li>
@@ -581,6 +580,15 @@ function QueuePage() {
                       visit={r}
                       patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
                       appt={apptByPatientNext?.get(r.patient_id)}
+                      extra={
+                        <button
+                          type="button"
+                          onClick={() => setAdvanceFor({ visitId: r.id, name: r.patient?.name ?? "Patient" })}
+                          className="rounded-full border border-primary/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-primary"
+                        >
+                          💰 Advance payment
+                        </button>
+                      }
                     />
                     {r.visit_date === todayStr() && (
                       <PatientApptBar
@@ -591,20 +599,11 @@ function QueuePage() {
                     )}
                   </div>
                 )}
-                {r.visit_status !== "DONE" && (
+                {r.visit_status !== "DONE" && (advanceByVisit?.get(r.id) ?? 0) > 0 && (
                   <div className="px-1 mt-1.5 flex items-center gap-1.5 flex-wrap">
-                    {(advanceByVisit?.get(r.id) ?? 0) > 0 && (
-                      <span className="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">
-                        💰 Advance ₹{(advanceByVisit?.get(r.id) ?? 0).toLocaleString("en-IN")} diya — consultation baaki
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setAdvanceFor({ visitId: r.id, name: r.patient?.name ?? "Patient" })}
-                      className="rounded-full border border-primary/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-primary"
-                    >
-                      💰 Advance payment
-                    </button>
+                    <span className="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">
+                      💰 Advance ₹{(advanceByVisit?.get(r.id) ?? 0).toLocaleString("en-IN")} diya — consultation baaki
+                    </span>
                   </div>
                 )}
               </li>

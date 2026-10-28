@@ -1,3 +1,4 @@
+import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -125,10 +126,8 @@ function BackfillPaymentsPage() {
         <ul className="space-y-2 pb-6">
           {byDate.map(([date, list]) => (
             <Fragment key={date}>
-              <li className="pt-2 first:pt-0">
-                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
-                  {new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} • {list.length} entry
-                </div>
+              <li className="first:pt-0">
+                <DayHeader date={date} label={`${list.length} entry`} />
               </li>
               {list.map((r) => <Row key={r.visit_id} row={r} modes={modes ?? []} onSaved={onSaved} />)}
             </Fragment>

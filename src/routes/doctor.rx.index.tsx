@@ -1,3 +1,4 @@
+import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -76,12 +77,8 @@ function RxQueue() {
             return (
             <Fragment key={r.id}>
               {showDateHeader && (
-                <li className="pt-1 first:pt-0">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground px-1">
-                    {r.visit_date === today()
-                      ? "Aaj"
-                      : new Date(r.visit_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                  </div>
+                <li className="first:pt-0">
+                  <DayHeader date={r.visit_date} />
                 </li>
               )}
             <li>

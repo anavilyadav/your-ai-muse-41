@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CalendarClock, CheckCircle2, XCircle } from "lucide-react";
@@ -22,11 +22,14 @@ export function VisitStatusBar({
   patient,
   appt,
   className,
+  extra,
 }: {
   visit: { id: string; visit_date: string; arrived_at?: string | null };
   patient: PatientLite;
   appt?: any;
   className?: string;
+  /** Extra button(s) shown in the same row, after Cancel. */
+  extra?: ReactNode;
 }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -104,6 +107,7 @@ export function VisitStatusBar({
       <button type="button" disabled={busy} onClick={cancel} className={cn(btn, "bg-surface border-destructive/40 text-destructive")}>
         <XCircle className="h-3.5 w-3.5" /> Cancel
       </button>
+      {extra}
 
       {rescheduling && appt && (
         <RescheduleModal appt={appt} onClose={() => setRescheduling(false)} onRescheduled={(info) => { setRescheduling(false); void afterReschedule(info); }} />
