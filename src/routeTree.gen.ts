@@ -32,6 +32,7 @@ import { Route as OwnerAuditLogRouteImport } from './routes/owner.audit-log'
 import { Route as OwnerCardIndexRouteImport } from './routes/owner.card-index'
 import { Route as OwnerCaseTrackingRouteImport } from './routes/owner.case-tracking'
 import { Route as OwnerControlRouteImport } from './routes/owner.control'
+import { Route as OwnerDataChangesRouteImport } from './routes/owner.data-changes'
 import { Route as OwnerDataQualityRouteImport } from './routes/owner.data-quality'
 import { Route as OwnerFixCardsRouteImport } from './routes/owner.fix-cards'
 import { Route as OwnerFixNamesRouteImport } from './routes/owner.fix-names'
@@ -177,6 +178,11 @@ const OwnerCaseTrackingRoute = OwnerCaseTrackingRouteImport.update({
 const OwnerControlRoute = OwnerControlRouteImport.update({
   id: '/owner/control',
   path: '/owner/control',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerDataChangesRoute = OwnerDataChangesRouteImport.update({
+  id: '/owner/data-changes',
+  path: '/owner/data-changes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerDataQualityRoute = OwnerDataQualityRouteImport.update({
@@ -357,6 +363,7 @@ export interface FileRoutesByFullPath {
   '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
+  '/owner/data-changes': typeof OwnerDataChangesRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
@@ -413,6 +420,7 @@ export interface FileRoutesByTo {
   '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
+  '/owner/data-changes': typeof OwnerDataChangesRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
@@ -470,6 +478,7 @@ export interface FileRoutesById {
   '/owner/card-index': typeof OwnerCardIndexRoute
   '/owner/case-tracking': typeof OwnerCaseTrackingRoute
   '/owner/control': typeof OwnerControlRoute
+  '/owner/data-changes': typeof OwnerDataChangesRoute
   '/owner/data-quality': typeof OwnerDataQualityRoute
   '/owner/fix-cards': typeof OwnerFixCardsRoute
   '/owner/fix-names': typeof OwnerFixNamesRoute
@@ -528,6 +537,7 @@ export interface FileRouteTypes {
     | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
+    | '/owner/data-changes'
     | '/owner/data-quality'
     | '/owner/fix-cards'
     | '/owner/fix-names'
@@ -584,6 +594,7 @@ export interface FileRouteTypes {
     | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
+    | '/owner/data-changes'
     | '/owner/data-quality'
     | '/owner/fix-cards'
     | '/owner/fix-names'
@@ -640,6 +651,7 @@ export interface FileRouteTypes {
     | '/owner/card-index'
     | '/owner/case-tracking'
     | '/owner/control'
+    | '/owner/data-changes'
     | '/owner/data-quality'
     | '/owner/fix-cards'
     | '/owner/fix-names'
@@ -697,6 +709,7 @@ export interface RootRouteChildren {
   OwnerCardIndexRoute: typeof OwnerCardIndexRoute
   OwnerCaseTrackingRoute: typeof OwnerCaseTrackingRoute
   OwnerControlRoute: typeof OwnerControlRoute
+  OwnerDataChangesRoute: typeof OwnerDataChangesRoute
   OwnerDataQualityRoute: typeof OwnerDataQualityRoute
   OwnerFixCardsRoute: typeof OwnerFixCardsRoute
   OwnerFixNamesRoute: typeof OwnerFixNamesRoute
@@ -893,6 +906,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/control'
       fullPath: '/owner/control'
       preLoaderRoute: typeof OwnerControlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/data-changes': {
+      id: '/owner/data-changes'
+      path: '/owner/data-changes'
+      fullPath: '/owner/data-changes'
+      preLoaderRoute: typeof OwnerDataChangesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/data-quality': {
@@ -1137,6 +1157,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerCardIndexRoute: OwnerCardIndexRoute,
   OwnerCaseTrackingRoute: OwnerCaseTrackingRoute,
   OwnerControlRoute: OwnerControlRoute,
+  OwnerDataChangesRoute: OwnerDataChangesRoute,
   OwnerDataQualityRoute: OwnerDataQualityRoute,
   OwnerFixCardsRoute: OwnerFixCardsRoute,
   OwnerFixNamesRoute: OwnerFixNamesRoute,

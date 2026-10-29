@@ -4894,7 +4894,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0104_data_quality_all_entries";
+export const EXPECTED_SCHEMA_VERSION = "0105_data_changes_report";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7501,6 +7501,24 @@ export async function mergePatients(primaryId: string, duplicateId: string) {
   });
   if (error) return { success: false, error: error.message, result: null };
   return { success: true, error: null, result: data as { primary_id: string; duplicate_id: string; lifetime_visits: number; lifetime_revenue: number; current_balance: number } };
+}
+
+// ---------- Data Changes report (0105) ----------
+// Every correction applied from the daily-sheet cross-check bundles (29 Oct
+// 2026): visits moved to the right patient (B4), full names (B2), cards (B3),
+// mobiles (B1) and online/courier marks (B6). Owner-only, read-only.
+export interface DataChangesReport {
+  visits: { bundle: string; applied_at: string; visit_id: string; visit_date: string; from_id: string; from_name: string; from_card: string | null; to_id: string; to_name: string; to_card: string | null }[];
+  names: { patient_id: string; old_name: string; new_name: string; card: string | null; applied_at: string }[];
+  cards: { patient_id: string; name: string; card: string; applied_at: string }[];
+  mobiles: { patient_id: string; name: string; mobile: string; card: string | null; applied_at: string }[];
+  flags: { patient_id: string; name: string; source: string; card: string | null; applied_at: string }[];
+}
+
+export async function fetchDataChangesReport(): Promise<DataChangesReport> {
+  const { data, error } = await supabase.rpc("data_changes_report");
+  if (error) throw dataLoadError(error);
+  return data as DataChangesReport;
 }
 
 // ---------- Data Quality report (0061) ----------

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks, Eye, EyeOff, PhoneCall } from "lucide-react";
+import { LayoutDashboard, Users, TrendingUp, Settings, Activity, Target, Upload, CalendarClock, CalendarCheck, Wallet, ClipboardList, MessageCircle, ShieldCheck, CreditCard, BookUser, Package, Trash2, ListChecks, Eye, EyeOff, PhoneCall, History } from "lucide-react";
 import { RoleShell, Stat, type NavItem } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { fetchOwnerStats, fetchWeekRevenue, fetchStaff, fetchPurchaseOrders, fetchActiveTrash, fetchOpenComplaints } from "@/lib/db";
@@ -226,6 +226,11 @@ function OwnerDashboard() {
           <ShieldCheck className="h-5 w-5 text-primary" />
           <div className="font-bold text-primary text-sm mt-1">Audit Log</div>
           <div className="text-[11px] text-muted-foreground">Har change ka record</div>
+        </Link>
+        <Link to="/owner/data-changes" className="rounded-2xl bg-surface border border-border p-3.5">
+          <History className="h-5 w-5 text-primary" />
+          <div className="font-bold text-primary text-sm mt-1">Data Changes</div>
+          <div className="text-[11px] text-muted-foreground">Daily sheet se kiye sudhaar — pehle → ab</div>
         </Link>
         <Link to="/owner/card-index" className="rounded-2xl bg-surface border border-border p-3.5">
           <BookUser className="h-5 w-5 text-primary" />
