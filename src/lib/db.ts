@@ -4894,7 +4894,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0105_data_changes_report";
+export const EXPECTED_SCHEMA_VERSION = "0106_data_changes_merges";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -7513,6 +7513,7 @@ export interface DataChangesReport {
   cards: { patient_id: string; name: string; card: string; applied_at: string }[];
   mobiles: { patient_id: string; name: string; mobile: string; card: string | null; applied_at: string }[];
   flags: { patient_id: string; name: string; source: string; card: string | null; applied_at: string }[];
+  merges?: { primary_id: string; primary_name: string; primary_card: string | null; duplicate_name: string; duplicate_card: string | null; applied_at: string }[];
 }
 
 export async function fetchDataChangesReport(): Promise<DataChangesReport> {

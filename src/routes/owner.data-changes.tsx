@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, ChevronRight, CreditCard, Globe, History, Phone, Search, UserPen } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, CreditCard, Globe, History, Merge, Phone, Search, UserPen } from "lucide-react";
 import { RoleShell } from "@/components/yhc/RoleShell";
 import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { OWNER_NAV } from "./owner.index";
@@ -79,6 +79,7 @@ function DataChangesPage() {
   const cards = r.cards.filter((x) => hit(x.name, x.card));
   const mobiles = r.mobiles.filter((x) => hit(x.name, x.mobile, x.card));
   const flags = r.flags.filter((x) => hit(x.name, x.card));
+  const merges = (r.merges ?? []).filter((x) => hit(x.primary_name, x.primary_card, x.duplicate_name, x.duplicate_card));
 
   return (
     <RoleShell wide title="Data Changes" subtitle="Daily sheet se jo sudhaar kiye — pehle → ab" nav={OWNER_NAV}>
@@ -87,13 +88,14 @@ function DataChangesPage() {
         Kuch bhi galat lage to batao — har badlav ka purana record rakha hai, wapas kiya ja sakta hai.
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mb-3">
         {[
           ["Visits sahi patient pe", r.visits.length],
           ["Poora naam", r.names.length],
           ["Card bhara", r.cards.length],
           ["Mobile bhara", r.mobiles.length],
           ["Online / Courier", r.flags.length],
+          ["Duplicate merge", (r.merges ?? []).length],
         ].map(([label, n]) => (
           <div key={label as string} className="rounded-xl bg-surface border border-border p-2.5 text-center">
             <div className="text-lg font-extrabold text-primary">{n as number}</div>
@@ -161,6 +163,16 @@ function DataChangesPage() {
             <div key={x.patient_id} className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
               <PatientLink id={x.patient_id} name={x.name} card={x.card} />
               <span className="ml-auto text-[11px] text-muted-foreground">saboot: {x.source}</span>
+            </div>
+          ))}
+        </Section>
+
+        <Section icon={Merge} title="Duplicate record merge" hint="Ek hi insaan ke 2 record the — bina card wala record card wale me mila diya (duplicate MERGED mark hua, delete nahi)" count={merges.length}>
+          {merges.map((x) => (
+            <div key={x.primary_id + x.duplicate_name} className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+              <span className="text-muted-foreground line-through">{x.duplicate_name} [{(x.duplicate_card ?? "").replace(/^YHC-/, "SYS-")}]</span>
+              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              <PatientLink id={x.primary_id} name={x.primary_name} card={x.primary_card} />
             </div>
           ))}
         </Section>
