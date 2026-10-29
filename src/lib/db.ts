@@ -4894,7 +4894,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0107_appointment_type_call_back";
+export const EXPECTED_SCHEMA_VERSION = "0108_online_followup_delivery_name";
 
 export interface SchemaMigrationRow {
   filename: string;
