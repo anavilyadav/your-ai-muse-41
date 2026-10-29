@@ -295,6 +295,9 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
 }
 
 function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]; card?: PatientCardFields }) {
+  // 18 deliveries made by online follow-up confirm were saved without a
+  // patient_name (29 Oct 2026) — show the patient's own name from the record.
+  const patientName = d.patient_name || card?.name || "Patient";
   // Family courier combine (Part B) — a delivery pointing at another via
   // combined_with_delivery_id shares one physical parcel; resolve the
   // other patient's name from the already-fetched list so Pharmacy knows
@@ -316,7 +319,7 @@ function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]
       // Every real status change (not just a note edit) tells the patient —
       // this is the whole reason a courier delivery needed its own screen
       // instead of just a spreadsheet: the patient never walks in to ask.
-      if (patch.status) notifyDeliveryUpdate(d.patient_id, d.patient_name, patch.status, patch.note ?? d.note);
+      if (patch.status) notifyDeliveryUpdate(d.patient_id, patientName, patch.status, patch.note ?? d.note);
     } else {
       toast.error("Update nahi hua: " + res.error);
     }
@@ -327,7 +330,7 @@ function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm truncate">{d.patient_name}</span>
+            <span className="font-semibold text-sm truncate">{patientName}</span>
             <PatientIdChip patient={card} />
             {d.token && (
               <span className="text-[10px] font-bold text-accent-foreground bg-accent rounded-full px-1.5 py-0.5">
@@ -404,9 +407,9 @@ function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]
       <div className="mt-2.5 grid grid-cols-2 gap-2">
         <button
           onClick={() => {
-            if (!window.confirm(`${d.patient_name} ko delivered mark karein?`)) return;
+            if (!window.confirm(`${patientName} ko delivered mark karein?`)) return;
             save({ status: "Delivered", note });
-            toast.success(`${d.patient_name} — marked delivered`);
+            toast.success(`${patientName} — marked delivered`);
           }}
           disabled={d.status === "Delivered"}
           className="flex items-center justify-center gap-1 rounded-lg bg-success text-success-foreground py-2 text-xs font-semibold disabled:opacity-50"
@@ -415,9 +418,9 @@ function DeliveryCard({ d, allDeliveries, card }: { d: any; allDeliveries: any[]
         </button>
         <button
           onClick={() => {
-            if (!window.confirm(`${d.patient_name} — issue/return flag karein?`)) return;
+            if (!window.confirm(`${patientName} — issue/return flag karein?`)) return;
             save({ status: "Issue", note });
-            toast.error(`${d.patient_name} — issue flagged`);
+            toast.error(`${patientName} — issue flagged`);
           }}
           className="flex items-center justify-center gap-1 rounded-lg bg-destructive text-destructive-foreground py-2 text-xs font-semibold"
         >

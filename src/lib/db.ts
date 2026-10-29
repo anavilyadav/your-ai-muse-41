@@ -7032,6 +7032,7 @@ export async function fetchPatientById(id: string) {
 
 export interface PatientCardFields {
   id: string;
+  name: string | null;
   patient_code: string | null;
   card_series: string | null;
   card_register: string | null;
@@ -7047,7 +7048,7 @@ export async function fetchPatientCards(ids: string[]): Promise<Record<string, P
   for (let i = 0; i < uniq.length; i += 300) {
     const { data, error } = await supabase
       .from("patients")
-      .select("id,patient_code,card_series,card_register,card_number")
+      .select("id,name,patient_code,card_series,card_register,card_number")
       .in("id", uniq.slice(i, i + 300));
     if (error) throw dataLoadError(error);
     for (const r of (data ?? []) as PatientCardFields[]) out[r.id] = r;

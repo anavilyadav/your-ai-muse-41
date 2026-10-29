@@ -741,7 +741,7 @@ function AppointmentsPage() {
                   onClick={() => ((a.appointment_type ?? "FOLLOWUP") === "CALL_BACK" ? markStarted(a) : markArrived(a))}
                   className="rounded-lg bg-primary text-primary-foreground py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                 >
-                  <CheckCircle2 className="h-3 w-3" /> {(a.appointment_type ?? "FOLLOWUP") === "CALL_BACK" ? "Call shuru" : "Arrived"}
+                  <CheckCircle2 className="h-3 w-3" /> {(a.appointment_type ?? "FOLLOWUP") === "CALL_BACK" ? "Online Consultation" : "Arrived"}
                 </button>
                 <button
                   onClick={() => setRescheduling(a)}
