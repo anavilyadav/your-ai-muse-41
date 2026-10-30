@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { fetchPatientDataQualityFlags, type PatientDataQualityFlags } from "@/lib/db";
+import { MobilePeerHints } from "@/components/yhc/MobilePeers";
 
 // Inline Data Quality warning (25 Sep 2026, Dr. Yadav) — shows up wherever
 // staff already has a specific patient's record open (Register check-in,
@@ -33,6 +34,8 @@ export function DataQualityBanner({
   // Owner-only options stay off while the Owner previews another role.
   const isOwner = useEffectiveRole() === "OWNER";
   const [flags, setFlags] = useState<PatientDataQualityFlags | null>(null);
+  // Bumped after a family link from the hints below, so the flag clears at once.
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     setFlags(null);
@@ -41,7 +44,7 @@ export function DataQualityBanner({
     fetchPatientDataQualityFlags(patient).then((f) => { if (!cancelled) setFlags(f); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patient?.id, patient?.name, patient?.mobile, patient?.card_series, patient?.card_register, patient?.card_number, patient?.mobile_confirmed, patient?.whatsapp_confirmed]);
+  }, [refresh, patient?.id, patient?.name, patient?.mobile, patient?.card_series, patient?.card_register, patient?.card_number, patient?.mobile_confirmed, patient?.whatsapp_confirmed]);
 
   if (!flags || !flags.hasAny) return null;
 
@@ -66,6 +69,10 @@ export function DataQualityBanner({
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-bold text-destructive">Is patient ki profile me kami hai</p>
           <p className="text-[11px] text-destructive/90 mt-0.5">{items.join(" • ")}</p>
+          {/* Who else is on this mobile, with + Family right here (30 Oct 2026). */}
+          {(flags.sharedMobile || flags.possibleDuplicate) && (
+            <MobilePeerHints patient={patient!} peers={flags.peers} className="mt-1.5" onLinked={() => setRefresh((n) => n + 1)} />
+          )}
         </div>
       </div>
       {selfFixable && (

@@ -7606,28 +7606,83 @@ const DISMISSED_SHARED_MOBILES_KEY = "dq_dismissed_shared_mobiles";
 // more than one patient, and which name+mobile pairs repeat — so the list can
 // show those two flags on every row without opening each profile (Dr. Yadav,
 // 28 Oct 2026). Dismissed shared mobiles (family) are left out.
-export async function fetchListSharingFlags(rows: { id: string; name?: string | null; mobile?: string | null }[]): Promise<Record<string, { sharedMobile: boolean; possibleDuplicate: boolean }>> {
+// Who else is on this patient's mobile (30 Oct 2026, Dr. Yadav: "kiske saath
+// link hai batao, family ho to wahin add ho paye, aur theek karte hi apne
+// aap hat jaye"). One rule for the Master List and the profile banner:
+// a patient already linked as family is NOT a problem — the flag only
+// stays for someone on the same number who isn't family yet, and goes away
+// on its own the moment they are linked (or merged, or the mobile changes).
+export interface MobilePeer {
+  id: string;
+  name: string;
+  card: string | null;
+  /** What this peer is to the patient ("Wife", "Son"…), when family-linked. */
+  relationship: string | null;
+  sameName: boolean;
+}
+export interface SharingInfo {
+  sharedMobile: boolean;
+  possibleDuplicate: boolean;
+  peers: MobilePeer[];
+}
+
+export async function fetchSharingInfo(rows: { id: string; name?: string | null; mobile?: string | null; gender?: string | null }[]): Promise<Record<string, SharingInfo>> {
   const mobiles = Array.from(new Set(rows.map((r) => (r.mobile ?? "").trim()).filter(Boolean)));
-  const out: Record<string, { sharedMobile: boolean; possibleDuplicate: boolean }> = {};
+  const out: Record<string, SharingInfo> = {};
   if (mobiles.length === 0) return out;
-  const others: { id: string; name: string | null; mobile: string }[] = [];
+  const others: { id: string; name: string | null; mobile: string; card_series: string | null; card_register: string | null; card_number: string | null }[] = [];
   for (let i = 0; i < mobiles.length; i += 200) {
-    const { data, error } = await supabase.from("patients").select("id, name, mobile").eq("is_deleted", false).in("mobile", mobiles.slice(i, i + 200));
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id, name, mobile, card_series, card_register, card_number")
+      .eq("is_deleted", false)
+      .in("mobile", mobiles.slice(i, i + 200));
     if (error) throw dataLoadError(error);
     others.push(...((data ?? []) as any[]));
   }
+  // Family links between these people, both directions.
+  const ids = Array.from(new Set(others.map((o) => o.id)));
+  const links: { patient_id: string; related_patient_id: string; relationship: string }[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200).join(",");
+    const { data, error } = await supabase
+      .from("family_links")
+      .select("patient_id, related_patient_id, relationship")
+      .or(`patient_id.in.(${chunk}),related_patient_id.in.(${chunk})`);
+    if (error) throw dataLoadError(error);
+    links.push(...((data ?? []) as any[]));
+  }
   const dismissed = new Set(await fetchDismissedSharedMobiles());
-  const norm = (n: string | null | undefined) => (n ?? "").trim().toLowerCase();
+  const norm = (n: string | null | undefined) => (n ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   for (const r of rows) {
     const m = (r.mobile ?? "").trim();
     if (!m) continue;
-    const same = others.filter((o) => o.mobile === m && o.id !== r.id);
+    const peers: MobilePeer[] = others
+      .filter((o) => o.mobile === m && o.id !== r.id)
+      .map((o) => {
+        const direct = links.find((l) => l.patient_id === r.id && l.related_patient_id === o.id);
+        const reverse = links.find((l) => l.patient_id === o.id && l.related_patient_id === r.id);
+        return {
+          id: o.id,
+          name: o.name ?? "",
+          card: formatCardNumber(o.card_series, o.card_register, o.card_number),
+          relationship: direct ? direct.relationship : reverse ? inverseRelationship(reverse.relationship, r.gender) : null,
+          sameName: norm(o.name) !== "" && norm(o.name) === norm(r.name),
+        };
+      });
+    const notFamily = peers.filter((p) => !p.relationship);
     out[r.id] = {
-      sharedMobile: same.length > 0 && !dismissed.has(m),
-      possibleDuplicate: same.some((o) => norm(o.name) === norm(r.name)),
+      sharedMobile: notFamily.length > 0 && !dismissed.has(m),
+      possibleDuplicate: notFamily.some((p) => p.sameName),
+      peers,
     };
   }
   return out;
+}
+
+// Kept for older callers: just the two flags.
+export async function fetchListSharingFlags(rows: { id: string; name?: string | null; mobile?: string | null; gender?: string | null }[]): Promise<Record<string, SharingInfo>> {
+  return fetchSharingInfo(rows);
 }
 
 export async function fetchDismissedSharedMobiles(): Promise<string[]> {
@@ -7685,6 +7740,8 @@ export interface PatientDataQualityFlags {
   // only makes them actionable for an Owner viewer.
   sharedMobile: boolean;
   possibleDuplicate: boolean;
+  /** Everyone else on this mobile, family-linked or not. */
+  peers: MobilePeer[];
   hasAny: boolean;
 }
 
@@ -7740,6 +7797,7 @@ export function computeLocalDataQualityFlags(patient: {
 export async function fetchPatientDataQualityFlags(patient: {
   id: string;
   name?: string | null;
+  gender?: string | null;
   mobile?: string | null;
   card_series?: string | null;
   card_register?: string | null;
@@ -7754,43 +7812,11 @@ export async function fetchPatientDataQualityFlags(patient: {
   const local = computeLocalDataQualityFlags(patient);
   const { incompleteName, missingMobile, missingCard, partialCard, unconfirmedNumber } = local;
 
-  let sharedMobile = false;
-  let possibleDuplicate = false;
-  if (mobile) {
-    const { count: mobileCount, error: mErr } = await supabase
-      .from("patients")
-      .select("id", { count: "exact", head: true })
-      .eq("mobile", mobile)
-      .eq("is_deleted", false);
-    if (!mErr && (mobileCount ?? 0) > 1) {
-      const dismissed = await fetchDismissedSharedMobiles();
-      sharedMobile = !dismissed.includes(mobile);
-    }
-    // Card-aware now (25 Sep 2026, migration 0083) — Dr. Yadav: "card
-    // number to alag honge hi na" — same name+mobile alone isn't a real
-    // duplicate signal once card numbers already prove they're different
-    // people (the live "Sulekha" case: same name/mobile, cards A-75-20
-    // vs A-78-20). Only flag when genuinely ambiguous: someone in the
-    // group has no card yet, or two members share the same card.
-    if (name) {
-      const { data: matches, error: dErr } = await supabase
-        .from("patients")
-        .select("id, card_series, card_register, card_number")
-        .eq("mobile", mobile)
-        .eq("is_deleted", false)
-        .ilike("name", name);
-      if (!dErr && matches && matches.length > 1) {
-        const cardKey = (r: { card_series: string | null; card_register: string | null; card_number: string | null }) => {
-          const cs = s(r.card_series), cr = s(r.card_register), cn = s(r.card_number);
-          return cs && cr && cn ? `${cs}-${cr}-${cn}` : null;
-        };
-        const keys = matches.map(cardKey);
-        const nonNullKeys = keys.filter((k): k is string => k !== null);
-        const allDistinctAndComplete = nonNullKeys.length === matches.length && new Set(nonNullKeys).size === matches.length;
-        possibleDuplicate = !allDistinctAndComplete;
-      }
-    }
-  }
+  // Same rule as the Master List (fetchSharingInfo): family-linked people
+  // on the same number are not a problem.
+  const sharing = mobile ? (await fetchSharingInfo([{ id: patient.id, name, mobile, gender: patient.gender }]))[patient.id] : undefined;
+  const sharedMobile = sharing?.sharedMobile ?? false;
+  const possibleDuplicate = sharing?.possibleDuplicate ?? false;
 
   return {
     incompleteName,
@@ -7800,6 +7826,7 @@ export async function fetchPatientDataQualityFlags(patient: {
     missingCard,
     sharedMobile,
     possibleDuplicate,
+    peers: sharing?.peers ?? [],
     hasAny: incompleteName || partialCard || unconfirmedNumber || missingMobile || missingCard || sharedMobile || possibleDuplicate,
   };
 }

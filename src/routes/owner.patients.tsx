@@ -7,6 +7,7 @@ import { RoleShell } from "@/components/yhc/RoleShell";
 import { toast } from "sonner";
 import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags, fetchListSharingFlags, fetchRemotePatients, type RemoteFilter } from "@/lib/db";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
+import { MobilePeerHints } from "@/components/yhc/MobilePeers";
 import { PatientSortChips, usePatientSort } from "@/components/yhc/PatientSortChips";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,17 @@ const FLAG_LABELS: Record<string, string> = {
   unconfirmedNumber: "Number unconfirmed",
   sharedMobile: "Mobile kisi aur ke saath bhi",
   possibleDuplicate: "Same naam+mobile ka doosra record",
+};
+
+// What to do about each gap (30 Oct 2026, Dr. Yadav: "uske aage hint bhi").
+// The shared-mobile / same-name ones list the actual people below the chips.
+const FLAG_HINTS: Record<string, string> = {
+  missingMobile: "profile → Edit me mobile daalo",
+  missingCard: "profile → Edit me card do",
+  partialCard: "profile → Edit me card poora karo",
+  unconfirmedNumber: "patient se baat karke Edit me confirm karo",
+  sharedMobile: "neeche dekho kiske saath — family ho to + Family",
+  possibleDuplicate: "ek hi insaan ho to profile me Merge",
 };
 
 export const Route = createFileRoute("/owner/patients")({
@@ -176,14 +188,15 @@ function PatientsPage() {
             // so every visible patient's gaps are legible while just
             // scanning/searching this list. Tapping the row already opens
             // the profile, where the fix actually happens.
-            const flags = { ...computeLocalDataQualityFlags(p), ...(sharing?.[p.id] ?? {}) } as Record<string, boolean>;
-            const flagLabels = Object.entries(FLAG_LABELS).filter(([k]) => flags[k]).map(([, label]) => label);
+            const share = sharing?.[p.id];
+            const flags = { ...computeLocalDataQualityFlags(p), sharedMobile: !!share?.sharedMobile, possibleDuplicate: !!share?.possibleDuplicate } as Record<string, boolean>;
+            const flagKeys = Object.keys(FLAG_LABELS).filter((k) => flags[k]);
             return (
-            <li key={p.id}>
+            <li key={p.id} className="rounded-xl bg-surface border border-border p-3">
               <Link
                 to="/patient/$id"
                 params={{ id: p.id }}
-                className="rounded-xl bg-surface border border-border p-3 flex items-center gap-3"
+                className="flex items-center gap-3"
               >
                 <div className="h-11 w-11 shrink-0 rounded-lg bg-primary text-primary-foreground grid place-items-center text-xs font-bold">
                   {(p.name ?? "?").charAt(0)}
@@ -212,20 +225,28 @@ function PatientsPage() {
                     {p.lifetime_visits} visit{p.lifetime_visits === 1 ? "" : "s"}
                     {p.last_visit_date ? ` • Last: ${p.last_visit_date}` : ""}
                   </p>
-                  {/* Every gap of this profile, spelled out on the row itself so
-                      nobody has to open each profile to check (28 Oct 2026). */}
-                  {flagLabels.length > 0 && (
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
-                      {flagLabels.map((label) => (
-                        <span key={label} className="rounded-full border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </Link>
+              {/* Every gap of this profile, spelled out on the row itself with
+                  what to do about it, so nobody has to open each profile to
+                  check (28 / 30 Oct 2026). Kept outside the row link so the
+                  buttons below don't open the profile. */}
+              {flagKeys.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1">
+                  {flagKeys.map((k) => (
+                    <div key={k} className="flex flex-wrap items-center gap-1.5">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
+                      <span className="rounded-full border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
+                        {FLAG_LABELS[k]}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{FLAG_HINTS[k]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {share && share.peers.length > 0 && (
+                <MobilePeerHints patient={p} peers={share.peers} className="mt-1.5 pl-[18px]" />
+              )}
             </li>
             );
           })}
