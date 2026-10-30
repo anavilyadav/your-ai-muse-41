@@ -206,6 +206,7 @@ function PatientsPage() {
                       const card = formatCardNumber(p.card_series, p.card_register, p.card_number);
                       return card ? `Card: ${card}` : "Card nahi hai";
                     })()} • {p.mobile || "Mobile nahi hai"}
+                    {p.old_cards?.length ? ` • Purane: ${p.old_cards.join(", ")}` : ""}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {p.lifetime_visits} visit{p.lifetime_visits === 1 ? "" : "s"}

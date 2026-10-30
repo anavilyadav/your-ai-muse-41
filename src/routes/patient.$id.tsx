@@ -17,6 +17,8 @@ import { PatientSortChips, usePatientSort, useSortedPatients } from "@/component
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
+import { CardChangeChoice } from "@/components/yhc/CardNumberModal";
+import { canonicalCard } from "@/lib/patientSearch";
 import {
   fetchPatientById,
   fetchPatientHistory,
@@ -45,6 +47,8 @@ import {
   createManualFollowup,
   isDuplicateCardNumber,
   savePatientCardNumber,
+  savePatientOldCards,
+  normalizeCardParts,
   type DocType,
   type PatientDocument,
   type PatientInteraction,
@@ -491,6 +495,69 @@ function MergePatientModal({
   );
 }
 
+// Earlier card numbers of this patient (records re-numbered every 7-8
+// years): added or removed by hand, found by search like the current card.
+function OldCardsModal({ patient, onClose, onSaved }: { patient: DBPatient; onClose: () => void; onSaved: () => void }) {
+  const [cards, setCards] = useState<string[]>(patient.old_cards ?? []);
+  const [typed, setTyped] = useState("");
+  const [saving, setSaving] = useState(false);
+  const current = formatCardNumber(patient.card_series, patient.card_register, patient.card_number);
+
+  const add = () => {
+    const c = canonicalCard(typed);
+    if (!c) { toast.error("Poora card likho, jaise A-57-39"); return; }
+    if (c === current) { toast.error("Ye to abhi wala card hai"); return; }
+    if (!cards.includes(c)) setCards([...cards, c]);
+    setTyped("");
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const res = await savePatientOldCards(patient.id, cards);
+    setSaving(false);
+    if (!res.success) { toast.error("Save nahi hua: " + res.error); return; }
+    toast.success("Purane card save ho gaye");
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
+      <div className="w-full max-w-[430px] bg-background rounded-t-3xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-extrabold text-primary text-lg">Purane card — {patient.name}</h2>
+          <button onClick={onClose} aria-label="Band karo" className="h-8 w-8 grid place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          Abhi ka card: <b>{current ?? "—"}</b>. Records hatane pe jo purane number the, wo yaha jodo — search un se bhi milega.
+        </p>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {cards.length === 0 && <span className="text-[12px] text-muted-foreground">Koi purana card nahi</span>}
+          {cards.map((c) => (
+            <span key={c} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 text-[12px] font-semibold text-primary">
+              {c}
+              <button onClick={() => setCards(cards.filter((x) => x !== c))} aria-label={`${c} hatao`} className="text-destructive"><X className="h-3 w-3" /></button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+            placeholder="Jaise A-57-39"
+            className="flex-1 rounded-lg bg-surface border border-input px-3 py-2.5 text-sm uppercase"
+          />
+          <button onClick={add} className="rounded-lg bg-primary text-primary-foreground px-4 text-sm font-bold">Jodo</button>
+        </div>
+        <button onClick={save} disabled={saving} className="mt-3 w-full rounded-full bg-accent text-accent-foreground font-bold py-3 text-sm disabled:opacity-50">
+          {saving ? "Saving…" : "Save karo"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EditContactModal({
   patient,
   onClose,
@@ -527,6 +594,7 @@ function EditContactModal({
   const [cardRegister, setCardRegister] = useState(patient.card_register || "");
   const [cardNumber, setCardNumber] = useState(patient.card_number || "");
   const [dupCardWarn, setDupCardWarn] = useState(false);
+  const [keepOldCard, setKeepOldCard] = useState(true);
   const [dupWarn, setDupWarn] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -603,7 +671,7 @@ function EditContactModal({
     // split the Case-Taking form already uses, not folded into
     // updatePatientContactInfo's field set.
     if (res.success && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
-      const cardRes = await savePatientCardNumber(patient.id, cardSeries, cardRegister, cardNumber);
+      const cardRes = await savePatientCardNumber(patient.id, cardSeries, cardRegister, cardNumber, { keepOld: keepOldCard });
       if (!cardRes.success) toast.warning("Baaki details save ho gayi, par card number save nahi hua: " + cardRes.error);
     }
     setSaving(false);
@@ -823,6 +891,17 @@ function EditContactModal({
             {dupCardWarn && (
               <p className="text-[11px] text-destructive mt-1.5">⚠ Ye card number isi series/register mein kisi aur patient ke paas hai</p>
             )}
+            {(() => {
+              const typed = normalizeCardParts(cardSeries, cardRegister, cardNumber);
+              return (
+                <CardChangeChoice
+                  oldCard={formatCardNumber(patient.card_series, patient.card_register, patient.card_number)}
+                  newCard={typed.series && typed.number ? formatCardNumber(typed.series, typed.register, typed.number) : null}
+                  keepOld={keepOldCard}
+                  onChange={setKeepOldCard}
+                />
+              );
+            })()}
           </div>
 
         </div>
@@ -1035,6 +1114,7 @@ function PatientProfilePage() {
   const isOwner = useEffectiveRole() === "OWNER";
   const profileAppt = usePatientAppointments([id]).data?.get(id);
   const [showAdvance, setShowAdvance] = useState(false);
+  const [showOldCards, setShowOldCards] = useState(false);
   const [patient, setPatient] = useState<DBPatient | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   // The patient's current, not yet finished visit (newest first) — what an
@@ -1192,6 +1272,9 @@ function PatientProfilePage() {
       )}
       {showEditModal && (
         <EditContactModal patient={patient} onClose={() => setShowEditModal(false)} onSaved={reload} />
+      )}
+      {showOldCards && (
+        <OldCardsModal patient={patient} onClose={() => setShowOldCards(false)} onSaved={reload} />
       )}
       {showLogModal && (
         <LogInteractionModal patientId={id} onClose={() => setShowLogModal(false)} onLogged={reload} />
@@ -1379,6 +1462,16 @@ function PatientProfilePage() {
         {formatCardNumber(patient.card_series, patient.card_register, patient.card_number) && (
           <Row icon={FileText} label="Card No." value={formatCardNumber(patient.card_series, patient.card_register, patient.card_number)!} />
         )}
+        {/* Earlier cards after re-numbering (30 Oct 2026) — searchable too. */}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="min-w-0 text-[12px]">
+            <span className="text-muted-foreground">Purane card: </span>
+            <span className="font-semibold text-primary">{patient.old_cards?.length ? patient.old_cards.join(", ") : "—"}</span>
+          </div>
+          <button onClick={() => setShowOldCards(true)} className="shrink-0 rounded-full border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-primary">
+            {patient.old_cards?.length ? "Badlo" : "+ Jodo"}
+          </button>
+        </div>
       </div>
 
       {waHealth && waHealth.failed > 0 && (

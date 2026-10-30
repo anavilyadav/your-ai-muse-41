@@ -5,6 +5,7 @@ import { Search as SearchIcon } from "lucide-react";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { searchPatients, displayPatientCode } from "@/lib/db";
+import { matchedOldCard } from "@/lib/patientSearch";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
 import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 
@@ -102,6 +103,9 @@ function SearchPage() {
                 <p className="truncate text-xs text-muted-foreground">
                   {displayPatientCode(p)} • {p.mobile}
                 </p>
+                {matchedOldCard(p, q) && (
+                  <p className="truncate text-[11px] font-semibold text-accent-foreground">Purana card {matchedOldCard(p, q)} → ab {displayPatientCode(p)}</p>
+                )}
                 <p className="truncate text-[11px] text-muted-foreground">
                   {p.primary_disease ?? ""}
                 </p>

@@ -93,6 +93,8 @@ export interface DBPatient {
   card_series: string | null;
   card_number: string | null;
   card_register: string | null;
+  // Earlier card numbers ("A-57-39") after the 7-8 yearly re-numbering (0112).
+  old_cards?: string[] | null;
   branch: string;
   lifetime_visits: number;
   lifetime_revenue: number;
@@ -135,6 +137,11 @@ export interface DBVisit {
   case_photo_url?: string | null;
   tongue_photo_url?: string | null;
   reports_photo_url?: string | null;
+  // Several photos per slot (0111, 30 Oct 2026); the single column above is
+  // always the first of these.
+  case_photo_urls?: string[] | null;
+  tongue_photo_urls?: string[] | null;
+  reports_photo_urls?: string[] | null;
   // Rx Autosave (03 Aug 2026 backlog item B) -- migration 0022. Whole draft
   // written as one JSON blob (rows/notes/next-visit/etc), cleared to null
   // by submit_prescription_atomic() the moment the Rx is actually submitted.
@@ -3453,6 +3460,9 @@ export interface CaseNotesInput {
   case_photo_url?: string | null;
   tongue_photo_url?: string | null;
   reports_photo_url?: string | null;
+  case_photo_urls?: string[];
+  tongue_photo_urls?: string[];
+  reports_photo_urls?: string[];
 }
 
 // ---------- Physical case-register card number ----------
@@ -3549,17 +3559,45 @@ export async function isDuplicateCardNumber(
   return (count ?? 0) > 0;
 }
 
-export async function savePatientCardNumber(patientId: string, cardSeries: string, cardRegister: string, cardNumber: string) {
+export async function savePatientCardNumber(
+  patientId: string,
+  cardSeries: string,
+  cardRegister: string,
+  cardNumber: string,
+  // true when the patient was given a NEW card (records re-numbered every
+  // 7-8 years): the card being replaced is kept in old_cards and stays
+  // searchable. false when the old one was just written wrong.
+  opts: { keepOld?: boolean } = {},
+) {
   // Same 2-digit format as every imported card ("7" -> "07").
   const c = normalizeCardParts(cardSeries, cardRegister, cardNumber);
-  const { error } = await supabase
-    .from("patients")
-    .update({
-      card_series: c.series || null,
-      card_register: c.register || null,
-      card_number: c.number || null,
-    })
-    .eq("id", patientId);
+  const update: Record<string, unknown> = {
+    card_series: c.series || null,
+    card_register: c.register || null,
+    card_number: c.number || null,
+  };
+  if (opts.keepOld) {
+    const { data: cur, error: curErr } = await supabase
+      .from("patients")
+      .select("card_series,card_register,card_number,old_cards")
+      .eq("id", patientId)
+      .maybeSingle();
+    if (curErr) return { success: false, error: curErr.message };
+    const prev = formatCardNumber(cur?.card_series, cur?.card_register, cur?.card_number);
+    const next = formatCardNumber(c.series, c.register, c.number);
+    const old = ((cur as { old_cards?: string[] | null } | null)?.old_cards ?? []).filter((x) => x !== next);
+    if (prev && prev !== next && !old.includes(prev)) old.push(prev);
+    update.old_cards = old;
+  }
+  const { error } = await supabase.from("patients").update(update).eq("id", patientId);
+  return { success: !error, error: error?.message ?? null };
+}
+
+// Earlier card numbers typed by hand on the profile ("A-57-39"), stored in
+// the same padded format as the card columns.
+export async function savePatientOldCards(patientId: string, oldCards: string[]) {
+  const clean = Array.from(new Set(oldCards.map((x) => x.trim().toUpperCase()).filter(Boolean)));
+  const { error } = await supabase.from("patients").update({ old_cards: clean }).eq("id", patientId);
   return { success: !error, error: error?.message ?? null };
 }
 
@@ -3572,6 +3610,14 @@ export async function saveCaseNotes(visitId: string, input: string | CaseNotesIn
     if (input.case_photo_url !== undefined) payload.case_photo_url = input.case_photo_url;
     if (input.tongue_photo_url !== undefined) payload.tongue_photo_url = input.tongue_photo_url;
     if (input.reports_photo_url !== undefined) payload.reports_photo_url = input.reports_photo_url;
+    // A list wins over the single value: the single column becomes its first photo.
+    for (const k of ["case", "tongue", "reports"] as const) {
+      const list = input[`${k}_photo_urls`];
+      if (list !== undefined) {
+        payload[`${k}_photo_urls`] = list;
+        payload[`${k}_photo_url`] = list[0] ?? null;
+      }
+    }
   }
   const isDraft = typeof input !== "string" && input.draft;
   if (!isDraft) {
@@ -4895,7 +4941,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0110_forecast_ist_date";
+export const EXPECTED_SCHEMA_VERSION = "0112_patient_old_cards";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -8595,7 +8641,7 @@ export async function fetchPatientPhotoTimeline(
   const [visitsRes, docs] = await Promise.all([
     supabase
       .from("visits")
-      .select("id,visit_date,chief_complaint,case_photo_url,tongue_photo_url,reports_photo_url")
+      .select("id,visit_date,chief_complaint,case_photo_url,tongue_photo_url,reports_photo_url,case_photo_urls,tongue_photo_urls,reports_photo_urls")
       .eq("patient_id", patientId)
       .order("visit_date", { ascending: false })
       .limit(limitVisits),
@@ -8605,13 +8651,14 @@ export async function fetchPatientPhotoTimeline(
   const raw: { id: string; stored: string; bucket: "case-photos" | "patient-documents"; label: string; date: string; note: string | null; source: "visit" | "document" }[] = [];
 
   for (const v of (visitsRes.data ?? []) as any[]) {
-    const kinds: [string, string | null][] = [
-      ["Case paper", v.case_photo_url],
-      ["Tongue", v.tongue_photo_url],
-      ["Reports", v.reports_photo_url],
+    const kinds: [string, string[]][] = [
+      ["Case paper", v.case_photo_urls?.length ? v.case_photo_urls : v.case_photo_url ? [v.case_photo_url] : []],
+      ["Tongue", v.tongue_photo_urls?.length ? v.tongue_photo_urls : v.tongue_photo_url ? [v.tongue_photo_url] : []],
+      ["Reports", v.reports_photo_urls?.length ? v.reports_photo_urls : v.reports_photo_url ? [v.reports_photo_url] : []],
     ];
-    for (const [label, stored] of kinds) {
+    for (const [kindLabel, list] of kinds) for (const [i, stored] of list.entries()) {
       if (!stored) continue;
+      const label = list.length > 1 ? `${kindLabel} ${i + 1}` : kindLabel;
       raw.push({
         id: `${v.id}-${label}`,
         stored,

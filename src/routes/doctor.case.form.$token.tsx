@@ -7,7 +7,7 @@ import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { ChipSelect } from "@/components/yhc/ChipSelect";
 import { AuthGate, LoadingBlock } from "@/components/yhc/AuthGate";
 import { fetchVisitForCaseDR, saveCaseNotes, uploadCasePhoto, resolveDocUrl, isDuplicateCardNumber, savePatientCardNumber } from "@/lib/db";
-import { Camera, Check, Save, BookOpen, Loader2 } from "lucide-react";
+import { Camera, Check, Save, BookOpen, Loader2, Images, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
@@ -21,41 +21,89 @@ export const Route = createFileRoute("/doctor/case/form/$token")({
   ),
 });
 
-function PhotoCapture({
-  label,
-  icon,
-  url,
+type PhotoKind = "case" | "tongue" | "reports";
+
+// One photo slot of the case form, holding several photos (30 Oct 2026 —
+// the case-taking doctor: "sirf ek hi picture upload ho rahi hai"). Camera
+// takes one at a time and can be tapped again to add more; Gallery picks
+// several together.
+function PhotoSlot({
+  kind,
+  title,
+  hint,
+  photos,
   uploading,
   onPick,
-  required,
+  onRemove,
+  big,
 }: {
-  label: string;
-  icon: React.ReactNode;
-  url: string | null;
-  uploading: boolean;
-  onPick: (file: File) => void;
-  required?: boolean;
+  kind: PhotoKind;
+  title: string;
+  hint: string;
+  photos: string[];
+  uploading: string | null;
+  onPick: (files: File[]) => void;
+  onRemove: (path: string) => void;
+  big?: boolean;
 }) {
-  const inputId = `photo-${label.replace(/\s+/g, "-")}`;
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    for (const path of photos) {
+      if (thumbs[path]) continue;
+      resolveDocUrl("case-photos", path).then((url) => { if (alive && url) setThumbs((t) => ({ ...t, [path]: url })); });
+    }
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos]);
+  const has = photos.length > 0;
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length) onPick(files);
+  };
+  const btn = "flex-1 rounded-xl py-2.5 text-[12px] font-bold flex items-center justify-center gap-1.5 cursor-pointer border";
   return (
-    <label
-      htmlFor={inputId}
-      className={cn(
-        "rounded-xl text-[12px] font-semibold py-2.5 flex flex-col items-center justify-center gap-1 cursor-pointer",
-        url ? "bg-success/15 text-success" : "bg-accent/20 text-primary",
+    <div className={cn("rounded-2xl border-2 border-dashed p-3", has ? "bg-success/10 border-success" : big ? "bg-surface border-accent" : "bg-accent/10 border-accent/60")}>
+      <div className="flex items-center gap-2 mb-2">
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : has ? <Check className="h-4 w-4 text-success" /> : <Camera className="h-4 w-4 text-primary" />}
+        <div className={cn("text-[13px] font-bold", has ? "text-success" : "text-primary")}>
+          {title}{has ? ` — ${photos.length} photo` : ""}
+        </div>
+      </div>
+      <div className="text-[11px] text-muted-foreground mb-2">{uploading ?? hint}</div>
+      {has && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {photos.map((path, i) => (
+            <div key={path} className="relative">
+              {thumbs[path] ? (
+                <img src={thumbs[path]} alt={`${title} ${i + 1}`} className="h-16 w-16 rounded-lg border border-border object-cover" />
+              ) : (
+                <div className="h-16 w-16 rounded-lg border border-border bg-muted grid place-items-center text-[10px] text-muted-foreground">{i + 1}</div>
+              )}
+              <button
+                type="button"
+                onClick={() => onRemove(path)}
+                aria-label="Photo hatao"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 grid place-items-center rounded-full bg-destructive text-destructive-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
-    >
-      <input
-        id={inputId}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onPick(f); }}
-      />
-      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : url ? <Check className="h-4 w-4" /> : icon}
-      {uploading ? "Uploading…" : url ? `${label} ✓` : `${label}${required ? " *" : ""}`}
-    </label>
+      <div className="flex gap-2">
+        <label className={cn(btn, "bg-primary text-primary-foreground border-primary")}>
+          <input id={`photo-${kind}-camera`} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
+          <Camera className="h-4 w-4" /> {has ? "Aur photo" : "Camera"}
+        </label>
+        <label className={cn(btn, "bg-background text-primary border-primary/40")}>
+          <input id={`photo-${kind}-gallery`} type="file" accept="image/*" multiple className="hidden" onChange={pick} />
+          <Images className="h-4 w-4" /> Gallery (kai photo)
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -131,12 +179,22 @@ function CaseFormPage() {
   const onCardRegisterChange = (v: string) => { setCardRegister(v); checkDupCard(cardSeries, v, cardNumber); };
   const onCardNumberChange = (v: string) => { setCardNumber(v); checkDupCard(cardSeries, cardRegister, v); };
 
-  const [casePhotoUrl, setCasePhotoUrl] = useState<string | null>(null);
-  const [casePhotoSignedUrl, setCasePhotoSignedUrl] = useState<string | null>(null);
-  const [tonguePhotoUrl, setTonguePhotoUrl] = useState<string | null>(null);
-  const [reportsPhotoUrl, setReportsPhotoUrl] = useState<string | null>(null);
-  const [uploadingKind, setUploadingKind] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Record<PhotoKind, string[]>>({ case: [], tongue: [], reports: [] });
+  const [uploading, setUploading] = useState<{ kind: PhotoKind; text: string } | null>(null);
   const [pendingScan, setPendingScan] = useState<{ kind: "case" | "reports"; file: File } | null>(null);
+  // A saved draft keeps its photos when the case is opened again.
+  const [photosPrefilled, setPhotosPrefilled] = useState(false);
+  useEffect(() => {
+    if (!visit || photosPrefilled) return;
+    const v = visit as any;
+    const list = (many: string[] | null | undefined, one: string | null | undefined) => (many?.length ? many : one ? [one] : []);
+    setPhotos({
+      case: list(v.case_photo_urls, v.case_photo_url),
+      tongue: list(v.tongue_photo_urls, v.tongue_photo_url),
+      reports: list(v.reports_photo_urls, v.reports_photo_url),
+    });
+    setPhotosPrefilled(true);
+  }, [visit, photosPrefilled]);
   const [thermals, setThermals] = useState<string | "">("");
   const [thirst, setThirst] = useState<string | "">("");
   const [sleep, setSleep] = useState<string | "">("");
@@ -150,38 +208,36 @@ function CaseFormPage() {
   const [flag, setFlag] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const handlePhoto = async (kind: "case" | "tongue" | "reports", file: File) => {
-    // Same reasoning as the patient-documents guard: compression shrinks
-    // the eventual upload regardless of input size, but decoding a huge
-    // original into a canvas to get there can itself hang/crash a
-    // low-end phone browser mid-case-taking.
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("File 25MB se badi hai — chhoti photo lo");
-      return;
+  // Uploads one or more photos into a slot, one after the other.
+  const uploadPhotos = async (kind: PhotoKind, files: File[]) => {
+    const ok = files.filter((f) => {
+      // Same reasoning as the patient-documents guard: decoding a huge
+      // original into a canvas can itself hang a low-end phone browser.
+      if (f.size > 25 * 1024 * 1024) { toast.error(`${f.name}: 25MB se badi hai — chhoti photo lo`); return false; }
+      return true;
+    });
+    let saved = 0;
+    for (const [i, file] of ok.entries()) {
+      setUploading({ kind, text: ok.length > 1 ? `Upload ho rahi hai ${i + 1} / ${ok.length}…` : "Upload ho rahi hai…" });
+      const res = await uploadCasePhoto(visitId, kind, file);
+      if (!res.success || !res.url) { toast.error("Photo upload nahi hui: " + res.error); continue; }
+      const path = res.url;
+      setPhotos((p) => ({ ...p, [kind]: [...p[kind], path] }));
+      saved++;
     }
-    setUploadingKind(kind);
-    const res = await uploadCasePhoto(visitId, kind, file);
-    setUploadingKind(null);
-    if (!res.success) {
-      toast.error("Photo upload nahi hui: " + res.error);
-      return;
-    }
-    if (kind === "case") {
-      setCasePhotoUrl(res.url);
-      resolveDocUrl("case-photos", res.url).then(setCasePhotoSignedUrl);
-    }
-    if (kind === "tongue") setTonguePhotoUrl(res.url);
-    if (kind === "reports") setReportsPhotoUrl(res.url);
-    toast.success("Photo save ho gayi");
+    setUploading(null);
+    if (saved) toast.success(saved > 1 ? `${saved} photos save ho gayi` : "Photo save ho gayi");
   };
 
-  // "case" and "reports" are paper documents — crop out the table/
-  // background first via the scan step. "tongue" is a photo of the
-  // tongue itself, not a document, so it skips straight to upload.
-  const pickPhoto = (kind: "case" | "tongue" | "reports", file: File) => {
-    if (kind === "tongue") { handlePhoto(kind, file); return; }
-    setPendingScan({ kind, file });
+  // "case" and "reports" are paper documents — a single photo goes through
+  // the crop step first. Several picked together upload straight away (one
+  // crop screen per photo would slow the doctor down); "tongue" never crops.
+  const pickPhotos = (kind: PhotoKind, files: File[]) => {
+    if (kind !== "tongue" && files.length === 1) { setPendingScan({ kind, file: files[0] }); return; }
+    void uploadPhotos(kind, files);
   };
+  const removePhoto = (kind: PhotoKind, path: string) =>
+    setPhotos((p) => ({ ...p, [kind]: p[kind].filter((x) => x !== path) }));
 
   // One source of truth for the case text — submit(), saveDraft() and the
   // unsaved-changes guard all have to agree on exactly what "the case" is.
@@ -202,7 +258,7 @@ function CaseFormPage() {
   // TASK 3 — a case sheet is 10+ minutes of typing on a phone; one stray
   // back-swipe used to wipe it silently. Snapshot = everything a save would
   // persist, compared against whatever was last actually written to the DB.
-  const snapshot = [notesText, casePhotoUrl ?? "", tonguePhotoUrl ?? "", reportsPhotoUrl ?? ""].join("|");
+  const snapshot = [notesText, photos.case.join(","), photos.tongue.join(","), photos.reports.join(",")].join("|");
   const [savedSnapshot, setSavedSnapshot] = useState<string>("|||");
   const [submitted, setSubmitted] = useState(false);
   const isDirty = !submitted && snapshot !== savedSnapshot;
@@ -213,20 +269,21 @@ function CaseFormPage() {
   }, [submitted, navigate]);
 
   const submit = async () => {
-    if (!casePhotoUrl) return toast.error("Case paper photo is required");
+    if (photos.case.length === 0) return toast.error("Case paper photo is required");
     if (dupCardWarn && !window.confirm("Ye card number isi register mein already kisi aur patient ke paas hai. Phir bhi save karein?")) return;
     if (!window.confirm("Submit case to the prescribing doctor? Cannot be edited after submit.")) return;
     const notes = notesText;
     setBusy(true);
     try {
       if (visit?.patient?.id && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
-        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber);
+        // A replaced card stays searchable (re-numbering every 7-8 years).
+        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber, { keepOld: true });
       }
       await saveCaseNotes(visitId, {
         notes,
-        case_photo_url: casePhotoUrl,
-        tongue_photo_url: tonguePhotoUrl,
-        reports_photo_url: reportsPhotoUrl,
+        case_photo_urls: photos.case,
+        tongue_photo_urls: photos.tongue,
+        reports_photo_urls: photos.reports,
       });
       qc.invalidateQueries({ queryKey: ["today-queue"] });
       setSavedSnapshot(snapshot);
@@ -248,15 +305,15 @@ function CaseFormPage() {
       // The card number is saved with a draft too — it must not wait for the
       // whole case to be submitted.
       if (visit?.patient?.id && (cardSeries.trim() || cardRegister.trim() || cardNumber.trim())) {
-        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber);
+        await savePatientCardNumber(visit.patient.id, cardSeries, cardRegister, cardNumber, { keepOld: true });
         qc.invalidateQueries({ queryKey: ["today-queue"] });
       }
       await saveCaseNotes(visitId, {
         notes,
         draft: true,
-        case_photo_url: casePhotoUrl,
-        tongue_photo_url: tonguePhotoUrl,
-        reports_photo_url: reportsPhotoUrl,
+        case_photo_urls: photos.case,
+        tongue_photo_urls: photos.tongue,
+        reports_photo_urls: photos.reports,
       });
       setSavedSnapshot(snapshot);
       toast.success("Draft saved — case abhi bhi tumhare paas hai");
@@ -302,7 +359,7 @@ function CaseFormPage() {
       <ScanCropModal
         file={pendingScan.file}
         onCancel={() => setPendingScan(null)}
-        onConfirm={(cropped) => handlePhoto(pendingScan.kind, cropped)}
+        onConfirm={(cropped) => { const kind = pendingScan.kind; setPendingScan(null); void uploadPhotos(kind, [cropped]); }}
       />
     );
   }
@@ -380,40 +437,16 @@ function CaseFormPage() {
       <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
         1 — Case paper photo (primary)
       </div>
-      <label
-        htmlFor="photo-case-paper"
-        className={cn(
-          "w-full rounded-2xl p-6 text-center border-2 border-dashed block cursor-pointer",
-          casePhotoUrl ? "bg-success/10 border-success" : "bg-surface border-accent",
-        )}
-      >
-        <input
-          id="photo-case-paper"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) pickPhoto("case", f); }}
-        />
-        <div className="grid place-items-center mb-1">
-          {uploadingKind === "case" ? (
-            <Loader2 className="h-7 w-7 text-primary animate-spin" />
-          ) : casePhotoUrl ? (
-            <Check className="h-7 w-7 text-success" />
-          ) : (
-            <Camera className="h-7 w-7 text-primary" />
-          )}
-        </div>
-        <div className={cn("text-sm font-bold", casePhotoUrl ? "text-success" : "text-primary")}>
-          {uploadingKind === "case" ? "Uploading…" : casePhotoUrl ? "Case paper captured" : "Scan or click the case paper"}
-        </div>
-        <div className="text-[11px] text-muted-foreground mt-0.5">
-          {casePhotoUrl ? "Tap to retake" : "Required — submission blocked without this"}
-        </div>
-        {casePhotoUrl && casePhotoSignedUrl && (
-          <img src={casePhotoSignedUrl} alt="Case paper" className="mt-3 mx-auto max-h-32 rounded-lg border border-border" />
-        )}
-      </label>
+      <PhotoSlot
+        kind="case"
+        title="Case paper"
+        hint="Required — kai page ho to sab ki photo lo. Camera se ek-ek, ya Gallery se ek saath."
+        photos={photos.case}
+        uploading={uploading?.kind === "case" ? uploading.text : null}
+        onPick={(f) => pickPhotos("case", f)}
+        onRemove={(path) => removePhoto("case", path)}
+        big
+      />
 
       <Section n={2} title="Generals">
         <div><Label>Thermals</Label><ChipSelect size="sm" options={["Chilly", "Hot", "Ambi-thermal"]} value={thermals} onChange={setThermals} /></div>
@@ -441,20 +474,24 @@ function CaseFormPage() {
           <Label>Chief complaint detail (in patient's words)</Label>
           <textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Onset, duration, character, location — plain language" className="w-full rounded-xl bg-accent/20 px-3 py-3 text-sm text-primary resize-none outline-none" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <PhotoCapture
-            label="Tongue photo"
-            icon={<span>👅</span>}
-            url={tonguePhotoUrl}
-            uploading={uploadingKind === "tongue"}
-            onPick={(f) => pickPhoto("tongue", f)}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <PhotoSlot
+            kind="tongue"
+            title="👅 Tongue photo"
+            hint="Optional"
+            photos={photos.tongue}
+            uploading={uploading?.kind === "tongue" ? uploading.text : null}
+            onPick={(f) => pickPhotos("tongue", f)}
+            onRemove={(path) => removePhoto("tongue", path)}
           />
-          <PhotoCapture
-            label="Reports scan"
-            icon={<span>📋</span>}
-            url={reportsPhotoUrl}
-            uploading={uploadingKind === "reports"}
-            onPick={(f) => pickPhoto("reports", f)}
+          <PhotoSlot
+            kind="reports"
+            title="📋 Reports"
+            hint="Optional — saari reports ki photo ek saath"
+            photos={photos.reports}
+            uploading={uploading?.kind === "reports" ? uploading.text : null}
+            onPick={(f) => pickPhotos("reports", f)}
+            onRemove={(path) => removePhoto("reports", path)}
           />
         </div>
       </Section>

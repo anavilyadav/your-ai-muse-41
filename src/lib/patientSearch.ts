@@ -59,7 +59,33 @@ export function cardFilterGroup(term: string): string {
   if (c.series) parts.push(`card_series.eq.${c.series}`);
   if (c.register) parts.push(`card_register.eq.${c.register}`);
   if (c.numbers) parts.push(c.numbers.length === 1 ? `card_number.eq.${c.numbers[0]}` : `card_number.in.(${c.numbers.join(",")})`);
-  return `and(${parts.join(",")})`;
+  const current = `and(${parts.join(",")})`;
+  // A full card also finds the patient by an earlier card (old_cards, 0112).
+  const old = oldCardStrings(c);
+  return old.length ? `${current},old_cards.ov.{${old.join(",")}}` : current;
+}
+
+/** "A-57-39" style strings for a fully typed card, as kept in old_cards. */
+export function oldCardStrings(c: CardTerm): string[] {
+  if (!c.series || !c.numbers) return [];
+  if (!c.register && !/T$/.test(c.series)) return [];
+  return c.numbers.map((n) => [c.series, c.register, n].filter(Boolean).join("-"));
+}
+
+/** Canonical "B-05-79" for a typed full card, or null when it is not one. */
+export function canonicalCard(term: string): string | null {
+  const c = parseCardTerm(term);
+  if (!c) return null;
+  const all = oldCardStrings(c);
+  return all.length ? all[0] : null;
+}
+
+/** The earlier card of this patient that the typed term matches, if any. */
+export function matchedOldCard(p: { old_cards?: string[] | null }, term: string): string | null {
+  const c = parseCardTerm(term);
+  if (!c || !p.old_cards?.length) return null;
+  const want = oldCardStrings(c);
+  return p.old_cards.find((o) => want.includes(o)) ?? null;
 }
 
 type CardFields = { card_series?: string | null; card_register?: string | null; card_number?: string | null };
@@ -84,6 +110,7 @@ export const PATIENT_SORTS: { key: PatientSort; label: string }[] = [
 ];
 
 type SortablePatient = CardFields & {
+  old_cards?: string[] | null;
   name?: string | null;
   mobile?: string | null;
   patient_code?: string | null;
@@ -115,6 +142,7 @@ export function matchRank(p: SortablePatient, term: string): number {
   const t = term.trim().toLowerCase();
   if (!t) return 9;
   if (cardMatchesTerm(p, term)) return 0;
+  if (matchedOldCard(p, term)) return 1;
   const digits = t.replace(/\D/g, "");
   if (digits.length >= 6 && (p.mobile ?? "").replace(/\D/g, "") === digits) return 1;
   if ((p.patient_code ?? "").toLowerCase() === t.replace(/^sys-/, "yhc-")) return 1;
