@@ -9,6 +9,7 @@ import { usePatientCards } from "@/hooks/use-patient-cards";
 import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { DELIVERY_STEPS, fetchDeliveries, updateDelivery, createDelivery, notifyDeliveryUpdate, searchPatients, fetchPatientAddresses, findCombinableFamilyDelivery, displayPatientCode, type PatientAddress, type PatientCardFields } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/delivery")({
@@ -105,6 +106,8 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
     queryFn: () => searchPatients(debouncedQ),
     enabled: !selected && debouncedQ.trim().length >= 2,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(results, pSort, debouncedQ);
 
   // Saved addresses (24 Sep 2026) — patients often courier to a different
   // place each time (home vs office vs native village), so offer their
@@ -187,12 +190,13 @@ function NewDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Naam ya mobile se search karo"
+              placeholder="Naam, mobile ya card number se search karo"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             />
+            {results && results.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
             {results && results.length > 0 && (
-              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden">
-                {results.map((p: any) => (
+              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden max-h-72 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       onClick={() => pick(p)}

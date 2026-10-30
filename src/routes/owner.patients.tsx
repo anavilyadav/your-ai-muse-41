@@ -7,6 +7,7 @@ import { RoleShell } from "@/components/yhc/RoleShell";
 import { toast } from "sonner";
 import { fetchPatientsPage, fetchPatientsTotalCount, formatCardNumber, computeLocalDataQualityFlags, fetchListSharingFlags, fetchRemotePatients, type RemoteFilter } from "@/lib/db";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
+import { PatientSortChips, usePatientSort } from "@/components/yhc/PatientSortChips";
 import { cn } from "@/lib/utils";
 
 // Compact inline labels for the list — same underlying flags as
@@ -37,6 +38,7 @@ function PatientsPage() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [remote, setRemote] = useState<RemoteFilter | null>(null);
+  const [sort, setSort] = usePatientSort();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -47,8 +49,8 @@ function PatientsPage() {
   }, [q]);
 
   const list = useQuery({
-    queryKey: ["owner-patients-list", debouncedQ, visibleCount, remote],
-    queryFn: () => fetchPatientsPage(visibleCount, debouncedQ || undefined, remote ?? undefined),
+    queryKey: ["owner-patients-list", debouncedQ, visibleCount, remote, sort],
+    queryFn: () => fetchPatientsPage(visibleCount, debouncedQ || undefined, remote ?? undefined, sort),
   });
 
   // Deliberately its own query, independent of search/page state (Dr.
@@ -149,6 +151,8 @@ function PatientsPage() {
           </button>
         )}
       </div>
+
+      <PatientSortChips value={sort} onChange={(s) => { setSort(s); setVisibleCount(PAGE_SIZE); }} className="mt-2" />
 
       <div className="mt-2 text-[11px] text-muted-foreground px-1">
         {list.isLoading ? "Load ho raha hai…" : `${rows.length}${hasMore ? "+" : ""} patient${rows.length === 1 ? "" : "s"} dikh rahe hain`}

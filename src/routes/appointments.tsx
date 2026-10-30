@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 import { usePatientCards } from "@/hooks/use-patient-cards";
 import { PatientIdChip } from "@/components/yhc/PatientIdChip";
 import { MobileShell } from "@/components/yhc/MobileShell";
@@ -147,6 +148,8 @@ export function NewAppointmentModal({
     queryFn: () => searchPatients(debouncedName),
     enabled: !patientId && debouncedName.trim().length >= 2,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(patientSearch.data, pSort, debouncedName);
 
   const submit = async () => {
     if (!name.trim() || !time.trim()) { toast.error("Naam aur slot chuno"); return; }
@@ -216,8 +219,10 @@ export function NewAppointmentModal({
               className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             />
             {showSuggestions && !patientId && (patientSearch.data?.length ?? 0) > 0 && (
-              <ul className="absolute z-10 w-full mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
-                {patientSearch.data!.map((p: any) => (
+              <div className="absolute z-10 w-full mt-1 rounded-xl border border-border bg-background shadow-lg">
+              {patientSearch.data!.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="px-2 pt-2" />}
+              <ul className="max-h-48 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       type="button"
@@ -235,6 +240,7 @@ export function NewAppointmentModal({
                   </li>
                 ))}
               </ul>
+              </div>
             )}
             {patientId && (
               <div className={cn("mt-1 text-[11px] font-semibold", waConsent ? "text-success" : "text-muted-foreground")}>

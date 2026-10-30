@@ -9,6 +9,7 @@ import { AuthGate, LoadingBlock, ErrorBlock } from "@/components/yhc/AuthGate";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
@@ -266,6 +267,8 @@ function OnlineFollowupRequestModal({
     queryFn: () => searchPatients(debouncedQ),
     enabled: !selected && debouncedQ.trim().length >= 2,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(results, pSort, debouncedQ);
 
   const pick = async (p: any) => {
     setSelected(p);
@@ -366,13 +369,14 @@ function OnlineFollowupRequestModal({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Naam ya mobile se search karo"
+              placeholder="Naam, mobile ya card number se search karo"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
               autoFocus
             />
+            {results && results.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
             {results && results.length > 0 && (
-              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden">
-                {results.map((p: any) => (
+              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden max-h-72 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       onClick={() => pick(p)}
@@ -543,6 +547,8 @@ function ComplaintModal({ onClose }: { onClose: () => void }) {
     queryFn: () => searchPatients(debouncedQ),
     enabled: !selected && debouncedQ.trim().length >= 2,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(results, pSort, debouncedQ);
 
   if (showSlotPicker && selected) {
     return (
@@ -598,13 +604,14 @@ function ComplaintModal({ onClose }: { onClose: () => void }) {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Naam ya mobile se search karo"
+              placeholder="Naam, mobile ya card number se search karo"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
               autoFocus
             />
+            {results && results.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
             {results && results.length > 0 && (
-              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden">
-                {results.map((p: any) => (
+              <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden max-h-72 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       onClick={() => { setSelected(p); setShowLog(true); }}

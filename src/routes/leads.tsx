@@ -18,6 +18,7 @@ import {
   type LeadStage, type LeadQuality, type LeadSource, type LeadRepeatInfo, type WhatsAppControls, type DiseaseCategory,
 } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/leads")({
@@ -850,6 +851,8 @@ export function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClos
     queryFn: () => searchPatients(debouncedReferred),
     enabled: source === "REFERRAL" && debouncedReferred.trim().length >= 2 && !referredPatient,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedReferred = useSortedPatients(referredQ.data, pSort, debouncedReferred);
 
   // Fixed per-source criteria text for the 9 built-in sources; anything
   // Owner adds later doesn't have hand-written criteria yet, so it gets an
@@ -937,12 +940,13 @@ export function AddLeadModal({ staff, onClose, onAdded }: { staff: any[]; onClos
                   <input
                     value={referredSearch}
                     onChange={(e) => setReferredSearch(e.target.value)}
-                    placeholder="Referring patient ka naam/mobile"
+                    placeholder="Referring patient ka naam/mobile/card"
                     className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
                   />
+                  {referredQ.data && referredQ.data.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
                   {referredQ.data && referredQ.data.length > 0 && (
                     <ul className="mt-1 rounded-xl border border-border bg-surface divide-y divide-border max-h-36 overflow-y-auto">
-                      {referredQ.data.map((p: any) => (
+                      {sortedReferred.map((p: any) => (
                         <li key={p.id}>
                           <button
                             onClick={() => setReferredPatient({ id: p.id, name: p.name, mobile: p.mobile })}

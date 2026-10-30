@@ -1,5 +1,6 @@
 import { supabase, today, istNow } from "./supabase";
 import { sendWhatsApp } from "./whatsapp";
+import { cardFilterGroup, sortPatients, type PatientSort } from "./patientSearch";
 
 // ---------- Read failures must be LOUD, not empty ----------
 // Every read in this file used to do `if (error) return []`, which made a
@@ -6901,31 +6902,20 @@ export async function searchPatients(term: string) {
   const t = sanitizeOrFilterTerm(term);
   if (!t) return [];
   const like = `%${t}%`;
-  // Card number search fix (25 Sep 2026) — Dr. Yadav found live: typing
-  // the actual printed card number ("B-34-44") never matched anything.
-  // card_series/card_register/card_number are 3 separate columns
-  // ("B"/"34"/"44") and every ilike check above tests the WHOLE typed
-  // string against just ONE of them — "B-34-44" is never a substring of
-  // "B" alone, so a full card-number search silently returned nothing.
-  // When the term splits into 2-3 hyphen/space-separated pieces (how the
-  // card is actually printed and typed), also match each piece against
-  // its own column, all three ANDed together as one more OR-branch.
-  const parts = t.split(/[-\s]+/).filter(Boolean);
-  let cardGroup = "";
-  if (parts.length >= 2 && parts.length <= 3) {
-    const [series, register, number] = parts;
-    const clauses = [`card_series.ilike.%${series}%`, `card_register.ilike.%${register}%`];
-    if (number) clauses.push(`card_number.ilike.%${number}%`);
-    cardGroup = `,and(${clauses.join(",")})`;
-  }
+  // A typed card ("A 57-39", "B-05-79", "57-39", "1T-24") is matched exactly
+  // part by part (see patientSearch.ts) — matching each part with "contains"
+  // pulled in every register/number that merely had the same digit in it.
+  const card = cardFilterGroup(t);
   const { data, error } = await supabase
     .from("patients")
     .select("*")
-    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like},card_number.ilike.${like},card_series.ilike.${like},card_register.ilike.${like}${cardGroup}`)
+    .or(`name.ilike.${like},mobile.ilike.${like},patient_code.ilike.${like}${card ? `,${card}` : ""}`)
     .eq("is_deleted", false)
-    .limit(30);
+    .limit(150);
   if (error) throw dataLoadError(error);
-  return data ?? [];
+  // Best match first (exact card, then mobile, then names starting with the
+  // term), each screen can re-sort with its sort chips.
+  return sortPatients((data ?? []) as DBPatient[], "best", t);
 }
 
 // Owner-only browsable master list (13 Aug 2026) — distinct from
@@ -6951,7 +6941,7 @@ export async function fetchPatientsTotalCount(): Promise<number> {
 
 export type RemoteFilter = "ONLINE" | "COURIER" | "ANY";
 
-export async function fetchPatientsPage(limit: number, search?: string, remote?: RemoteFilter): Promise<PatientListPage> {
+export async function fetchPatientsPage(limit: number, search?: string, remote?: RemoteFilter, sort: PatientSort = "name"): Promise<PatientListPage> {
   let q = supabase.from("patients").select("*").eq("is_deleted", false);
   if (remote === "ONLINE") q = q.eq("is_online", true);
   else if (remote === "COURIER") q = q.eq("uses_courier", true);
@@ -6963,26 +6953,10 @@ export async function fetchPatientsPage(limit: number, search?: string, remote?:
       `name.ilike.${like}`,
       `mobile.ilike.${like}`,
       `patient_code.ilike.${like}`,
-      `card_number.ilike.${like}`,
-      `card_series.ilike.${like}`,
-      `card_register.ilike.${like}`,
     ];
-    // A card number typed the natural way ("B-81-39", or just "81-39") has
-    // its series/register/number split across 3 separate columns — no
-    // single ILIKE above (each checking one column in isolation) ever
-    // matches that, so searching the exact thing printed on the physical
-    // card silently found nothing. Split on "-" and match each real part
-    // against its own column instead. 2 parts is ambiguous between
-    // "series-register" and "register-number", so both are tried.
-    const cardParts = t.split("-").map((p) => p.trim()).filter(Boolean);
-    if (cardParts.length === 3) {
-      const [series, register, number] = cardParts;
-      orParts.push(`and(card_series.ilike.${series},card_register.ilike.${register},card_number.ilike.${number})`);
-    } else if (cardParts.length === 2) {
-      const [a, b] = cardParts;
-      orParts.push(`and(card_series.ilike.${a},card_register.ilike.${b})`);
-      orParts.push(`and(card_register.ilike.${a},card_number.ilike.${b})`);
-    }
+    // A typed card is matched exactly part by part (patientSearch.ts).
+    const card = cardFilterGroup(t);
+    if (card) orParts.push(card);
     q = q.or(orParts.join(","));
   }
   // Sorted like a real index (alphabetical by name) instead of
@@ -6992,9 +6966,16 @@ export async function fetchPatientsPage(limit: number, search?: string, remote?:
   // from a genuinely empty search result, so the Owner's Master Patient
   // List rendered as "no patients" on a real fetch error instead of
   // showing anything was wrong.
+  // Sort chips (30 Oct 2026): the order is applied in the database so
+  // "load more" pages continue the same order. "Best match" ranks the
+  // loaded rows by how closely they match the typed term.
+  if (sort === "card") q = q.order("card_series", { ascending: true, nullsFirst: false }).order("card_register", { ascending: true, nullsFirst: false }).order("card_number", { ascending: true, nullsFirst: false });
+  else if (sort === "recent") q = q.order("last_visit_date", { ascending: false, nullsFirst: false });
+  else if (sort === "visits") q = q.order("lifetime_visits", { ascending: false, nullsFirst: false });
   const { data, error } = await q.order("name", { ascending: true }).limit(limit);
   if (error) throw dataLoadError(error);
-  const rows = (data ?? []) as DBPatient[];
+  let rows = (data ?? []) as DBPatient[];
+  if (sort === "best" && t) rows = sortPatients(rows, "best", t);
   return { rows, hasMore: rows.length === limit };
 }
 

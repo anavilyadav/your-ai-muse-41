@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import { DoctorShell } from "@/components/yhc/DoctorShell";
 import { searchPatients, fetchPatientHistory, displayPatientCode } from "@/lib/db";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 
 export const Route = createFileRoute("/doctor/rx/history")({
   head: () => ({ meta: [{ title: "Patient History — Doctor App" }, { name: "robots", content: "noindex" }] }),
@@ -26,6 +27,8 @@ function HistoryPage() {
     queryFn: () => searchPatients(debouncedQ),
     enabled: debouncedQ.trim().length >= 2,
   });
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(search.data, pSort, debouncedQ);
 
   const history = useQuery({
     queryKey: ["rx-history", selected?.id],
@@ -44,13 +47,14 @@ function HistoryPage() {
           <input
             value={selected ? `${selected.name} — ${selected.mobile}` : q}
             onChange={(e) => { setSelected(null); setQ(e.target.value); }}
-            placeholder="Naam ya mobile se search karo"
+            placeholder="Naam, mobile ya card number se search karo"
             className="w-full rounded-xl bg-surface border border-border pl-9 pr-3 py-2.5 text-sm text-primary"
           />
         </div>
+        {!selected && q.trim().length >= 2 && (search.data?.length ?? 0) > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
         {!selected && q.trim().length >= 2 && (
-          <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden">
-            {(search.data ?? []).map((p: any) => (
+          <ul className="mt-2 rounded-xl border border-border bg-surface overflow-hidden max-h-80 overflow-y-auto">
+            {sortedResults.map((p: any) => (
               <li key={p.id}>
                 <button
                   onClick={() => { setSelected(p); setQ(""); }}

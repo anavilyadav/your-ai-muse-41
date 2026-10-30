@@ -13,6 +13,7 @@ import { PatientApptBar, usePatientAppointments } from "@/components/yhc/Patient
 import { AdvancePaymentModal } from "@/components/yhc/AdvancePaymentModal";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 import { SecureImage, SecurePhotoLightbox } from "@/components/yhc/SecurePhoto";
 import { LogInteractionModal } from "@/components/yhc/LogInteractionModal";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
@@ -107,6 +108,8 @@ function LinkFamilyModal({
     searchPatients(debouncedQ).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
     return () => { cancelled = true; };
   }, [debouncedQ, patientId]);
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(results, pSort, debouncedQ);
 
   const submit = async () => {
     if (!selected) { toast.error("Pehle patient select karo"); return; }
@@ -134,12 +137,13 @@ function LinkFamilyModal({
             <input
               value={selected ? `${selected.name} — ${selected.mobile}` : q}
               onChange={(e) => { setSelected(null); setQ(e.target.value); }}
-              placeholder="Naam ya mobile"
+              placeholder="Naam, mobile ya card number"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             />
+            {!selected && results.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
             {!selected && results.length > 0 && (
-              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
-                {results.map((p: any) => (
+              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-48 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       type="button"
@@ -401,6 +405,8 @@ function MergePatientModal({
     searchPatients(debouncedQ).then((r) => { if (!cancelled) setResults(r.filter((p: any) => p.id !== patientId)); });
     return () => { cancelled = true; };
   }, [debouncedQ, patientId]);
+  const [pSort, setPSort] = usePatientSort();
+  const sortedResults = useSortedPatients(results, pSort, debouncedQ);
 
   const expectedConfirm = selected?.name ?? "";
   const confirmed = selected && confirmText.trim().toLowerCase() === expectedConfirm.trim().toLowerCase();
@@ -433,12 +439,13 @@ function MergePatientModal({
             <input
               value={selected ? `${selected.name} — ${selected.mobile}` : q}
               onChange={(e) => { setSelected(null); setConfirmText(""); setQ(e.target.value); }}
-              placeholder="Naam ya mobile"
+              placeholder="Naam, mobile ya card number"
               className="w-full mt-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
             />
+            {!selected && results.length > 1 && <PatientSortChips value={pSort} onChange={setPSort} className="mt-2" />}
             {!selected && results.length > 0 && (
-              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-40 overflow-y-auto">
-                {results.map((p: any) => (
+              <ul className="mt-1 rounded-xl border border-border bg-background shadow-lg max-h-48 overflow-y-auto">
+                {sortedResults.map((p: any) => (
                   <li key={p.id}>
                     <button
                       type="button"

@@ -6,6 +6,7 @@ import { MobileShell } from "@/components/yhc/MobileShell";
 import { RemoteBadges } from "@/components/yhc/RemoteBadges";
 import { searchPatients, displayPatientCode } from "@/lib/db";
 import { PatientApptBar, usePatientAppointments } from "@/components/yhc/PatientApptBar";
+import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
 
 export const Route = createFileRoute("/search")({
   head: () => ({ meta: [{ title: "Search Patients — YHC Jaipur" }] }),
@@ -22,6 +23,8 @@ function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<unknown>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [sort, setSort] = usePatientSort();
+  const sorted = useSortedPatients(results, sort, q.trim());
 
   useEffect(() => {
     const term = q.trim();
@@ -73,14 +76,16 @@ function SearchPage() {
         <ErrorBlock error={searchError} onRetry={() => setRetryTick((t) => t + 1)} />
       )}
 
-      <ul className="mt-4 space-y-2">
+      {results.length > 1 && <PatientSortChips value={sort} onChange={setSort} className="mt-3" />}
+
+      <ul className="mt-3 space-y-2">
         {q && !loading && !searchError && results.length === 0 && (
           <li className="text-center text-sm text-muted-foreground py-8">No matches.</li>
         )}
         {loading && (
           <li className="text-center text-sm text-muted-foreground py-8">Searching…</li>
         )}
-        {results.map((p) => (
+        {sorted.map((p) => (
           <li key={p.id} className="rounded-xl bg-surface border border-border p-3">
             <Link
               to="/patient/$id"
