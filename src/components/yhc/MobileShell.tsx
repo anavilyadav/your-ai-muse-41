@@ -1,4 +1,5 @@
-import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { useForceLogout } from "@/components/yhc/LogoutButton";
+import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft, ClipboardList, ListChecks, LogOut, PhoneCall, Search, UserPlus, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -67,19 +68,15 @@ const CALLING_NAV_ITEMS = [
 // so this is what makes reception's screens usable on a tablet.
 export function MobileShell({ title, subtitle, showBack, right, children }: Props) {
   const router = useRouter();
-  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const t = useT();
   // Effective role, not the account's own: Owner previewing "Calling Team"
   // must see the Calling nav, exactly what that staff member sees.
   const effectiveRole = useEffectiveRole();
   const navItems = effectiveRole === "CALLING" ? CALLING_NAV_ITEMS : RECEPTION_NAV_ITEMS;
 
-  const doLogout = async () => {
-    await signOut();
-    navigate({ to: "/login" });
-  };
+  const doLogout = useForceLogout();
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">

@@ -1,3 +1,4 @@
+import { StuckHelp } from "@/components/yhc/LogoutButton";
 import { useEffect, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAuth, useEffectiveRole } from "@/lib/auth";
@@ -46,7 +47,10 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
   if (loading) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
-        <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+        <div className="text-center">
+          <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+          <StuckHelp />
+        </div>
       </div>
     );
   }
@@ -62,6 +66,7 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
           >
             Dobara try karo
           </button>
+          <StuckHelp after={0} />
         </div>
       </div>
     );
@@ -69,14 +74,20 @@ export function AuthGate({ allow, permKey, children }: { allow: Role[]; permKey?
   if (!user) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
-        <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+        <div className="text-center">
+          <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+          <StuckHelp />
+        </div>
       </div>
     );
   }
   if (role && (!allow.includes(role) || !permOk)) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
-        <div className="text-sm text-muted-foreground">Redirecting…</div>
+        <div className="text-center">
+          <div className="text-sm text-muted-foreground">Redirecting…</div>
+          <StuckHelp />
+        </div>
       </div>
     );
   }

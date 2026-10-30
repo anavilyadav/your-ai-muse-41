@@ -1,9 +1,8 @@
-import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { LogoutButton, useForceLogout } from "@/components/yhc/LogoutButton";
+import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft, BarChart3, ClipboardList, Clock, LogOut, PhoneCall } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { writeDoctorSession } from "@/lib/yhc-doctor";
-import { useAuth } from "@/lib/auth";
 
 interface Props {
   title: string;
@@ -34,9 +33,7 @@ const caseNav = [
 
 export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav = "none", children }: Props) {
   const router = useRouter();
-  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { signOut } = useAuth();
 
   // Was only writeDoctorSession(null) + navigate — that clears a legacy
   // localStorage key nothing else in the app actually writes to, and
@@ -44,11 +41,7 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
   // worked (bounced back to /doctor) but the session was still live, so
   // the global auth guard immediately redirected back into the app —
   // Case-DR staff could not actually sign out from this board.
-  const logout = async () => {
-    writeDoctorSession(null);
-    await signOut();
-    navigate({ to: "/login" });
-  };
+  const logout = useForceLogout();
 
   const items = nav === "rx" ? rxNav : nav === "case" ? caseNav : [];
 
@@ -116,14 +109,9 @@ export function DoctorShell({ title, subtitle, showBack, right, showLogout, nav 
               </div>
               <div className="shrink-0 flex items-center gap-2">
                 {right}
-                {showLogout && (
-                  <button
-                    onClick={logout}
-                    className="h-9 px-3 rounded-full bg-white/10 hover:bg-white/20 text-xs font-semibold inline-flex items-center gap-1 lg:hidden"
-                  >
-                    <LogOut className="h-3.5 w-3.5" /> Logout
-                  </button>
-                )}
+                {/* Every doctor page, every screen width (30 Oct 2026) — the
+                    case form and Rx page had none, so a stuck screen had no way out. */}
+                <LogoutButton />
               </div>
             </div>
           </header>

@@ -1,3 +1,4 @@
+import { StuckHelp } from "@/components/yhc/LogoutButton";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -159,7 +160,10 @@ function GlobalAuthGuard({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen w-full bg-background grid place-items-center">
-        <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+        <div className="text-center">
+          <div className="text-sm text-muted-foreground animate-pulse">Loading…</div>
+          <StuckHelp />
+        </div>
       </div>
     );
   }

@@ -1,3 +1,4 @@
+import { LogoutButton } from "@/components/yhc/LogoutButton";
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
@@ -124,6 +125,7 @@ export function RoleShell({ title, subtitle, showBack, right, nav = [], children
               <div className="shrink-0 flex items-center gap-2">
                 <LanguageToggle />
                 {right}
+                <LogoutButton label={false} />
               </div>
             </div>
           </header>
