@@ -77,6 +77,12 @@ describe("normalizePaymentMode", () => {
     expect(normalizePaymentMode("Debit")).toBe("CARD");
     expect(normalizePaymentMode("swipe")).toBe("CARD");
   });
+  it("keeps the clinic's own Paytm accounts as their own modes", () => {
+    expect(normalizePaymentMode("AY PAYTM")).toBe("AY_PAYTM");
+    expect(normalizePaymentMode("ay paytm")).toBe("AY_PAYTM");
+    expect(normalizePaymentMode("YHC PAYTM")).toBe("YHC_PAYTM");
+    expect(normalizePaymentMode("paytm")).toBe("UPI");
+  });
   it("falls back unrecognized modes to CASH (payments.payment_mode CHECK has no OTHER value)", () => {
     expect(normalizePaymentMode("NEFT")).toBe("CASH");
     expect(normalizePaymentMode("QR")).toBe("CASH");

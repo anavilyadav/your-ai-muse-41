@@ -4941,7 +4941,7 @@ export async function findCombinableFamilyDelivery(
 // loudly if they don't match, instead of the gap staying invisible until
 // someone happens to check by hand (the exact way 0043 and 0045 were
 // found unapplied earlier this session).
-export const EXPECTED_SCHEMA_VERSION = "0112_patient_old_cards";
+export const EXPECTED_SCHEMA_VERSION = "0113_payment_mode_any_code";
 
 export interface SchemaMigrationRow {
   filename: string;
@@ -6594,8 +6594,8 @@ export function unmatchedVisitRowsToCSV(rows: { mobile: string; name: string; vi
   return header + body;
 }
 
-// payments.payment_mode CHECK only allows CASH/UPI/CARD/ADVANCE/ADJUST —
-// this function used to bucket anything else as "OTHER", which was never
+// payments.payment_mode CHECK used to allow only CASH/UPI/CARD/ADVANCE/ADJUST
+// (0113 now takes any payment_modes code) — this function used to bucket anything else as "OTHER", which was never
 // actually a valid value for that column (found live 21 Sep 2026 when
 // Dr. Yadav's real visit-history import hit "violates check constraint
 // payments_payment_mode_check" — every single non-CASH/UPI/CARD row in a
@@ -6607,8 +6607,13 @@ export function unmatchedVisitRowsToCSV(rows: { mobile: string; name: string; vi
 // cash/upi/card revenue breakdown under a bucket that doesn't exist.
 const UPI_ALIASES = ["UPI", "GPAY", "GOOGLEPAY", "PHONEPE", "PAYTM", "BHIM"];
 const CARD_ALIASES = ["CARD", "DEBIT", "CREDIT", "DEBITCARD", "CREDITCARD", "SWIPE"];
-export function normalizePaymentMode(m?: string | null): "CASH" | "UPI" | "CARD" {
-  const up = (m ?? "").trim().toUpperCase().replace(/\s+/g, "");
+// The clinic's own Paytm accounts are separate payment modes (payment_modes
+// AY_PAYTM / YHC_PAYTM, 0113): "AY PAYTM" is UPI into a different account and
+// is reported on its own line (Dr. Yadav, 30 Oct 2026).
+const ACCOUNT_MODES: Record<string, "AY_PAYTM" | "YHC_PAYTM"> = { AYPAYTM: "AY_PAYTM", YHCPAYTM: "YHC_PAYTM" };
+export function normalizePaymentMode(m?: string | null): "CASH" | "UPI" | "CARD" | "AY_PAYTM" | "YHC_PAYTM" {
+  const up = (m ?? "").trim().toUpperCase().replace(/[\s_]+/g, "");
+  if (ACCOUNT_MODES[up]) return ACCOUNT_MODES[up];
   if (UPI_ALIASES.includes(up)) return "UPI";
   if (CARD_ALIASES.includes(up)) return "CARD";
   return "CASH";

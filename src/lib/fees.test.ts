@@ -158,9 +158,9 @@ describe("needsRecaseSurcharge", () => {
 
 describe("normalizePaymentMode (revenue-split bucketing)", () => {
   it("never returns an unbucketed value, so mode totals always add up", () => {
-    const inputs = ["CASH", "upi", "Card", "NEFT", "", null, undefined, "  ", "cheque"];
+    const inputs = ["CASH", "upi", "Card", "NEFT", "", null, undefined, "  ", "cheque", "AY PAYTM"];
     for (const i of inputs) {
-      expect(["CASH", "UPI", "CARD", "OTHER"]).toContain(normalizePaymentMode(i));
+      expect(["CASH", "UPI", "CARD", "AY_PAYTM", "YHC_PAYTM"]).toContain(normalizePaymentMode(i));
     }
   });
 });
