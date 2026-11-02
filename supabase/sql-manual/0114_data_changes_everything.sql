@@ -3,7 +3,7 @@
 -- Same function as 0106, plus every other bundle applied since:
 --   new_patients  — patients created from the daily sheet (R2 HIGH, R2 MEDIUM, NAYA PATIENT)
 --   imports       — sheet visits that were missing and got added (R4 … R4E, R3 CHECK D, NAYA PATIENT)
---   card_changes  — R2 / R2 MEDIUM / R6: new card for the same person, old card kept in old_cards
+--   card_changes  — R2 / R2 MEDIUM / R6 / R2 CHECK: new card for the same person, old card kept in old_cards
 --   merges        — now every merged record (M1, R1, R5, R5 MEDIUM, M1 MEDIUM, R6, and ones merged in the app),
 --                   read from the "MERGED into <id>" note merge_patients_atomic writes
 --   double_entries — R3 CHECK B: same sheet line twice in the app (converted / spare copy deleted)
@@ -79,6 +79,7 @@ begin
           when exists (select 1 from dq_r5m_plan r where r.merge_id = d.id) then 'R5 MEDIUM'
           when exists (select 1 from dq_m1m_plan r where r.merge_id = d.id) then 'M1 MEDIUM'
           when exists (select 1 from dq_r6_plan r where r.merge_id = d.id) then 'R6'
+          when exists (select 1 from dq_r2c_plan r where r.merge_id = d.id) then 'R2 CHECK'
           else 'App se' end
       ) order by x.merged_on desc, p.name), '[]'::jsonb)
       from patients d
@@ -98,6 +99,7 @@ begin
         select patient_id, 'R2' as bundle from dq_r2_plan where kind = 'NEW_PATIENT' and applied
         union all select patient_id, 'R2 MEDIUM' from dq_r2m_plan where kind = 'NEW_PATIENT' and applied
         union all select id, 'NAYA PATIENT' from dq_naya_patients
+        union all select id, 'R2 CHECK' from patients where notes like 'Daily sheet se bana (R2 CHECK%'
       ) n join patients p on p.id = n.patient_id
     ),
     'imports', (
@@ -114,6 +116,7 @@ begin
         union all select visit_id, amount, mode_raw, 'R4 E' from dq_r4e_plan where status = 'INSERTED'
         union all select visit_id, amount, mode_raw, 'R3 CHECK' from dq_r3c_dplan where status = 'INSERTED'
         union all select visit_id, amount, mode_raw, 'NAYA PATIENT' from dq_naya_imports where status = 'INSERTED'
+        union all select visit_id, amount, mode_raw, 'R2 CHECK' from dq_r2c_imports where status = 'INSERTED'
       ) i
       join visits v on v.id = i.visit_id and not v.is_deleted
       join patients p on p.id = v.patient_id
@@ -131,6 +134,7 @@ begin
         select kind, patient_id, s, r, n, 'R2' as bundle from dq_r2_plan where kind <> 'NEW_PATIENT' and applied
         union all select kind, patient_id, s, r, n, 'R2 MEDIUM' from dq_r2m_plan where kind <> 'NEW_PATIENT' and applied
         union all select 'B_CARD', patient_id, s, r, n, 'R6' from dq_r6_cards where applied
+        union all select 'MASTER_CARD', patient_id, s, r, n, 'R2 CHECK' from dq_r2c_cards where applied
       ) c
       join patients p on p.id = c.patient_id
       left join lateral (
@@ -138,6 +142,7 @@ begin
           select id, card_series, card_register, card_number, backed_up_at from dq_r2_patient_backup where c.bundle = 'R2'
           union all select id, card_series, card_register, card_number, backed_up_at from dq_r2m_patient_backup where c.bundle = 'R2 MEDIUM'
           union all select id, card_series, card_register, card_number, backed_up_at from dq_r6_patient_backup where c.bundle = 'R6'
+          union all select id, card_series, card_register, card_number, backed_up_at from dq_r2c_patient_backup where c.bundle = 'R2 CHECK'
         ) bb where bb.id = c.patient_id order by bb.backed_up_at limit 1
       ) b on true
     ),
