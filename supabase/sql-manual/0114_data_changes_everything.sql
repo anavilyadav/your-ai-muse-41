@@ -3,8 +3,8 @@
 -- Same function as 0106, plus every other bundle applied since:
 --   new_patients  — patients created from the daily sheet (R2 HIGH, R2 MEDIUM, NAYA PATIENT)
 --   imports       — sheet visits that were missing and got added (R4 … R4E, R3 CHECK D, NAYA PATIENT)
---   card_changes  — R2 / R2 MEDIUM: new card for the same person, old card kept in old_cards
---   merges        — now every merged record (M1, R1, R5, R5 MEDIUM, M1 MEDIUM, and ones merged in the app),
+--   card_changes  — R2 / R2 MEDIUM / R6: new card for the same person, old card kept in old_cards
+--   merges        — now every merged record (M1, R1, R5, R5 MEDIUM, M1 MEDIUM, R6, and ones merged in the app),
 --                   read from the "MERGED into <id>" note merge_patients_atomic writes
 --   double_entries — R3 CHECK B: same sheet line twice in the app (converted / spare copy deleted)
 --   family_links  — R3 CHECK D (Kosha Jain family)
@@ -78,6 +78,7 @@ begin
           when exists (select 1 from dq_r5_plan r where r.merge_id = d.id) then 'R5'
           when exists (select 1 from dq_r5m_plan r where r.merge_id = d.id) then 'R5 MEDIUM'
           when exists (select 1 from dq_m1m_plan r where r.merge_id = d.id) then 'M1 MEDIUM'
+          when exists (select 1 from dq_r6_plan r where r.merge_id = d.id) then 'R6'
           else 'App se' end
       ) order by x.merged_on desc, p.name), '[]'::jsonb)
       from patients d
@@ -129,12 +130,14 @@ begin
       from (
         select kind, patient_id, s, r, n, 'R2' as bundle from dq_r2_plan where kind <> 'NEW_PATIENT' and applied
         union all select kind, patient_id, s, r, n, 'R2 MEDIUM' from dq_r2m_plan where kind <> 'NEW_PATIENT' and applied
+        union all select 'B_CARD', patient_id, s, r, n, 'R6' from dq_r6_cards where applied
       ) c
       join patients p on p.id = c.patient_id
       left join lateral (
         select * from (
           select id, card_series, card_register, card_number, backed_up_at from dq_r2_patient_backup where c.bundle = 'R2'
           union all select id, card_series, card_register, card_number, backed_up_at from dq_r2m_patient_backup where c.bundle = 'R2 MEDIUM'
+          union all select id, card_series, card_register, card_number, backed_up_at from dq_r6_patient_backup where c.bundle = 'R6'
         ) bb where bb.id = c.patient_id order by bb.backed_up_at limit 1
       ) b on true
     ),
