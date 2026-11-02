@@ -4,7 +4,7 @@
 --   new_patients  — patients created from the daily sheet (R2 HIGH, R2 MEDIUM, NAYA PATIENT)
 --   imports       — sheet visits that were missing and got added (R4 … R4E, R3 CHECK D, NAYA PATIENT)
 --   card_changes  — R2 / R2 MEDIUM: new card for the same person, old card kept in old_cards
---   merges        — now every merged record (M1, R1, R5, R5 MEDIUM, and ones merged in the app),
+--   merges        — now every merged record (M1, R1, R5, R5 MEDIUM, M1 MEDIUM, and ones merged in the app),
 --                   read from the "MERGED into <id>" note merge_patients_atomic writes
 --   double_entries — R3 CHECK B: same sheet line twice in the app (converted / spare copy deleted)
 --   family_links  — R3 CHECK D (Kosha Jain family)
@@ -77,6 +77,7 @@ begin
           when exists (select 1 from dq_r1_patient_backup b where b.id = d.id) then 'R1'
           when exists (select 1 from dq_r5_plan r where r.merge_id = d.id) then 'R5'
           when exists (select 1 from dq_r5m_plan r where r.merge_id = d.id) then 'R5 MEDIUM'
+          when exists (select 1 from dq_m1m_plan r where r.merge_id = d.id) then 'M1 MEDIUM'
           else 'App se' end
       ) order by x.merged_on desc, p.name), '[]'::jsonb)
       from patients d
