@@ -7546,7 +7546,14 @@ export interface DataChangesReport {
   cards: { patient_id: string; name: string; card: string; applied_at: string }[];
   mobiles: { patient_id: string; name: string; mobile: string; card: string | null; applied_at: string }[];
   flags: { patient_id: string; name: string; source: string; card: string | null; applied_at: string }[];
-  merges?: { primary_id: string; primary_name: string; primary_card: string | null; duplicate_name: string; duplicate_card: string | null; applied_at: string }[];
+  merges?: { primary_id: string; primary_name: string; primary_card: string | null; duplicate_name: string; duplicate_card: string | null; applied_at: string; bundle?: string }[];
+  // 0114 — everything else applied from the bundles
+  new_patients?: { patient_id: string; name: string; mobile: string | null; card: string | null; bundle: string; merged: boolean; visits: number; applied_at: string }[];
+  imports?: { bundle: string; visit_date: string; amount: number | null; mode: string | null; patient_id: string; name: string; card: string | null; applied_at: string }[];
+  card_changes?: { patient_id: string; name: string; kind: string; bundle: string; sheet_card: string; before_card: string | null; card: string | null; old_cards: string[]; applied_at: string | null }[];
+  double_entries?: { action: "CONVERT" | "DELETE"; visit_date: string; slip: string | null; amount: number | null; patient_id: string; name: string; card: string | null; copy_on_id: string | null; copy_on_name: string | null }[];
+  family_links?: { patient_id: string; name: string; card: string | null; related_id: string; related_name: string; related_card: string | null; relationship: string; bundle: string }[];
+  ay_paytm?: { patient_id: string; name: string; card: string | null; count: number; amount: number; old_mode: string; new_mode: string; applied_at: string }[];
 }
 
 export async function fetchDataChangesReport(): Promise<DataChangesReport> {
