@@ -30,7 +30,7 @@ function fmtDate(d: string | null | undefined) {
 const rupees = (n: number | null | undefined) => `₹${Math.round(Number(n ?? 0)).toLocaleString("en-IN")}`;
 
 // Bundle order for the filter chips — the order they were applied.
-const BUNDLE_ORDER = ["B4 HIGH", "B4 MEDIUM", "B2", "B3", "B1", "B6", "M1", "R1", "R2", "R2 MEDIUM", "R2 CHECK", "R3", "R3 MEDIUM", "R3 CHECK", "R4", "R4 B", "R4 C", "R4 D", "R4 E", "NAYA PATIENT", "R5", "R5 MEDIUM", "M1 MEDIUM", "R6", "AY PAYTM", "App se"];
+const BUNDLE_ORDER = ["B4 HIGH", "B4 MEDIUM", "B2", "B3", "B1", "B6", "M1", "R1", "R2", "R2 MEDIUM", "R2 CHECK", "R3", "R3 MEDIUM", "R3 CHECK", "R4", "R4 B", "R4 C", "R4 D", "R4 E", "NAYA PATIENT", "R5", "R5 MEDIUM", "M1 MEDIUM", "R6", "STAFF LIST", "AY PAYTM", "App se"];
 
 const CARD_KIND: Record<string, string> = {
   NEW_CARD_SAME_PERSON: "Naya card, wahi insaan",
@@ -39,6 +39,7 @@ const CARD_KIND: Record<string, string> = {
   EXTRA_CARD: "Ek insaan ke 2 card — purane cards me joda",
   B_CARD: "Purane A card ki jagah 2023 ka B card diya",
   MASTER_CARD: "Master sheet wala card diya",
+  STAFF_CARD: "Staff ki list wala card bhara",
 };
 
 function PatientLink({ id, name, card }: { id: string; name: string; card?: string | null }) {
