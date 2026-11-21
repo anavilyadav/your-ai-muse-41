@@ -4242,7 +4242,14 @@ export async function fetchUpcomingAppointmentsByPatient(patientIds: string[]): 
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
     if (error) throw dataLoadError(error);
-    for (const a of data ?? []) if (!out.has((a as any).patient_id)) out.set((a as any).patient_id, a);
+    for (const a of data ?? []) {
+      const pid = (a as any).patient_id;
+      const first = out.get(pid);
+      if (!first) out.set(pid, a);
+      // the one after it, so a patient in today's appointment also shows
+      // their next booked day (21 Nov 2026)
+      else if (!first.next_after) first.next_after = a;
+    }
   }
   return out;
 }

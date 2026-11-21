@@ -582,6 +582,18 @@ function QueuePage() {
                 {/* Arrived / Reschedule / Cancel under EVERY patient entry, plus the
                     appointment's own steps (call / consultation shuru) when there
                     is one — outside the row's button, buttons can't nest. */}
+                {r.visit_status === "DONE" && r.patient && r.visit_date === todayStr() && (
+                  // the next visit is decided after the consultation, so a
+                  // finished patient still needs the appointment button
+                  // (21 Nov 2026: it disappeared once the visit was DONE)
+                  <div className="px-1 mt-1.5">
+                    <PatientApptBar
+                      hideCommon
+                      patient={{ id: r.patient_id, name: r.patient.name, mobile: r.patient.mobile, branch: r.patient.branch, wa_consent: r.patient.wa_consent }}
+                      appt={apptByPatientNext?.get(r.patient_id)}
+                    />
+                  </div>
+                )}
                 {r.visit_status !== "DONE" && r.patient && (
                   <div className="px-1 mt-1.5 space-y-1.5">
                     <VisitStatusBar

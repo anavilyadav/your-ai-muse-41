@@ -605,7 +605,17 @@ function AppointmentsPage() {
         </div>
       }
     >
-      {showNew && <NewAppointmentModal onClose={() => setShowNew(false)} onAdded={() => queryClient.invalidateQueries({ queryKey: ["appointments"] })} />}
+      {/* Jump the list to the booked day — an appointment booked for a later
+          date used to vanish from today's list, so it looked unbooked. */}
+      {showNew && (
+        <NewAppointmentModal
+          onClose={() => setShowNew(false)}
+          onAdded={(info) => {
+            queryClient.invalidateQueries({ queryKey: ["appointments"] });
+            if (info?.date) setSelectedDate(info.date);
+          }}
+        />
+      )}
       {showSettings && <SlotSettingsModal onClose={() => setShowSettings(false)} />}
       {rescheduling && (
         <RescheduleModal

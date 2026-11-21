@@ -31,6 +31,10 @@ type PatientLite = { id: string; name: string; mobile?: string | null; branch?: 
 //   booked          -> clinic aaya / call shuru, Reschedule, Cancel
 //   arrived         -> consultation shuru
 //   started         -> ho gaya
+// Today's appointment also gets "Agla appointment" (21 Nov 2026: reception
+// could not book the next visit of a patient who was in today's appointment
+// — only Reschedule showed, which moves today's one), or the next booked day
+// once there is one.
 export function PatientApptBar({ patient, appt, className, hideCommon }: { patient: PatientLite; appt?: any; className?: string; hideCommon?: boolean }) {
   const qc = useQueryClient();
   const [booking, setBooking] = useState(false);
@@ -107,8 +111,26 @@ export function PatientApptBar({ patient, appt, className, hideCommon }: { patie
         </button>
       )}
 
+      {isToday && (appt.next_after ? (
+        <span className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10.5px] font-bold text-primary">
+          📅 Agla: {new Date(`${appt.next_after.appointment_date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} {appt.next_after.appointment_time}
+        </span>
+      ) : (
+        <button type="button" onClick={() => setBooking(true)} className={cn(btn, "bg-surface border-primary/40 text-primary")}>
+          <CalendarPlus className="h-3.5 w-3.5" /> Agla appointment
+        </button>
+      ))}
+
       {rescheduling && (
         <RescheduleModal appt={appt} onClose={() => setRescheduling(false)} onRescheduled={() => { refresh(); setRescheduling(false); }} />
+      )}
+      {booking && (
+        <NewAppointmentModal
+          initialPatient={patient}
+          initialType={type}
+          onClose={() => setBooking(false)}
+          onAdded={() => { refresh(); setBooking(false); }}
+        />
       )}
     </div>
   );
