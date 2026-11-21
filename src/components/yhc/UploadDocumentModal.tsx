@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, X } from "lucide-react";
+import { Camera, RotateCw, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { today } from "@/lib/supabase";
+import { rotateImageFile } from "@/lib/image-rotate";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
 import { DOC_KIND_WORD, DOC_TYPES, DOC_TYPE_LABEL, fetchDocNamePreview, uploadPatientDocument, type DocType } from "@/lib/db";
 
@@ -84,6 +85,21 @@ export function UploadDocumentModal({
   const skipScanning = () => {
     setQueueTotal((t) => Math.max(0, t - 1));
     setQueue((q) => q.slice(1));
+  };
+  // a quarter turn per tap, for pages photographed sideways or upside down
+  const [turningIdx, setTurningIdx] = useState<number | null>(null);
+  const rotateReady = async (idx: number) => {
+    const item = ready[idx];
+    if (!item) return;
+    setTurningIdx(idx);
+    try {
+      const turned = await rotateImageFile(item.file);
+      setReady((r) => r.map((x, i) => (i === idx ? { file: turned, preview: URL.createObjectURL(turned) } : x)));
+    } catch {
+      toast.error("Photo ghum nahi payi");
+    } finally {
+      setTurningIdx(null);
+    }
   };
   const removeReady = (idx: number) => {
     setReady((r) => r.filter((_, i) => i !== idx));
@@ -173,10 +189,24 @@ export function UploadDocumentModal({
           </div>
 
           {ready.length > 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              Ulti ya tedhi photo ko <RotateCw className="inline h-3 w-3" /> dabakar seedha karo — har tap par 90° ghumti hai.
+            </div>
+          )}
+          {ready.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {ready.map((r, i) => (
                 <div key={i} className="relative">
-                  <img src={r.preview} alt={`Photo ${i + 1}`} className="h-16 w-16 rounded-lg border border-border object-cover" />
+                  <img src={r.preview} alt={`Photo ${i + 1}`} className={"h-20 w-20 rounded-lg border border-border object-contain bg-muted" + (turningIdx === i ? " opacity-40" : "")} />
+                  <button
+                    type="button"
+                    onClick={() => void rotateReady(i)}
+                    disabled={turningIdx !== null}
+                    aria-label={`Photo ${i + 1} ghumao`}
+                    className="absolute bottom-0.5 right-0.5 h-6 w-6 grid place-items-center rounded-full bg-primary text-primary-foreground shadow disabled:opacity-50"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                  </button>
                   {preview.data && (
                     <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 text-[9px] font-bold text-white">({preview.data.nextSeq + i})</span>
                   )}

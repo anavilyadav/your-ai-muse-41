@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Loader2, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -100,6 +100,10 @@ export function SecurePhotoLightbox({
   onIndexChange: (i: number) => void;
 }) {
   const item = items[index];
+  // turn a sideways paper while reading it (21 Nov 2026) — only the view,
+  // the stored photo is not changed; resets for the next photo
+  const [turn, setTurn] = useState(0);
+  useEffect(() => { setTurn(0); }, [index]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -123,17 +127,33 @@ export function SecurePhotoLightbox({
           <div className="text-sm font-bold truncate">{item.label}</div>
           {item.date && <div className="text-[11px] opacity-70">{item.date}</div>}
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close photo"
-          className="shrink-0 h-9 w-9 grid place-items-center rounded-full bg-white/15 hover:bg-white/25"
-        >
-          <X className="h-5 w-5" />
-        </button>
+        <div className="shrink-0 flex items-center gap-2">
+          <button
+            onClick={() => setTurn((t) => (t + 90) % 360)}
+            aria-label="Photo ghumao"
+            className="h-9 px-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 hover:bg-white/25 text-[12px] font-bold"
+          >
+            <RotateCw className="h-4 w-4" /> Ghumao
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close photo"
+            className="h-9 w-9 grid place-items-center rounded-full bg-white/15 hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex items-center justify-center px-2">
-        <SecureImage src={item.url} alt={item.label} className="max-h-full max-w-full object-contain rounded-lg" />
+      <div className="flex-1 min-h-0 flex items-center justify-center px-2 overflow-hidden">
+        <div
+          className="max-h-full max-w-full flex items-center justify-center transition-transform duration-200"
+          // a quarter turn swaps width and height, so the turned photo is
+          // shrunk to stay inside the screen
+          style={{ transform: `rotate(${turn}deg)${turn % 180 ? " scale(0.7)" : ""}` }}
+        >
+          <SecureImage src={item.url} alt={item.label} className="max-h-[80vh] max-w-full object-contain rounded-lg" />
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 py-4 text-white">

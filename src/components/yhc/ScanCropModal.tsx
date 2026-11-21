@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, X, RotateCcw } from "lucide-react";
+import { Check, X, RotateCcw, RotateCw } from "lucide-react";
+import { rotateImageFile } from "@/lib/image-rotate";
 
 // A real "scan" step for case-file/photo uploads — crop out the table/
 // background around a paper document and apply the same contrast/
@@ -37,13 +38,25 @@ export function ScanCropModal({
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const [display, setDisplay] = useState({ w: 0, h: 0 });
   const [rect, setRect] = useState<Rect | null>(null);
+  // the photo as turned by "Ghumao" (21 Nov 2026) — crop and "Poori Photo
+  // Rakho" both work on this, so a sideways paper is fixed before upload
+  const [working, setWorking] = useState<File>(file);
+  const [turning, setTurning] = useState(false);
+  useEffect(() => { setWorking(file); }, [file]);
   const dragRef = useRef<{ corner: "tl" | "tr" | "bl" | "br" | "move"; startX: number; startY: number; startRect: Rect } | null>(null);
 
   useEffect(() => {
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(working);
     setSrc(url);
+    setDisplay({ w: 0, h: 0 });
+    setRect(null);
     return () => URL.revokeObjectURL(url);
-  }, [file]);
+  }, [working]);
+
+  const turn = async () => {
+    setTurning(true);
+    try { setWorking(await rotateImageFile(working)); } finally { setTurning(false); }
+  };
 
   const onImgLoad = () => {
     const img = imgRef.current;
@@ -96,18 +109,18 @@ export function ScanCropModal({
   const onPointerUp = () => { dragRef.current = null; };
 
   const confirmCrop = async () => {
-    if (!rect || !natural.w || !display.w) { onConfirm(file); return; }
+    if (!rect || !natural.w || !display.w) { onConfirm(working); return; }
     const scale = natural.w / display.w;
     const sx = rect.x * scale, sy = rect.y * scale, sw = rect.w * scale, sh = rect.h * scale;
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(sw);
     canvas.height = Math.round(sh);
     const ctx = canvas.getContext("2d");
-    if (!ctx || !imgRef.current) { onConfirm(file); return; }
+    if (!ctx || !imgRef.current) { onConfirm(working); return; }
     if ("filter" in ctx) (ctx as any).filter = "contrast(1.35) brightness(1.12) saturate(0.85)";
     ctx.drawImage(imgRef.current, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-    if (!blob) { onConfirm(file); return; }
+    if (!blob) { onConfirm(working); return; }
     const newName = file.name.replace(/\.[^.]+$/, "") + "-scan.jpg";
     onConfirm(new File([blob], newName, { type: "image/jpeg" }));
   };
@@ -164,10 +177,13 @@ export function ScanCropModal({
       </div>
       <div className="p-4 flex flex-col gap-2">
         <div className="flex gap-2">
+          <button onClick={turn} disabled={turning} className="flex-1 rounded-full bg-white/25 text-white text-[12px] font-bold py-2.5 inline-flex items-center justify-center gap-1.5 disabled:opacity-50">
+            <RotateCw className="h-3.5 w-3.5" /> {turning ? "Ghum rahi hai…" : "Ghumao"}
+          </button>
           <button onClick={resetRect} className="flex-1 rounded-full bg-white/15 text-white text-[12px] font-bold py-2.5 inline-flex items-center justify-center gap-1.5">
             <RotateCcw className="h-3.5 w-3.5" /> Reset
           </button>
-          <button onClick={() => onConfirm(file)} className="flex-1 rounded-full bg-white/15 text-white text-[12px] font-bold py-2.5">
+          <button onClick={() => onConfirm(working)} className="flex-1 rounded-full bg-white/15 text-white text-[12px] font-bold py-2.5">
             Poori Photo Rakho
           </button>
         </div>
