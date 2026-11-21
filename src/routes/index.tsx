@@ -4,7 +4,8 @@ import { DayHeader } from "@/components/yhc/DayHeader";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock } from "lucide-react";
+import { Plus, PhoneCall, MessageCircle, CheckCircle2, Clock, XCircle, CalendarClock, FileText } from "lucide-react";
+import { UploadDocumentModal } from "@/components/yhc/UploadDocumentModal";
 import { toast } from "sonner";
 import { MobileShell } from "@/components/yhc/MobileShell";
 import { FlowBar } from "@/components/yhc/FlowBar";
@@ -60,9 +61,13 @@ const statusStyles: Record<string, string> = {
 // just a more compact card since this sits above an already-busy Queue.
 // Hidden entirely once nothing's left to act on (arrived/cancelled
 // appointments drop out), not just empty.
-function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
+// 21 Nov 2026: also for a later day picked in the Queue's date box, so
+// tomorrow's bookings are visible and their case papers can go in early.
+function TodaysAppointmentsSection({ branchScope, date }: { branchScope?: string; date?: string }) {
   const qc = useQueryClient();
-  const apptDate = todayStr();
+  const apptDate = date ?? todayStr();
+  const apptIsToday = apptDate === todayStr();
+  const [caseFor, setCaseFor] = useState<any | null>(null);
   const { data } = useQuery({
     queryKey: ["appointments", apptDate],
     queryFn: () => fetchAppointments(apptDate),
@@ -81,7 +86,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   // An appointment not tied to a patient (booked for a new caller) is matched
   // to today's visit by mobile number, so it still shows token and stage.
   const visitFor = (a: any) =>
-    (queueToday ?? []).find(
+    !apptIsToday ? undefined : (queueToday ?? []).find(
       (v) =>
         v.visit_date === apptDate &&
         (a.patient_id ? v.patient_id === a.patient_id : digits(a.mobile).length === 10 && digits((v as any).patient?.mobile) === digits(a.mobile)),
@@ -94,7 +99,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   // booked by phone walked in there was nothing to say she is sitting in the
   // waiting area (Dr. Yadav, 23 Oct 2026). They stay, with their token and
   // current stage.
-  const arrived = inScope.filter((a: any) => a.status === "Arrived" || a.status === "Started");
+  const arrived = apptIsToday ? inScope.filter((a: any) => a.status === "Arrived" || a.status === "Started") : [];
 
   // Already has a token today (e.g. checked in through Register instead of
   // Arrived): just close the appointment — checking in again would give a
@@ -113,7 +118,8 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
   return (
     <div className="mt-4">
       <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-2 flex items-center gap-1.5">
-        <CalendarClock className="h-3.5 w-3.5" /> Aaj ke Appointments ({upcoming.length + arrived.length})
+        <CalendarClock className="h-3.5 w-3.5" />{" "}
+        {apptIsToday ? "Aaj ke" : new Date(`${apptDate}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + " ke"} Appointments ({upcoming.length + arrived.length})
       </div>
       <ul className="space-y-2">
         {arrived.map((a: any) => {
@@ -202,7 +208,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 buttons here were confusing ("symbol se nahi likh kr
                 batao"). Icon + tiny label, still compact enough for 5
                 columns on a phone. */}
-            <div className="mt-2 grid grid-cols-5 gap-1.5">
+            <div className={cn("mt-2 grid gap-1.5", apptIsToday ? "grid-cols-5" : "grid-cols-4")}>
               <a href={`tel:${a.mobile}`} className="rounded-lg bg-success text-success-foreground py-1.5 flex flex-col items-center gap-0.5">
                 <PhoneCall className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">Call</span>
@@ -211,7 +217,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <MessageCircle className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">WA</span>
               </a>
-              <button
+              {apptIsToday && <button
                 onClick={() => (a.appointment_type === "CALL_BACK" ? markStarted(a) : v ? closeWithoutCheckIn(a, v) : markArrived(a))}
                 className="rounded-lg bg-primary text-primary-foreground py-1.5 flex flex-col items-center gap-0.5"
               >
@@ -219,7 +225,7 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <span className="text-[9px] font-bold leading-none">
                   {a.appointment_type === "CALL_BACK" ? "Online Consultation" : v ? "Done" : "Arrived"}
                 </span>
-              </button>
+              </button>}
               <button onClick={() => setRescheduling(a)} className="rounded-lg bg-surface border border-primary/40 text-primary py-1.5 flex flex-col items-center gap-0.5">
                 <CalendarClock className="h-3.5 w-3.5" />
                 <span className="text-[9px] font-bold leading-none">Reschedule</span>
@@ -232,6 +238,16 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
                 <span className="text-[9px] font-bold leading-none">Cancel</span>
               </button>
             </div>
+            {a.patient_id ? (
+              <button
+                onClick={() => setCaseFor(a)}
+                className="mt-1.5 w-full rounded-lg bg-surface border border-primary/40 text-primary py-1.5 text-[11px] font-bold inline-flex items-center justify-center gap-1"
+              >
+                <FileText className="h-3.5 w-3.5" /> Case paper upload
+              </button>
+            ) : (
+              <div className="mt-1.5 text-[10.5px] text-muted-foreground">Case paper: pehle patient register karo, phir upload hoga.</div>
+            )}
           </li>
           );
         })}
@@ -241,6 +257,14 @@ function TodaysAppointmentsSection({ branchScope }: { branchScope?: string }) {
           appt={rescheduling}
           onClose={() => setRescheduling(null)}
           onRescheduled={() => qc.invalidateQueries({ queryKey: ["appointments"] })}
+        />
+      )}
+      {caseFor && (
+        <UploadDocumentModal
+          patientId={caseFor.patient_id}
+          initialType={(caseFor.appointment_type ?? "FOLLOWUP") === "NEW" ? "New Case Notes" : "Follow-up Notes"}
+          onClose={() => setCaseFor(null)}
+          onUploaded={() => {}}
         />
       )}
     </div>
@@ -382,7 +406,6 @@ function QueuePage() {
         <input
           type="date"
           value={date}
-          max={todayStr()}
           onChange={(e) => e.target.value && setDate(e.target.value)}
           className="flex-1 rounded-lg bg-surface border border-input px-3 py-2 text-sm"
           aria-label="Kis din ki queue dekhni hai"
@@ -466,7 +489,7 @@ function QueuePage() {
         📞 Complaint / Support Call
       </Link>
 
-      <TodaysAppointmentsSection branchScope={branchScope} />
+      {date >= todayStr() && <TodaysAppointmentsSection branchScope={branchScope} date={date} />}
 
       <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
         {filters.map((f) => {
