@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Camera, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { today } from "@/lib/supabase";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
-import { DOC_TYPES, uploadPatientDocument, type DocType } from "@/lib/db";
+import { DOC_KIND_WORD, DOC_TYPES, DOC_TYPE_LABEL, fetchDocNamePreview, uploadPatientDocument, type DocType } from "@/lib/db";
+
+const ddmmyy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}`;
 
 // Multi-photo batch upload (25 Sep 2026, Dr. Yadav: "staff ek saath baith
 // kr purani files ko upload karta jaye, taaki mere liye aasani ho") —
@@ -14,6 +18,11 @@ import { DOC_TYPES, uploadPatientDocument, type DocType } from "@/lib/db";
 // uploads the whole batch under one shared Type + note in one go.
 // Shared with the Appointments list (21 Nov 2026) so the case paper of a
 // booked patient can go in before the day of the visit.
+// 21 Nov 2026 (Dr. Yadav): papers are uploaded at every visit, 20–25 at a
+// time — every one carries the paper's date and gets a name like
+// "B-42-78 21/11/26 FOLLOW-UP (1)", (2) … — each kind (case paper, recase,
+// follow-up, payment, report) numbered on its own by the database, never
+// repeated; cropping each page is optional so a big batch goes in quickly.
 export function UploadDocumentModal({
   patientId,
   onClose,
@@ -28,7 +37,14 @@ export function UploadDocumentModal({
   const { user } = useAuth();
   const [docType, setDocType] = useState<DocType>(initialType);
   const [note, setNote] = useState("");
+  const [paperDate, setPaperDate] = useState(() => today());
+  const [cropEach, setCropEach] = useState(true);
   const [saving, setSaving] = useState(false);
+  const preview = useQuery({
+    queryKey: ["doc-name-preview", patientId, paperDate, docType],
+    queryFn: () => fetchDocNamePreview(patientId, paperDate, docType),
+    enabled: !!paperDate,
+  });
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   // Not-yet-cropped files waiting their turn, and already-cropped files
   // ready to upload — `total` is fixed at selection time so "Photo 2/5"
@@ -44,6 +60,12 @@ export function UploadDocumentModal({
       toast.error(`${tooBig.length} photo(s) 25MB se badi hai — skip ho gayi`);
     }
     if (ok.length === 0) return;
+    if (!cropEach) {
+      // straight to the list, in the order picked — that order becomes (1), (2) …
+      setReady((r) => [...r, ...ok.map((file) => ({ file, preview: URL.createObjectURL(file) }))]);
+      setQueueTotal(ok.length + ready.length);
+      return;
+    }
     setQueueTotal(ok.length + ready.length);
     setQueue((q) => [...q, ...ok]);
   };
@@ -70,21 +92,25 @@ export function UploadDocumentModal({
 
   const submit = async () => {
     if (ready.length === 0) { toast.error("Kam se kam ek photo chuno"); return; }
+    if (!paperDate) { toast.error("Paper ki tareekh chuno"); return; }
     setSaving(true);
     setProgress({ done: 0, total: ready.length });
     let uploaded = 0;
     const failed: string[] = [];
+    const names: string[] = [];
+    // one after another, so the numbers follow the order on screen
     for (let i = 0; i < ready.length; i++) {
-      const res = await uploadPatientDocument(patientId, docType, ready[i].file, note, user?.name);
-      if (res.success) uploaded++;
+      const res = await uploadPatientDocument(patientId, docType, ready[i].file, note, user?.name, paperDate);
+      if (res.success) { uploaded++; if (res.title) names.push(res.title); }
       else failed.push(`Photo ${i + 1}: ${res.error}`);
       setProgress({ done: i + 1, total: ready.length });
     }
     setSaving(false);
+    const span = names.length > 1 ? `${names[0]} se ${names[names.length - 1]} tak` : names[0] ?? "";
     if (failed.length > 0) {
-      toast.warning(`${uploaded} photo(s) upload ho gayi, ${failed.length} fail hui — dobara try karo`);
+      toast.warning(`${uploaded} photo(s) upload ho gayi${span ? ` (${span})` : ""}, ${failed.length} fail hui — dobara try karo`);
     } else {
-      toast.success(`${uploaded} photo${uploaded === 1 ? "" : "s"} upload ho gayi`);
+      toast.success(`${uploaded} photo${uploaded === 1 ? "" : "s"} upload ho gayi${span ? ` — ${span}` : ""}`);
     }
     onUploaded();
     if (failed.length === 0) onClose();
@@ -121,10 +147,29 @@ export function UploadDocumentModal({
                     (docType === t ? "bg-primary text-primary-foreground border-primary" : "bg-surface border-border text-muted-foreground")
                   }
                 >
-                  {t}
+                  {DOC_TYPE_LABEL[t]}
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label htmlFor="doc-paper-date" className="text-[11px] font-bold text-muted-foreground uppercase">Paper ki tareekh (visit ki)</label>
+            <input
+              id="doc-paper-date"
+              type="date"
+              value={paperDate}
+              max={today()}
+              onChange={(e) => setPaperDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm"
+            />
+            {paperDate && preview.data && (
+              <div className="mt-1.5 rounded-lg bg-primary/5 border border-primary/20 px-2.5 py-1.5 text-[11.5px] text-primary">
+                Naam aise banenge: <b>{preview.data.card} {ddmmyy(paperDate)} {DOC_KIND_WORD[docType]} ({preview.data.nextSeq})</b>
+                {ready.length > 1 && <> se <b>({preview.data.nextSeq + ready.length - 1})</b> tak</>}
+                {preview.data.nextSeq > 1 && <span className="text-muted-foreground"> — is din ke {preview.data.nextSeq - 1} {DOC_TYPE_LABEL[docType]} pehle se hain</span>}
+              </div>
+            )}
           </div>
 
           {ready.length > 0 && (
@@ -132,6 +177,9 @@ export function UploadDocumentModal({
               {ready.map((r, i) => (
                 <div key={i} className="relative">
                   <img src={r.preview} alt={`Photo ${i + 1}`} className="h-16 w-16 rounded-lg border border-border object-cover" />
+                  {preview.data && (
+                    <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 text-[9px] font-bold text-white">({preview.data.nextSeq + i})</span>
+                  )}
                   <button
                     onClick={() => removeReady(i)}
                     aria-label="Hatao"
@@ -154,7 +202,11 @@ export function UploadDocumentModal({
             />
             <Camera className="h-7 w-7 text-primary" />
             <div className="text-sm font-bold text-primary">{ready.length > 0 ? "Aur Photos Jodo" : "Photos Chuno (ek se zyada bhi)"}</div>
-            <div className="text-[11px] text-muted-foreground">Gallery se ek saath kai photo select kar sakte ho</div>
+            <div className="text-[11px] text-muted-foreground">Gallery se ek saath kai photo select kar sakte ho — jis kram me chunoge, usi kram me number lagenge</div>
+          </label>
+          <label className="flex items-start gap-2 text-[12px] font-semibold text-primary">
+            <input type="checkbox" checked={cropEach} onChange={(e) => setCropEach(e.target.checked)} className="h-4 w-4 mt-0.5" />
+            <span>Har photo ka kinaara adjust karna (crop) <span className="font-normal text-muted-foreground">— bahut saare paper ho to hata do, seedha jud jayenge</span></span>
           </label>
 
           <input

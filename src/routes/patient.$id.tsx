@@ -28,6 +28,8 @@ import {
   searchPatients,
   fetchPatientDocuments,
   deletePatientDocument,
+  documentName,
+  DOC_TYPE_LABEL,
   resolveDocUrl,
   updatePatientContactInfo,
   isDuplicateMobile,
@@ -948,6 +950,8 @@ function PatientProfilePage() {
   const [family, setFamily] = useState<any[]>([]);
   const [addresses, setAddresses] = useState<PatientAddress[]>([]);
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
+  // one kind at a time (21 Nov 2026: case / recase / follow-up / payment kept apart)
+  const [docKind, setDocKind] = useState<string>("ALL");
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [viewerDoc, setViewerDoc] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -1426,8 +1430,24 @@ function PatientProfilePage() {
             Koi document upload nahi hua. Paper pe likha follow-up ya case note yahan se photo khinch ke upload kar do.
           </p>
         ) : (
+          <>
+          <div className="mb-2 flex gap-1.5 overflow-x-auto no-scrollbar">
+            {["ALL", ...Array.from(new Set(documents.map((d) => d.doc_type)))].map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setDocKind(k)}
+                className={cn(
+                  "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold",
+                  docKind === k ? "bg-primary text-primary-foreground border-primary" : "bg-surface text-muted-foreground border-border",
+                )}
+              >
+                {k === "ALL" ? `Sab (${documents.length})` : `${(DOC_TYPE_LABEL as Record<string, string>)[k] ?? k} (${documents.filter((d) => d.doc_type === k).length})`}
+              </button>
+            ))}
+          </div>
           <ul className="space-y-2">
-            {documents.map((d) => (
+            {documents.filter((d) => docKind === "ALL" || d.doc_type === docKind).map((d) => (
               <li key={d.id} className="rounded-xl bg-surface border border-border p-2.5 flex items-center gap-2.5">
                 {docUrls[d.id] ? (
                   <button
@@ -1444,8 +1464,10 @@ function PatientProfilePage() {
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] font-bold text-primary">{d.doc_type}</div>
+                  <div className="text-[12px] font-bold text-primary">{documentName(d)}</div>
                   <div className="text-[10px] text-muted-foreground">
+                    {(DOC_TYPE_LABEL as Record<string, string>)[d.doc_type] ?? d.doc_type}
+                    {" • upload "}
                     {new Date(d.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                     {d.uploaded_by && ` • ${d.uploaded_by}`}
                   </div>
@@ -1465,6 +1487,7 @@ function PatientProfilePage() {
               </li>
             ))}
           </ul>
+          </>
         )}
       </div>
 

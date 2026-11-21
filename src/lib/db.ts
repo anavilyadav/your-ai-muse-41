@@ -7850,8 +7850,27 @@ export async function fetchPatientDataQualityFlags(patient: {
 // screen just photographs the page against the right patient. Reuses the
 // same compress + scan-enhance + upload-timeout pipeline as case-taking
 // photos, so this needs no separate tuning.
-export const DOC_TYPES = ["Follow-up Notes", "New Case Notes", "Lab Report", "Payment Screenshot", "Other"] as const;
+export const DOC_TYPES = ["Follow-up Notes", "New Case Notes", "Recase Paper", "Lab Report", "Payment Screenshot", "Other"] as const;
 export type DocType = (typeof DOC_TYPES)[number];
+// Button text in the upload form, and the word each kind carries in its name
+// (same words as public.patient_doc_kind_label, 0115b) — every kind is
+// numbered on its own: "B-42-78 21/11/26 FOLLOW-UP (1)", "… PAYMENT (1)".
+export const DOC_TYPE_LABEL: Record<DocType, string> = {
+  "Follow-up Notes": "Follow-up Paper",
+  "New Case Notes": "Case Paper (Naya)",
+  "Recase Paper": "Recase Paper",
+  "Lab Report": "Lab Report",
+  "Payment Screenshot": "Payment Screenshot",
+  Other: "Other",
+};
+export const DOC_KIND_WORD: Record<DocType, string> = {
+  "Follow-up Notes": "FOLLOW-UP",
+  "New Case Notes": "CASE PAPER",
+  "Recase Paper": "RECASE",
+  "Lab Report": "REPORT",
+  "Payment Screenshot": "PAYMENT",
+  Other: "OTHER",
+};
 
 export interface PatientDocument {
   id: string;
@@ -7861,6 +7880,31 @@ export interface PatientDocument {
   note: string | null;
   uploaded_by: string | null;
   created_at: string;
+  // 0115 (21 Nov 2026): the paper's date and the name the database gives it,
+  // e.g. "B-42-78 21/11/26 (3)". Null on older uploads.
+  paper_date?: string | null;
+  seq?: number | null;
+  title?: string | null;
+}
+
+// Readable name of an uploaded paper; older uploads (before names) fall back
+// to type + upload date.
+export function documentName(d: PatientDocument): string {
+  if (d.title) return d.title;
+  return `${d.doc_type} ${new Date(d.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "2-digit" })}`;
+}
+
+// What the next uploaded paper of this patient on this date will be called —
+// the upload form shows it before anything is saved.
+export async function fetchDocNamePreview(patientId: string, paperDate: string, docType: DocType): Promise<{ card: string; nextSeq: number }> {
+  const [p, d] = await Promise.all([
+    supabase.from("patients").select("card_series, card_register, card_number, patient_code").eq("id", patientId).maybeSingle(),
+    supabase.from("patient_documents").select("seq").eq("patient_id", patientId).eq("paper_date", paperDate).eq("doc_type", docType).order("seq", { ascending: false }).limit(1),
+  ]);
+  const r: any = p.data ?? {};
+  const card = [r.card_series, r.card_register || null, r.card_number].filter(Boolean).join("-") || String(r.patient_code ?? "").replace(/^YHC-/, "SYS-");
+  const top = (d.data?.[0] as any)?.seq ?? 0;
+  return { card, nextSeq: top + 1 };
 }
 
 export async function uploadPatientDocument(
@@ -7869,11 +7913,13 @@ export async function uploadPatientDocument(
   file: File,
   note?: string,
   uploadedBy?: string,
+  paperDate?: string,
 ) {
   try {
     const compressed = await compressImageForUpload(file, { documentMode: true });
     const ext = compressed.name.split(".").pop() || "jpg";
-    const path = `${patientId}/${Date.now()}.${ext}`;
+    // the paper date leads the stored file name too, so a backup copy sorts by day
+    const path = `${patientId}/${paperDate ? `${paperDate}_` : ""}${Date.now()}.${ext}`;
     const { error: upErr } = await withTimeout(
       supabase.storage.from("patient-documents").upload(path, compressed, { upsert: true }),
       25_000,
@@ -7896,15 +7942,16 @@ export async function uploadPatientDocument(
         photo_url: path,
         note: note?.trim() || null,
         uploaded_by: uploadedBy || null,
+        paper_date: paperDate || null,
       })
-      .select("id")
+      .select("id, title")
       .single();
     if (error) return { success: false, error: error.message, id: null };
     // id added (25 Sep 2026) for the Call Desk's payment-screenshot flow,
     // which needs to link the uploaded doc to an online_followup_requests
     // row — existing callers only ever read .success/.error, so this is
     // additive.
-    return { success: true, error: null, id: data?.id as string | null };
+    return { success: true, error: null, id: data?.id as string | null, title: (data as any)?.title as string | null };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "Upload failed", id: null };
   }
@@ -7948,7 +7995,14 @@ export async function fetchPatientDocuments(patientId: string): Promise<PatientD
     .eq("patient_id", patientId)
     .order("created_at", { ascending: false });
   if (error) throw dataLoadError(error);
-  return data ?? [];
+  // newest paper date first, and within a day in upload order (1, 2, 3 …)
+  return ((data ?? []) as PatientDocument[]).sort((a, b) => {
+    const da = a.paper_date ?? a.created_at.slice(0, 10);
+    const dbb = b.paper_date ?? b.created_at.slice(0, 10);
+    if (da !== dbb) return da < dbb ? 1 : -1;
+    if (a.seq != null && b.seq != null) return a.seq - b.seq;
+    return a.created_at < b.created_at ? 1 : -1;
+  });
 }
 
 export async function deletePatientDocument(id: string) {
@@ -8722,8 +8776,8 @@ export async function fetchPatientPhotoTimeline(
       id: d.id,
       stored: d.photo_url,
       bucket: "patient-documents",
-      label: d.doc_type,
-      date: (d.created_at ?? "").slice(0, 10),
+      label: d.title ?? d.doc_type,
+      date: d.paper_date ?? (d.created_at ?? "").slice(0, 10),
       note: d.note,
       source: "document",
     });
