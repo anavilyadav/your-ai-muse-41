@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { today } from "@/lib/supabase";
 import { rotateImageFile } from "@/lib/image-rotate";
 import { ScanCropModal } from "@/components/yhc/ScanCropModal";
+import { ScanCamera } from "@/components/yhc/ScanCamera";
 import { DOC_KIND_WORD, DOC_TYPES, DOC_TYPE_LABEL, fetchDocNamePreview, uploadPatientDocument, type DocType } from "@/lib/db";
 
 const ddmmyy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}`;
@@ -40,6 +41,7 @@ export function UploadDocumentModal({
   const [note, setNote] = useState("");
   const [paperDate, setPaperDate] = useState(() => today());
   const [cropEach, setCropEach] = useState(true);
+  const [camera, setCamera] = useState(false);
   const [saving, setSaving] = useState(false);
   const preview = useQuery({
     queryKey: ["doc-name-preview", patientId, paperDate, docType],
@@ -132,6 +134,20 @@ export function UploadDocumentModal({
     if (failed.length === 0) onClose();
   };
 
+  if (camera) {
+    return (
+      <ScanCamera
+        onClose={() => setCamera(false)}
+        onDone={(files) => {
+          // already cut to A4 with the look staff saw — no crop step
+          setReady((r) => [...r, ...files.map((file) => ({ file, preview: URL.createObjectURL(file) }))]);
+          setQueueTotal((t) => t + files.length);
+          setCamera(false);
+        }}
+      />
+    );
+  }
+
   if (scanning) {
     return (
       <ScanCropModal
@@ -222,6 +238,15 @@ export function UploadDocumentModal({
             </div>
           )}
 
+          <button
+            type="button"
+            onClick={() => setCamera(true)}
+            className="w-full rounded-2xl bg-primary text-primary-foreground p-4 text-center flex flex-col items-center gap-1"
+          >
+            <Camera className="h-6 w-6" />
+            <span className="text-sm font-bold">Camera se scan karo (A4 border)</span>
+            <span className="text-[11px] opacity-80">Paper border me rakho — photo apne-aap khinchegi, sab ek jaisi A4</span>
+          </button>
           <label className="w-full rounded-2xl border-2 border-dashed border-accent bg-accent/10 p-5 text-center flex flex-col items-center gap-2 cursor-pointer">
             <input
               type="file"
@@ -231,7 +256,7 @@ export function UploadDocumentModal({
               onChange={(e) => { const files = Array.from(e.target.files ?? []); if (files.length) pickFiles(files); e.target.value = ""; }}
             />
             <Camera className="h-7 w-7 text-primary" />
-            <div className="text-sm font-bold text-primary">{ready.length > 0 ? "Aur Photos Jodo" : "Photos Chuno (ek se zyada bhi)"}</div>
+            <div className="text-sm font-bold text-primary">{ready.length > 0 ? "Gallery se aur photos jodo" : "Ya gallery se photos chuno (ek se zyada bhi)"}</div>
             <div className="text-[11px] text-muted-foreground">Gallery se ek saath kai photo select kar sakte ho — jis kram me chunoge, usi kram me number lagenge</div>
           </label>
           <label className="flex items-start gap-2 text-[12px] font-semibold text-primary">
