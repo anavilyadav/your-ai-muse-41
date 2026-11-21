@@ -3,7 +3,8 @@ import { AuthGate, ErrorBlock } from "@/components/yhc/AuthGate";
 import { useEffectiveRole } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, CheckCircle2, Clock, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
+import { CalendarCheck, CheckCircle2, Clock, FileText, MessageCircle, PhoneCall, XCircle, Plus, X, Settings, Star, Trash2 } from "lucide-react";
+import { UploadDocumentModal } from "@/components/yhc/UploadDocumentModal";
 import { toast } from "sonner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { PatientSortChips, usePatientSort, useSortedPatients } from "@/components/yhc/PatientSortChips";
@@ -586,6 +587,7 @@ function AppointmentsPage() {
   // apart on behavior (24 Sep 2026).
   const { markArrived, markStarted, markCompleted, cancelAppointment } = useAppointmentActions();
   const [rescheduling, setRescheduling] = useState<any | null>(null);
+  const [caseFor, setCaseFor] = useState<any | null>(null);
 
   return (
     <MobileShell
@@ -776,9 +778,31 @@ function AppointmentsPage() {
                 </button>
               </div>
             )}
+            {/* Case paper before the visit (21 Nov 2026: tomorrow's booked
+                patients had no place to put their case papers). */}
+            {a.status !== "Cancelled" && (
+              a.patient_id ? (
+                <button
+                  onClick={() => setCaseFor(a)}
+                  className="mt-1.5 w-full rounded-lg bg-surface border border-primary/40 text-primary py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
+                >
+                  <FileText className="h-3 w-3" /> Case paper upload
+                </button>
+              ) : (
+                <div className="mt-1.5 text-[10.5px] text-muted-foreground">Case paper: pehle patient register karo, phir upload hoga.</div>
+              )
+            )}
           </li>
         ))}
       </ul>
+      )}
+      {caseFor && (
+        <UploadDocumentModal
+          patientId={caseFor.patient_id}
+          initialType={(caseFor.appointment_type ?? "FOLLOWUP") === "NEW" ? "New Case Notes" : "Follow-up Notes"}
+          onClose={() => setCaseFor(null)}
+          onUploaded={() => {}}
+        />
       )}
 
       <div className="mt-6 rounded-xl bg-primary/5 border border-primary/20 p-3 flex items-center gap-2 text-[11px] text-primary">
